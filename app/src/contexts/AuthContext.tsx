@@ -8,6 +8,7 @@ import {
   type ReactNode,
 } from 'react';
 import type { Session, User } from '@supabase/supabase-js';
+import { notifyLoginAlert } from '../lib/auth-alerts';
 import { requireSupabase, supabase } from '../lib/supabase';
 import type { SchoolMembership } from '../types/database';
 
@@ -101,14 +102,26 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
   const signIn = useCallback(async (email: string, password: string) => {
     const { error: authError } = await requireSupabase().auth.signInWithPassword({ email, password });
-    if (authError) throw authError;
+    if (authError) {
+      if (
+        authError.code === 'invalid_credentials' ||
+        authError.code === 'email_not_confirmed'
+      ) {
+        notifyLoginAlert('login_failed', email);
+      }
+      throw authError;
+    }
+    notifyLoginAlert('login_succeeded');
   }, []);
 
   const signUp = useCallback(async (name: string, email: string, password: string) => {
     const { data, error: authError } = await requireSupabase().auth.signUp({
       email,
       password,
-      options: { data: { full_name: name.trim() } },
+      options: {
+        data: { full_name: name.trim() },
+        emailRedirectTo: `${window.location.origin}/login`,
+      },
     });
     if (authError) throw authError;
     return Boolean(data.session);

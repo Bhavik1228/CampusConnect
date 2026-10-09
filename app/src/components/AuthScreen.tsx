@@ -1,6 +1,7 @@
 import { useState, type FormEvent } from 'react';
 import { ArrowRight, BookOpenCheck, Building2, Eye, EyeOff } from 'lucide-react';
 import { useAuth } from '../contexts/AuthContext';
+import { getAuthErrorMessage } from '../lib/auth-errors';
 import { requireSupabase } from '../lib/supabase';
 
 export function AuthScreen() {
@@ -31,7 +32,7 @@ export function AuthScreen() {
         if (!hasSession) setMessage('Check your email to confirm your account, then sign in to continue.');
       }
     } catch (submitError) {
-      setError(submitError instanceof Error ? submitError.message : 'Unable to complete authentication.');
+      setError(getAuthErrorMessage(submitError));
     } finally {
       setBusy(false);
     }
@@ -52,7 +53,7 @@ export function AuthScreen() {
       if (resetError) throw resetError;
       setMessage('If this address has an account, a password reset link will be sent.');
     } catch (resetError) {
-      setError(resetError instanceof Error ? resetError.message : 'Unable to request a password reset.');
+      setError(getAuthErrorMessage(resetError));
     } finally {
       setBusy(false);
     }

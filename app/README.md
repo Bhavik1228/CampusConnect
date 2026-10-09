@@ -4,7 +4,7 @@ Campus Connect is the Vite + React application for the school information and le
 
 ## V1 implemented in this workspace
 
-- Supabase email/password authentication, persisted sessions, sign-out, and password-reset email requests
+- Supabase email/password authentication, persisted sessions, sign-out, email-confirmation redirects, and password-reset email requests
 - School workspace creation for a newly signed-in account
 - School membership and active-school selection
 - Tenant-scoped PostgreSQL schema and row-level security policies
@@ -42,8 +42,23 @@ Supabase is the only application backend. No service-role key belongs in the bro
    ```
 
    This migration creates the schema, tenant-aware RLS policies, profile creation trigger, audit triggers, and private Storage buckets. Review the policies against your deployment's exact requirements before production rollout.
-4. In Supabase Auth settings, configure the site's allowed redirect URLs and email-confirmation behavior.
-5. Start the app from `app/`.
+4. In **Authentication → URL Configuration**, set the Site URL to your deployed app origin and add its `/login` callback URL to Redirect URLs. During local development, allow the actual Vite origin, for example `http://localhost:5173/login` or `http://127.0.0.1:5173/login`.
+5. In **Authentication → Providers → Email**, enable email signup and email confirmation. Configure the **Confirm signup** and **Reset password** templates. Supabase sends those transactional messages; the app directs confirmation and recovery links back to `/login`.
+6. Apply the newer login-alert migration and deploy the Supabase Edge Function:
+
+   ```powershell
+   supabase db push
+   supabase functions deploy login-alert
+   ```
+
+7. In the Supabase dashboard's **Edge Functions → Secrets**, set `POSTMARK_SERVER_TOKEN`, `POSTMARK_FROM_EMAIL` (a verified Postmark sender), `SECURITY_ALERT_EMAIL` (the security mailbox), and `LOGIN_ALERT_HASH_SECRET` (a random secret of at least 32 bytes). Do not put these values in the Vite `.env` file or browser bundle. Supabase supplies the function with its project URL and service-role secret; the service-role secret must remain in Edge Function/server configuration only.
+8. Start the app from `app/`.
+
+The project URL and anon key must come from the same active Supabase project. Copy the **Project URL** from the Supabase dashboard (Project Settings → API); a DNS error such as `ERR_NAME_NOT_RESOLVED` means the configured hostname cannot be found and authentication requests cannot reach Supabase. Correct `VITE_SUPABASE_URL` in `app/.env`, then restart Vite because environment variables are read at startup.
+
+Supabase Auth sends signup verification and password-reset messages. The deployed `login-alert` Edge Function uses Postmark for successful-login notices and notifies the designated security mailbox after five failed-login responses for the same account/source within 15 minutes; repeat notices are limited to one per hour for that pair. Failed-attempt reports originate in the browser after Supabase rejects a sign-in, so treat them as a security signal, not authoritative audit evidence. Failed-attempt fingerprints are HMACed server-side and retained for at most 30 days. Do not email passwords, access tokens, or the submitted login credentials.
+
+For production, configure custom SMTP in Supabase for reliable verification and password-reset delivery (the default email service is rate-limited and intended for testing), and verify the sender domain in Postmark. The Postmark Edge Function can be deployed without Postmark secrets, but alerts will return an error and will not be delivered until those secrets and the migration are configured.
 
 ## Run locally
 
