@@ -1,6 +1,6 @@
 # Campus Connect
 
-Campus Connect is the Vite + React application for the school information and learning management system. The existing `index.html` in the repository root remains the separate landing-page demo; the application lives in `app/`.
+Campus Connect is the Vite + React application for the school information and learning management system. The existing `index.html` in the repository root remains the separate landing-page demo; the application lives in `app/`. The app's public `/` route is its product landing page, `/login` is for account access, and school workspaces are available after sign-in.
 
 ## V1 implemented in this workspace
 

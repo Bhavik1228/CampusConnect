@@ -10,6 +10,7 @@ import { DirectoryPage } from '../pages/DirectoryPage';
 import { AcademicPages } from '../pages/AcademicPages';
 import { AttendancePage } from '../pages/AttendancePage';
 import { SchoolSettingsPage } from '../pages/SchoolSettingsPage';
+import { LandingPage } from '../pages/LandingPage';
 
 function RouteGate({ authOnly = true }: { authOnly?: boolean }) {
   const { user, loading, memberships } = useAuth();
@@ -31,10 +32,10 @@ function BookOpenCheckIcon() {
 export function ProtectedApp() {
   return (
     <Routes>
+      <Route path="/" element={<LandingPage />} />
       <Route path="/login" element={<LoginRoute />} />
       <Route element={<RouteGate />}>
         <Route element={<AppShell />}>
-          <Route index element={<Navigate to="/dashboard" replace />} />
           <Route path="/dashboard" element={<DashboardPage />} />
           <Route path="/students" element={<DirectoryPage kind="students" />} />
           <Route path="/teachers" element={<DirectoryPage kind="teachers" />} />
@@ -44,9 +45,9 @@ export function ProtectedApp() {
           <Route path="/learning" element={<AcademicPages kind="learning" />} />
           <Route path="/calendar" element={<AcademicPages kind="calendar" />} />
           <Route path="/settings" element={<SchoolSettingsPage />} />
-          <Route path="*" element={<Navigate to="/dashboard" replace />} />
         </Route>
       </Route>
+      <Route path="*" element={<Navigate to="/" replace />} />
     </Routes>
   );
 }
