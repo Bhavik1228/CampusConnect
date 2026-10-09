@@ -13,10 +13,6 @@ interface RosterStudent {
   student_number: string;
   status: Status;
 }
-interface AttendanceValue {
-  student_id: string;
-  status: Status;
-}
 const statusOptions: { value: Status; label: string }[] = [
   { value: 'present', label: 'Present' },
   { value: 'absent', label: 'Absent' },
@@ -41,7 +37,6 @@ export function AttendancePage() {
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState('');
   const [notice, setNotice] = useState('');
-  const [refreshKey, setRefreshKey] = useState(0);
   const canRecord = activeMembership?.role === 'school_admin' || activeMembership?.role === 'teacher';
   const schoolId = activeMembership?.school_id;
 
@@ -93,7 +88,7 @@ export function AttendancePage() {
     }
     void loadClasses();
     return () => { active = false; };
-  }, [schoolId, activeMembership?.role, user?.id, refreshKey]);
+  }, [schoolId, activeMembership?.role, user?.id]);
 
   const loadRoster = useCallback(async () => {
     if (!schoolId || !classId || !date || !canRecord) {

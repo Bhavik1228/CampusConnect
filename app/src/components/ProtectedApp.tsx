@@ -51,9 +51,10 @@ export function ProtectedApp() {
 }
 
 function LoginRoute() {
-  const { user, loading, memberships } = useAuth();
+  const { user, loading, memberships, recoveryMode } = useAuth();
   if (!isSupabaseConfigured) return <SetupRequired />;
   if (loading) return <div className="full-screen-loading"><LoadingState /></div>;
+  if (recoveryMode) return <AuthScreen />;
   if (user && memberships.length === 0) return <SchoolSetup />;
   if (user) return <Navigate to="/dashboard" replace />;
   return <AuthScreen />;

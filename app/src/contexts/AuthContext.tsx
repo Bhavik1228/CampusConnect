@@ -18,6 +18,7 @@ interface AuthContextValue {
   activeMembership: SchoolMembership | null;
   loading: boolean;
   error: string | null;
+  recoveryMode: boolean;
   signIn: (email: string, password: string) => Promise<void>;
   signUp: (name: string, email: string, password: string) => Promise<boolean>;
   signOut: () => Promise<void>;
@@ -37,6 +38,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   );
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const [recoveryMode, setRecoveryMode] = useState(false);
 
   const refreshMemberships = useCallback(async () => {
     const client = requireSupabase();
@@ -74,9 +76,12 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       setSession(nextSession);
       if (!nextSession) {
         setMemberships([]);
+        setRecoveryMode(false);
         setLoading(false);
         return;
       }
+      if (event === 'PASSWORD_RECOVERY') setRecoveryMode(true);
+      if (event === 'USER_UPDATED') setRecoveryMode(false);
       if (event === 'SIGNED_IN') {
         setLoading(true);
         window.setTimeout(() => {
@@ -144,13 +149,14 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     activeMembership,
     loading,
     error,
+    recoveryMode,
     signIn,
     signUp,
     signOut,
     createSchool,
     selectSchool,
     refreshMemberships,
-  }), [session, memberships, activeMembership, loading, error, signIn, signUp, signOut, createSchool, selectSchool, refreshMemberships]);
+  }), [session, memberships, activeMembership, loading, error, recoveryMode, signIn, signUp, signOut, createSchool, selectSchool, refreshMemberships]);
 
   return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>;
 }

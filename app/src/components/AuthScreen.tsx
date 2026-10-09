@@ -4,7 +4,7 @@ import { useAuth } from '../contexts/AuthContext';
 import { requireSupabase } from '../lib/supabase';
 
 export function AuthScreen() {
-  const { signIn, signUp } = useAuth();
+  const { signIn, signUp, recoveryMode } = useAuth();
   const [mode, setMode] = useState<'login' | 'signup'>('login');
   const [name, setName] = useState('');
   const [email, setEmail] = useState('');
@@ -20,7 +20,11 @@ export function AuthScreen() {
     setError('');
     setMessage('');
     try {
-      if (mode === 'login') {
+      if (recoveryMode) {
+        const { error: updateError } = await requireSupabase().auth.updateUser({ password });
+        if (updateError) throw updateError;
+        setMessage('Your password has been updated.');
+      } else if (mode === 'login') {
         await signIn(email.trim(), password);
       } else {
         const hasSession = await signUp(name, email.trim(), password);
@@ -42,7 +46,9 @@ export function AuthScreen() {
     }
     setBusy(true);
     try {
-      const { error: resetError } = await requireSupabase().auth.resetPasswordForEmail(email.trim());
+      const { error: resetError } = await requireSupabase().auth.resetPasswordForEmail(email.trim(), {
+        redirectTo: `${window.location.origin}/login`,
+      });
       if (resetError) throw resetError;
       setMessage('If this address has an account, a password reset link will be sent.');
     } catch (resetError) {
@@ -55,7 +61,7 @@ export function AuthScreen() {
   return (
     <main className="auth-layout">
       <section className="auth-aside">
-        <a className="brand brand-light" href="../index.html"><span className="brand-mark"><BookOpenCheck size={20} /></span><span>Campus Connect</span></a>
+        <div className="brand brand-light"><span className="brand-mark"><BookOpenCheck size={20} /></span><span>Campus Connect</span></div>
         <div className="auth-aside-copy">
           <span className="eyebrow">School information + learning management</span>
           <h1>Everything your school needs, connected.</h1>
@@ -68,24 +74,24 @@ export function AuthScreen() {
         <form className="auth-card" onSubmit={submit}>
           <div className="mobile-brand brand"><span className="brand-mark"><BookOpenCheck size={20} /></span><span>Campus Connect</span></div>
           <div className="auth-heading">
-            <span className="eyebrow">{mode === 'login' ? 'Welcome back' : 'Get started'}</span>
-            <h2>{mode === 'login' ? 'Sign in to your workspace' : 'Create your account'}</h2>
-            <p>{mode === 'login' ? 'Use your school account to continue.' : 'Create your account, then set up your school workspace.'}</p>
+            <span className="eyebrow">{recoveryMode ? 'Account recovery' : mode === 'login' ? 'Welcome back' : 'Get started'}</span>
+            <h2>{recoveryMode ? 'Choose a new password' : mode === 'login' ? 'Sign in to your workspace' : 'Create your account'}</h2>
+            <p>{recoveryMode ? 'Use a new password to secure your account.' : mode === 'login' ? 'Use your school account to continue.' : 'Create your account, then set up your school workspace.'}</p>
           </div>
-          {mode === 'signup' && <label className="field"><span>Full name</span><input autoComplete="name" required value={name} onChange={(event) => setName(event.target.value)} placeholder="Your name" /></label>}
-          <label className="field"><span>Email address</span><input type="email" autoComplete="email" required value={email} onChange={(event) => setEmail(event.target.value)} placeholder="you@school.edu" /></label>
+          {!recoveryMode && mode === 'signup' && <label className="field"><span>Full name</span><input autoComplete="name" required value={name} onChange={(event) => setName(event.target.value)} placeholder="Your name" /></label>}
+          {!recoveryMode && <label className="field"><span>Email address</span><input type="email" autoComplete="email" required value={email} onChange={(event) => setEmail(event.target.value)} placeholder="you@school.edu" /></label>}
           <label className="field">
             <span>Password</span>
             <span className="password-wrap">
-              <input type={showPassword ? 'text' : 'password'} autoComplete={mode === 'login' ? 'current-password' : 'new-password'} minLength={8} required value={password} onChange={(event) => setPassword(event.target.value)} placeholder="At least 8 characters" />
+              <input type={showPassword ? 'text' : 'password'} autoComplete={mode === 'login' && !recoveryMode ? 'current-password' : 'new-password'} minLength={8} required value={password} onChange={(event) => setPassword(event.target.value)} placeholder="At least 8 characters" />
               <button className="icon-button password-toggle" type="button" onClick={() => setShowPassword((visible) => !visible)} aria-label={showPassword ? 'Hide password' : 'Show password'}>{showPassword ? <EyeOff size={17} /> : <Eye size={17} />}</button>
             </span>
           </label>
           {error && <p className="form-error" role="alert">{error}</p>}
           {message && <p className="form-success" role="status">{message}</p>}
-          <button className="button button-primary full-width" disabled={busy} type="submit">{busy ? 'Please wait…' : mode === 'login' ? 'Sign in' : 'Create account'}{!busy && <ArrowRight size={17} />}</button>
-          {mode === 'login' && <button className="text-button forgot-button" type="button" onClick={() => void resetPassword()} disabled={busy}>Forgot password?</button>}
-          <p className="auth-switch">{mode === 'login' ? 'New to Campus Connect?' : 'Already have an account?'} <button className="text-button" type="button" onClick={() => { setMode(mode === 'login' ? 'signup' : 'login'); setError(''); setMessage(''); }}>{mode === 'login' ? 'Create account' : 'Sign in'}</button></p>
+          <button className="button button-primary full-width" disabled={busy} type="submit">{busy ? 'Please wait…' : recoveryMode ? 'Update password' : mode === 'login' ? 'Sign in' : 'Create account'}{!busy && <ArrowRight size={17} />}</button>
+          {!recoveryMode && mode === 'login' && <button className="text-button forgot-button" type="button" onClick={() => void resetPassword()} disabled={busy}>Forgot password?</button>}
+          {!recoveryMode && <p className="auth-switch">{mode === 'login' ? 'New to Campus Connect?' : 'Already have an account?'} <button className="text-button" type="button" onClick={() => { setMode(mode === 'login' ? 'signup' : 'login'); setError(''); setMessage(''); }}>{mode === 'login' ? 'Create account' : 'Sign in'}</button></p>}
         </form>
       </section>
     </main>
