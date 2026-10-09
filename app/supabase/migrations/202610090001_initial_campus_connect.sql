@@ -1044,7 +1044,7 @@ create policy "Teachers and admins manage attendance records" on public.attendan
 
 create policy "Authorized users read published assignments" on public.assignments for select to authenticated using (
   public.has_school_role(school_id, array['school_admin']::public.app_role[])
-  or teacher_id in (select id from public.teacher_profiles where profile_id = auth.uid() and school_id = assignments.school_id)
+  or teacher_id in (select teacher.id from public.teacher_profiles teacher where teacher.profile_id = auth.uid() and teacher.school_id = assignments.school_id)
   or (status = 'published' and (
     public.is_teacher_for_class(school_id, class_id)
     or exists (select 1 from public.class_students cs join public.students s on s.id = cs.student_id where cs.school_id = assignments.school_id and cs.class_id = assignments.class_id and s.profile_id = auth.uid())
