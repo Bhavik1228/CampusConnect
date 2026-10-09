@@ -9,6 +9,7 @@ import { DashboardPage } from '../pages/DashboardPage';
 import { DirectoryPage } from '../pages/DirectoryPage';
 import { AcademicPages } from '../pages/AcademicPages';
 import { AttendancePage } from '../pages/AttendancePage';
+import { SchoolSettingsPage } from '../pages/SchoolSettingsPage';
 
 function RouteGate({ authOnly = true }: { authOnly?: boolean }) {
   const { user, loading, memberships } = useAuth();
@@ -42,7 +43,7 @@ export function ProtectedApp() {
           <Route path="/attendance" element={<AttendancePage />} />
           <Route path="/learning" element={<AcademicPages kind="learning" />} />
           <Route path="/calendar" element={<AcademicPages kind="calendar" />} />
-          <Route path="/settings" element={<AcademicPages kind="settings" />} />
+          <Route path="/settings" element={<SchoolSettingsPage />} />
           <Route path="*" element={<Navigate to="/dashboard" replace />} />
         </Route>
       </Route>

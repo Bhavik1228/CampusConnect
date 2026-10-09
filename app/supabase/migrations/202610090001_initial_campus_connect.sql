@@ -348,8 +348,14 @@ as $$
     where roster.school_id = target_school
       and roster.class_id = target_class
       and roster.student_id = target_student
+      and (
+        public.has_school_role(target_school, array['school_admin']::public.app_role[])
+        or public.is_teacher_for_class(target_school, target_class)
+      )
   );
 $$;
+revoke all on function public.is_student_record_in_class(uuid, uuid, uuid) from public;
+grant execute on function public.is_student_record_in_class(uuid, uuid, uuid) to authenticated;
 
 create table public.timetable (
   id uuid primary key default gen_random_uuid(),
@@ -731,7 +737,7 @@ as $$
   );
 $$;
 
-create or replace function public.is_profile_school_member(target_school uuid, target_profile uuid)
+create or replace function public.can_add_conversation_member(target_conversation uuid, target_profile uuid)
 returns boolean
 language sql
 stable
@@ -739,11 +745,18 @@ security definer
 set search_path = public
 as $$
   select exists (
-    select 1 from public.school_memberships membership
-    where membership.school_id = target_school
-      and membership.profile_id = target_profile
+    select 1
+    from public.conversations conversation
+    join public.school_memberships target_membership
+      on target_membership.school_id = conversation.school_id
+      and target_membership.profile_id = target_profile
+    where conversation.id = target_conversation
+      and conversation.created_by = auth.uid()
+      and public.is_school_member(conversation.school_id)
   );
 $$;
+revoke all on function public.can_add_conversation_member(uuid, uuid) from public;
+grant execute on function public.can_add_conversation_member(uuid, uuid) to authenticated;
 
 create or replace function public.is_student_in_class(target_school uuid, target_class uuid)
 returns boolean
@@ -1222,9 +1235,7 @@ create policy "Members read conversations" on public.conversations for select to
 create policy "Members create conversations" on public.conversations for insert to authenticated with check (public.is_school_member(school_id) and created_by = auth.uid());
 create policy "Members read conversation participants" on public.conversation_members for select to authenticated using (public.is_conversation_member(conversation_id));
 create policy "Conversation creators add members" on public.conversation_members for insert to authenticated with check (
-  public.is_school_member(school_id)
-  and public.is_conversation_creator(conversation_id)
-  and public.is_profile_school_member(school_id, profile_id)
+  public.can_add_conversation_member(conversation_id, profile_id)
 );
 create policy "Participants read messages" on public.messages for select to authenticated using (
   public.is_conversation_member(conversation_id)

@@ -1,15 +1,13 @@
 import { useEffect, useState } from 'react';
-import { BookOpenText, CalendarDays, ClipboardCheck, Settings2 } from 'lucide-react';
+import { BookOpenText, CalendarDays } from 'lucide-react';
 import { useAuth } from '../contexts/AuthContext';
 import { requireSupabase } from '../lib/supabase';
 import { EmptyState, ErrorState, LoadingState } from '../components/Feedback';
 
-type AcademicKind = 'attendance' | 'learning' | 'calendar' | 'settings';
-const content: Record<AcademicKind, { title: string; description: string; table: string; icon: typeof ClipboardCheck }> = {
-  attendance: { title: 'Attendance', description: 'Review attendance records for your school.', table: 'attendance_records', icon: ClipboardCheck },
+type AcademicKind = 'learning' | 'calendar';
+const content: Record<AcademicKind, { title: string; description: string; table: string; icon: typeof BookOpenText }> = {
   learning: { title: 'Learning', description: 'Assignments and learning resources connected to your school.', table: 'assignments', icon: BookOpenText },
   calendar: { title: 'School calendar', description: 'Upcoming school events and academic dates.', table: 'events', icon: CalendarDays },
-  settings: { title: 'School settings', description: 'Basic school workspace information and access.', table: 'schools', icon: Settings2 },
 };
 
 export function AcademicPages({ kind }: { kind: AcademicKind }) {
@@ -40,5 +38,5 @@ export function AcademicPages({ kind }: { kind: AcademicKind }) {
     void load();
     return () => { alive = false; };
   }, [schoolId, meta.table, meta.title]);
-  return <div className="page-stack"><div className="page-heading"><div><span className="eyebrow">{activeMembership?.school.name}</span><h1>{meta.title}</h1><p>{meta.description}</p></div></div>{error && <ErrorState message={error} />}{loading ? <LoadingState label={`Loading ${meta.title.toLowerCase()}…`} /> : <section className="content-card module-state"><span className="module-icon"><Icon size={22} /></span><span className="eyebrow">Live school data</span><h2>{meta.title}</h2><p>{kind === 'settings' ? 'Your workspace is connected to Supabase. Settings and membership management will be available to authorized school administrators.' : `${count} ${count === 1 ? 'record' : 'records'} currently belong to this school.`}</p>{count === 0 && kind !== 'settings' && <EmptyState title={`No ${meta.title.toLowerCase()} records yet`} detail="When records are added to your school's database, they will appear in this workspace." />}</section>}</div>;
+  return <div className="page-stack"><div className="page-heading"><div><span className="eyebrow">{activeMembership?.school.name}</span><h1>{meta.title}</h1><p>{meta.description}</p></div></div>{error && <ErrorState message={error} />}{loading ? <LoadingState label={`Loading ${meta.title.toLowerCase()}…`} /> : <section className="content-card module-state"><span className="module-icon"><Icon size={22} /></span><span className="eyebrow">Live school data</span><h2>{meta.title}</h2><p>{count} {count === 1 ? 'record' : 'records'} currently belong to this school.</p>{count === 0 && <EmptyState title={`No ${meta.title.toLowerCase()} records yet`} detail="When records are added to your school's database, they will appear in this workspace." />}</section>}</div>;
 }
