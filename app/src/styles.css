@@ -697,7 +697,27 @@ td strong { color: #3e435a; font-weight: 600; }
 }
 
 .timetable-page { gap: 18px; }
-.print-timetable { display: none; }
+.print-timetable { display: grid; gap: 13px; padding: 18px; border: 1px solid #eaebf2; border-radius: 13px; background: white; box-shadow: var(--shadow); }
+.print-timetable-controls { display: flex; justify-content: flex-end; gap: 10px; }
+.print-timetable-controls label { display: flex; align-items: center; gap: 7px; color: #70758a; font-size: 10px; }
+.print-timetable-controls select { min-height: 33px; padding: 0 28px 0 9px; border: 1px solid #e5e6ed; border-radius: 7px; background: white; color: #4d526a; font-size: 10px; }
+.print-timetable-heading { display: grid; justify-items: center; gap: 3px; text-align: center; }
+.print-timetable-heading h2 { margin: 0; color: #252a3d; font-size: clamp(24px, 4vw, 38px); line-height: 1.15; }
+.print-timetable-heading > span { color: #62677b; font-size: 11px; }
+.print-timetable-heading small { color: #777c8d; font-size: 10px; }
+.print-timetable-scroll { width: 100%; overflow-x: auto; }
+.class-timetable-grid { width: 100%; min-width: 780px; table-layout: fixed; border-collapse: collapse; }
+.class-timetable-grid th, .class-timetable-grid td { border: 1px solid #a9abb2; }
+.class-timetable-grid thead th { height: 47px; padding: 4px 3px; background: #fafafa; color: #282b35; text-align: center; }
+.class-timetable-grid thead th strong { display: block; font-size: 13px; font-weight: 600; }
+.class-timetable-grid thead th span { display: block; margin-top: 3px; font-size: 9px; font-weight: 400; white-space: nowrap; }
+.class-timetable-grid .class-timetable-day-heading { width: 48px; }
+.class-timetable-grid .class-timetable-day { width: 48px; padding: 5px 2px; color: #292d3a; font-size: 19px; font-weight: 500; text-align: center; }
+.class-timetable-cell { position: relative; height: 82px; padding: 8px 5px 18px; text-align: center; vertical-align: middle; }
+.class-timetable-subject { display: block; color: #222633; font-size: clamp(12px, 1.7vw, 21px); font-weight: 500; line-height: 1.15; overflow-wrap: anywhere; }
+.class-timetable-teacher { position: absolute; right: 5px; bottom: 4px; left: 5px; overflow: hidden; color: #343746; font-size: 9px; line-height: 1.15; text-align: right; text-overflow: ellipsis; white-space: nowrap; }
+.class-timetable-cell.cell-break, .class-timetable-cell.cell-lunch, .class-timetable-cell.cell-registration, .class-timetable-cell.cell-other { background: #fcfcfd; }
+.class-timetable-empty { margin: 0; padding: 20px; border: 1px dashed #dedfe8; border-radius: 8px; color: #81869a; font-size: 11px; text-align: center; }
 .timetable-editor-toolbar { display: flex; align-items: center; justify-content: space-between; gap: 15px; padding: 15px 18px; border: 1px solid #eaebf2; border-radius: 13px; background: white; box-shadow: var(--shadow); }
 .timetable-editor-toolbar > div:first-child { display: flex; flex-direction: column; gap: 4px; }
 .timetable-editor-toolbar .eyebrow { margin: 0; }
@@ -931,10 +951,22 @@ td strong { color: #3e435a; font-weight: 600; }
   .attendance-page .attendance-report-summary { grid-template-columns: repeat(4, 1fr); }
   .attendance-audit-section { display: none; }
   .timetable-page { display: block; }
-  .print-timetable { display: block; }
-  .print-timetable-heading { margin-bottom: 18px; }
-  .print-timetable-heading > span { color: #6f7488; font-size: 10px; }
-  .print-timetable-heading h1 { margin: 5px 0; font-size: 22px; }
-  .print-timetable th, .print-timetable td { padding: 8px 10px; }
-  .print-timetable tr { break-inside: avoid; }
+  .print-timetable { display: grid; gap: 8px; padding: 0; border: 0; border-radius: 0; box-shadow: none; page: timetable; }
+  .print-timetable-controls { display: none !important; }
+  .print-timetable-heading h2 { color: #111; font-size: 28px; }
+  .print-timetable-heading > span, .print-timetable-heading small { color: #333; font-size: 9px; }
+  .print-timetable-scroll { overflow: visible; }
+  .class-timetable-grid { width: 100%; min-width: 0; }
+  .class-timetable-grid thead th { height: 40px; padding: 3px 2px; background: white; }
+  .class-timetable-grid thead th strong { font-size: 10px; }
+  .class-timetable-grid thead th span { font-size: 7px; }
+  .class-timetable-grid .class-timetable-day, .class-timetable-grid .class-timetable-day-heading { width: 34px; }
+  .class-timetable-grid .class-timetable-day { font-size: 15px; }
+  .class-timetable-cell { height: 75px; padding: 5px 3px 15px; }
+  .class-timetable-subject { color: #111; font-size: 15px; }
+  .class-timetable-teacher { right: 3px; bottom: 3px; left: 3px; font-size: 7px; }
+  .class-timetable-cell.cell-break, .class-timetable-cell.cell-lunch, .class-timetable-cell.cell-registration, .class-timetable-cell.cell-other { background: white; }
+  .class-timetable-grid tr { break-inside: avoid; }
 }
+
+@page timetable { size: landscape; margin: 8mm; }

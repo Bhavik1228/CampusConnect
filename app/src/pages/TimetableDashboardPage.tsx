@@ -201,6 +201,8 @@ export function TimetableDashboardPage() {
   const [entries, setEntries] = useState<TimetableEntry[]>([]);
   const [activity, setActivity] = useState<Activity[]>([]);
   const [selectedScheduleId, setSelectedScheduleId] = useState('');
+  const [selectedTimetableClassId, setSelectedTimetableClassId] = useState('');
+  const [selectedTimetableCycle, setSelectedTimetableCycle] = useState(1);
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState('');
@@ -276,6 +278,37 @@ export function TimetableDashboardPage() {
       : entries.filter((entry) => entry.schedule_id === null),
     [entries, selectedScheduleId],
   );
+  const timetableClasses = useMemo(() => {
+    const classesById = new Map<string, string>();
+    for (const entry of activeEntries) {
+      if (entry.class_id) classesById.set(entry.class_id, className(entry));
+    }
+    return [...classesById.entries()]
+      .map(([id, name]) => ({ id, name }))
+      .sort((left, right) => left.name.localeCompare(right.name));
+  }, [activeEntries]);
+  useEffect(() => {
+    if (!timetableClasses.some((schoolClass) => schoolClass.id === selectedTimetableClassId)) {
+      setSelectedTimetableClassId(timetableClasses[0]?.id ?? '');
+    }
+  }, [timetableClasses, selectedTimetableClassId]);
+  const displayedTimetableClass = timetableClasses.find((schoolClass) => schoolClass.id === selectedTimetableClassId);
+  const timetableEntriesForClass = useMemo(() => activeEntries.filter((entry) =>
+    entry.cycle_week === selectedTimetableCycle
+      && (entry.class_id === selectedTimetableClassId || entry.class_id === null)),
+  [activeEntries, selectedTimetableClassId, selectedTimetableCycle]);
+  const timetableSlots = useMemo(() => {
+    const byTime = new Map<string, { startsAt: string; endsAt: string }>();
+    for (const entry of timetableEntriesForClass) {
+      byTime.set(`${entry.starts_at}:${entry.ends_at}`, { startsAt: entry.starts_at, endsAt: entry.ends_at });
+    }
+    return [...byTime.values()].sort((left, right) =>
+      left.startsAt.localeCompare(right.startsAt) || left.endsAt.localeCompare(right.endsAt));
+  }, [timetableEntriesForClass]);
+  const timetableDays = useMemo(() => dayLabels
+    .map((label, index) => ({ label, dayOfWeek: index + 1 }))
+    .filter((day) => timetableEntriesForClass.some((entry) => entry.day_of_week === day.dayOfWeek)),
+  [timetableEntriesForClass]);
   const lessons = useMemo(() => activeEntries.filter((entry) => entry.entry_type === 'lesson'), [activeEntries]);
   const todaysDate = new Intl.DateTimeFormat('en-CA', { timeZone }).format(new Date());
   const todaysCycleWeek = activeSchedule?.cycle_weeks === 2
@@ -284,6 +317,9 @@ export function TimetableDashboardPage() {
       && todaysDate >= week.starts_on
       && todaysDate <= week.ends_on)?.cycle_week ?? 1
     : 1;
+  useEffect(() => {
+    setSelectedTimetableCycle(todaysCycleWeek);
+  }, [selectedScheduleId, todaysCycleWeek]);
   const conflicts = useMemo(() => findConflicts(activeEntries), [activeEntries]);
   const { dayOfWeek: today, time: currentTime } = getSchoolClock(timeZone);
   const todayEntries = useMemo(
@@ -484,30 +520,44 @@ export function TimetableDashboardPage() {
           entries={activeEntries}
           onSaved={handleTimetableSaved}
         />}
-        <section className="print-timetable" aria-label="Printable weekly timetable">
-          <div className="print-timetable-heading">
+        <section className="print-timetable" aria-label="Weekly class timetable">
+          <div className="print-timetable-controls">
+            <label>Class<select aria-label="Class timetable" value={selectedTimetableClassId}
+              onChange={(event) => setSelectedTimetableClassId(event.target.value)}>
+              {timetableClasses.map((schoolClass) => <option key={schoolClass.id} value={schoolClass.id}>{schoolClass.name}</option>)}
+            </select></label>
+            {activeSchedule?.cycle_weeks === 2 && <label>Rotation<select aria-label="Timetable rotation week"
+              value={selectedTimetableCycle} onChange={(event) => setSelectedTimetableCycle(Number(event.target.value))}>
+              <option value={1}>Week A</option><option value={2}>Week B</option>
+            </select></label>}
+          </div>
+          <header className="print-timetable-heading">
+            <h2>{displayedTimetableClass?.name ?? 'Class timetable'}</h2>
             <span>{activeMembership?.school.name}</span>
-            <h1>{activeSchedule?.name ?? 'School timetable'}</h1>
-          </div>
-          <div className="table-scroll">
-            <table>
-              <thead><tr><th>Cycle</th><th>Day</th><th>Time</th><th>Lesson / activity</th><th>Class</th><th>Teacher</th><th>Room</th></tr></thead>
-              <tbody>{dayLabels.map((day, index) => {
-                const dayEntries = activeEntries.filter((entry) => entry.day_of_week === index + 1)
-                  .sort((left, right) => left.starts_at.localeCompare(right.starts_at));
-                return dayEntries.map((entry) => <tr key={entry.id}>
-                  <td>{activeSchedule?.cycle_weeks === 2 ? `Week ${entry.cycle_week === 1 ? 'A' : 'B'}` : '—'}</td>
-                  <td>{day}</td>
-                  <td>{formatTime(entry.starts_at)}–{formatTime(entry.ends_at)}</td>
-                  <td>{subjectName(entry)}</td>
-                  <td>{className(entry)}</td>
-                  <td>{entry.entry_type === 'lesson' ? teacherName(entry) : '—'}</td>
-                  <td>{entry.room ?? '—'}</td>
-                </tr>);
-              })}</tbody>
+            {activeSchedule?.cycle_weeks === 2 && <small>Week {selectedTimetableCycle === 1 ? 'A' : 'B'}</small>}
+          </header>
+          {timetableSlots.length ? <div className="print-timetable-scroll">
+            <table className="class-timetable-grid">
+              <thead><tr><th className="class-timetable-day-heading">Day</th>{timetableSlots.map((slot, index) =>
+                <th key={`${slot.startsAt}:${slot.endsAt}`}><strong>{index}</strong><span>{formatTime(slot.startsAt)}–{formatTime(slot.endsAt)}</span></th>)}</tr></thead>
+              <tbody>{timetableDays.map(({ label: day, dayOfWeek }) => <tr key={day}>
+                <th className="class-timetable-day">{day.slice(0, 2)}</th>
+                {timetableSlots.map((slot) => {
+                  const slotEntries = timetableEntriesForClass.filter((entry) =>
+                    entry.day_of_week === dayOfWeek
+                    && entry.starts_at === slot.startsAt
+                    && entry.ends_at === slot.endsAt)
+                    .sort((left, right) => Number(right.class_id === selectedTimetableClassId)
+                      - Number(left.class_id === selectedTimetableClassId));
+                  const entry = slotEntries[0];
+                  return <td key={`${day}:${slot.startsAt}:${slot.endsAt}`} className={entry ? `class-timetable-cell cell-${entry.entry_type}` : 'class-timetable-cell'}>
+                    {entry && <><strong className="class-timetable-subject">{subjectName(entry)}</strong>
+                      {entry.entry_type === 'lesson' && <span className="class-timetable-teacher">{teacherName(entry)}</span>}</>}
+                  </td>;
+                })}
+              </tr>)}</tbody>
             </table>
-          </div>
-          {!activeEntries.length && <p>No timetable entries have been scheduled yet.</p>}
+          </div> : <p className="class-timetable-empty">No timetable entries have been scheduled for this class and week.</p>}
         </section>
         <section className="stat-grid timetable-stat-grid" aria-label="Timetable overview">
           {stats.map(({ label, value, icon: Icon, color, note }) => <article className="stat-card" key={label}>
