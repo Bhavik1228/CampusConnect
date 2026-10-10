@@ -15,7 +15,21 @@ type TimetableEntry = {
   room: string | null;
   entry_type: EntryKind;
   label: string | null;
+  cycle_week: number;
+  bell_period_id: string | null;
 };
+type BellPeriod = {
+  id: string;
+  cycle_week: number;
+  day_of_week: number;
+  period_number: number;
+  name: string;
+  period_type: 'lesson' | 'break' | 'lunch' | 'assembly' | 'registration' | 'other';
+  starts_at: string;
+  ends_at: string;
+  allows_double: boolean;
+};
+type BellPeriodSubject = { period_id: string; subject_id: string };
 type SchoolClass = { id: string; name: string; room: string | null; academic_year_id: string | null };
 type Subject = { id: string; name: string };
 type Teacher = { id: string; first_name: string; last_name: string };
@@ -44,6 +58,8 @@ type GeneratedEntry = {
   ends_at: string;
   room: string | null;
   label: string | null;
+  cycle_week?: number;
+  bell_period_id?: string | null;
 };
 
 const weekdayOptions = [
@@ -95,6 +111,9 @@ function buildGeneratedEntries({
   lunchEnabled,
   lunchAt,
   lunchMinutes,
+  bellPeriods,
+  bellPeriodSubjects,
+  cycleWeeks,
 }: {
   classes: SchoolClass[];
   subjects: Subject[];
@@ -112,6 +131,9 @@ function buildGeneratedEntries({
   lunchEnabled: boolean;
   lunchAt: string;
   lunchMinutes: number;
+  bellPeriods: BellPeriod[];
+  bellPeriodSubjects: BellPeriodSubject[];
+  cycleWeeks: number;
 }): GeneratedEntry[] {
   if (!classes.length) throw new Error('Choose at least one class to generate.');
   if (!weekdays.length) throw new Error('Choose at least one teaching day.');
@@ -134,8 +156,93 @@ function buildGeneratedEntries({
   }
 
   const subjectById = new Map(subjects.map((subject) => [subject.id, subject]));
-  const entries: GeneratedEntry[] = [];
   const teacherLoad = new Map<string, number>();
+  if (bellPeriods.length) {
+    const generated: GeneratedEntry[] = [];
+    for (let cycleWeek = 1; cycleWeek <= cycleWeeks; cycleWeek += 1) {
+      const cyclePeriods = bellPeriods.filter((period) => period.cycle_week === cycleWeek);
+      for (const period of cyclePeriods.filter((item) => item.period_type !== 'lesson')) {
+        generated.push({
+          entry_type: period.period_type === 'registration' ? 'registration'
+            : period.period_type === 'break' ? 'break'
+              : period.period_type === 'lunch' ? 'lunch' : 'other',
+          class_id: null,
+          subject_id: null,
+          teacher_id: null,
+          day_of_week: period.day_of_week,
+          starts_at: period.starts_at,
+          ends_at: period.ends_at,
+          room: null,
+          label: period.name,
+          cycle_week: cycleWeek,
+          bell_period_id: period.id,
+        });
+      }
+      for (const schoolClass of classes) {
+        const configuredSubjects = classSubjects.filter((assignment) => assignment.class_id === schoolClass.id);
+        const tasks = plans.flatMap((plan) => {
+          if (plan.periods === 0) return [];
+          if (!subjectById.has(plan.subject_id)) throw new Error('A selected subject is no longer available.');
+          if (configuredSubjects.length && !configuredSubjects.some((assignment) => assignment.subject_id === plan.subject_id)) return [];
+          return Array.from({ length: plan.periods }, () => plan);
+        });
+        for (const task of tasks) {
+          const classAssignment = classTeachers.filter((assignment) => assignment.class_id === schoolClass.id);
+          const eligibleTeachers = subjectTeachers
+            .filter((assignment) => assignment.subject_id === task.subject_id)
+            .filter((assignment) => !classAssignment.length || classAssignment.some((item) => item.teacher_id === assignment.teacher_id))
+            .map((assignment) => assignment.teacher_id);
+          if (!eligibleTeachers.length) {
+            throw new Error(`No teacher assigned to ${subjectById.get(task.subject_id)?.name ?? 'this subject'} can teach ${schoolClass.name}.`);
+          }
+          const candidates = cyclePeriods.filter((period) => period.period_type === 'lesson'
+            && (!bellPeriodSubjects.some((rule) => rule.period_id === period.id)
+              || bellPeriodSubjects.some((rule) => rule.period_id === period.id && rule.subject_id === task.subject_id)))
+            .sort((left, right) => left.day_of_week - right.day_of_week || left.starts_at.localeCompare(right.starts_at));
+          const placed = candidates.find((period) => {
+            const clashes = generated.filter((entry) => entry.cycle_week === cycleWeek
+              && entry.day_of_week === period.day_of_week
+              && parseMinutes(entry.starts_at.slice(0, 5)) < parseMinutes(period.ends_at.slice(0, 5))
+              && parseMinutes(period.starts_at.slice(0, 5)) < parseMinutes(entry.ends_at.slice(0, 5)));
+            const classConflict = clashes.some((entry) => entry.class_id === schoolClass.id);
+            const roomConflict = Boolean(schoolClass.room?.trim() && clashes.some((entry) =>
+              entry.room?.trim().toLowerCase() === schoolClass.room?.trim().toLowerCase()));
+            const availableTeacher = eligibleTeachers.some((teacherId) => !clashes.some((entry) => entry.teacher_id === teacherId));
+            return !classConflict && !roomConflict && availableTeacher;
+          });
+          if (!placed) {
+            throw new Error(`Could not fit the requested ${schoolClass.name} lessons into the configured bell periods for cycle week ${cycleWeek}. Add lesson periods or reduce weekly lesson counts.`);
+          }
+          const assignedTeacher = eligibleTeachers
+            .filter((teacherId) => !generated.some((entry) => entry.cycle_week === cycleWeek
+              && entry.day_of_week === placed.day_of_week
+              && entry.teacher_id === teacherId
+              && parseMinutes(entry.starts_at.slice(0, 5)) < parseMinutes(placed.ends_at.slice(0, 5))
+              && parseMinutes(placed.starts_at.slice(0, 5)) < parseMinutes(entry.ends_at.slice(0, 5))))
+            .sort((left, right) => (teacherLoad.get(left) ?? 0) - (teacherLoad.get(right) ?? 0))[0];
+          generated.push({
+            entry_type: 'lesson',
+            class_id: schoolClass.id,
+            subject_id: task.subject_id,
+            teacher_id: assignedTeacher,
+            day_of_week: placed.day_of_week,
+            starts_at: placed.starts_at,
+            ends_at: placed.ends_at,
+            room: schoolClass.room?.trim() || null,
+            label: null,
+            cycle_week: cycleWeek,
+            bell_period_id: placed.id,
+          });
+          teacherLoad.set(assignedTeacher, (teacherLoad.get(assignedTeacher) ?? 0) + parseMinutes(placed.ends_at.slice(0, 5)) - parseMinutes(placed.starts_at.slice(0, 5)));
+        }
+      }
+    }
+    return generated.sort((left, right) =>
+      (left.cycle_week ?? 1) - (right.cycle_week ?? 1)
+      || left.day_of_week - right.day_of_week
+      || left.starts_at.localeCompare(right.starts_at));
+  }
+  const entries: GeneratedEntry[] = [];
   const classDayLoad = new Map<string, number>();
   for (const day of weekdays) {
     for (const constant of constants) {
@@ -228,6 +335,8 @@ export function TimetableManager({
   scheduleStatus,
   calendarId,
   academicYearId,
+  bellScheduleId,
+  cycleWeeks,
   weekPatternId,
   canManage,
   entries,
@@ -238,6 +347,8 @@ export function TimetableManager({
   scheduleStatus: string;
   calendarId: string;
   academicYearId: string | null;
+  bellScheduleId: string | null;
+  cycleWeeks: number;
   weekPatternId: string;
   canManage: boolean;
   entries: TimetableEntry[];
@@ -249,12 +360,17 @@ export function TimetableManager({
   const [subjectTeachers, setSubjectTeachers] = useState<SubjectTeacher[]>([]);
   const [classTeachers, setClassTeachers] = useState<ClassTeacher[]>([]);
   const [classSubjects, setClassSubjects] = useState<ClassSubject[]>([]);
+  const [bellPeriods, setBellPeriods] = useState<BellPeriod[]>([]);
+  const [bellPeriodSubjects, setBellPeriodSubjects] = useState<BellPeriodSubject[]>([]);
   const [operatingDays, setOperatingDays] = useState<number[]>([1, 2, 3, 4, 5]);
   const [referencesLoading, setReferencesLoading] = useState(false);
   const [referencesReady, setReferencesReady] = useState(false);
   const [dialog, setDialog] = useState<'entry' | 'generate' | null>(null);
   const [editing, setEditing] = useState<TimetableEntry | null>(null);
   const [draft, setDraft] = useState<EntryDraft>(initialDraft());
+  const [draftCycle, setDraftCycle] = useState(1);
+  const [draftBellPeriodId, setDraftBellPeriodId] = useState('');
+  const [doublePeriod, setDoublePeriod] = useState(false);
   const [targetClassId, setTargetClassId] = useState('*');
   const [plans, setPlans] = useState<SubjectPlan[]>([]);
   const [weekdays, setWeekdays] = useState([1, 2, 3, 4, 5]);
@@ -297,6 +413,31 @@ export function TimetableManager({
         setSubjectTeachers(subjectTeacherResult.data ?? []);
         setClassTeachers(classTeacherResult.data ?? []);
         setClassSubjects(classSubjectResult.data ?? []);
+        if (bellScheduleId) {
+          const { data: bellPeriodRows, error: bellPeriodError } = await client.from('academic_bell_periods')
+            .select('id,cycle_week,day_of_week,period_number,name,period_type,starts_at,ends_at,allows_double')
+            .eq('school_id', schoolId)
+            .eq('bell_schedule_id', bellScheduleId)
+            .order('cycle_week')
+            .order('day_of_week')
+            .order('period_number');
+          if (bellPeriodError) throw bellPeriodError;
+          setBellPeriods((bellPeriodRows ?? []) as BellPeriod[]);
+          const periodIds = (bellPeriodRows ?? []).map((period) => period.id);
+          if (periodIds.length) {
+            const { data: bellRuleRows, error: bellRuleError } = await client.from('academic_bell_period_subjects')
+              .select('period_id,subject_id')
+              .eq('school_id', schoolId)
+              .in('period_id', periodIds);
+            if (bellRuleError) throw bellRuleError;
+            setBellPeriodSubjects((bellRuleRows ?? []) as BellPeriodSubject[]);
+          } else {
+            setBellPeriodSubjects([]);
+          }
+        } else {
+          setBellPeriods([]);
+          setBellPeriodSubjects([]);
+        }
         const openDays = (patternDayResult.data ?? []).filter((day) => day.is_open).map((day) => day.day_of_week);
         setOperatingDays(openDays);
         setWeekdays(openDays);
@@ -314,7 +455,7 @@ export function TimetableManager({
     }
     void loadReferences();
     return () => { alive = false; };
-  }, [canManage, referencesReady, schoolId, calendarId, academicYearId, weekPatternId]);
+  }, [canManage, referencesReady, schoolId, calendarId, academicYearId, weekPatternId, bellScheduleId]);
 
   if (!canManage || !scheduleId) return null;
   const readOnly = scheduleStatus !== 'draft';
@@ -322,6 +463,9 @@ export function TimetableManager({
   function openNewEntry() {
     setEditing(null);
     setDraft(initialDraft());
+    setDraftCycle(1);
+    setDraftBellPeriodId('');
+    setDoublePeriod(false);
     setError('');
     setDialog('entry');
   }
@@ -329,6 +473,11 @@ export function TimetableManager({
   function openEditEntry(entry: TimetableEntry) {
     setEditing(entry);
     setDraft(initialDraft(entry));
+    setDraftCycle(entry.cycle_week);
+    setDraftBellPeriodId(entry.bell_period_id ?? '');
+    const period = bellPeriods.find((item) => item.id === entry.bell_period_id);
+    setDoublePeriod(Boolean(period && parseMinutes(entry.ends_at.slice(0, 5))
+      > parseMinutes(period.ends_at.slice(0, 5))));
     setError('');
     setDialog('entry');
   }
@@ -380,7 +529,22 @@ export function TimetableManager({
         room: draft.entry_type === 'lesson' ? draft.room.trim() || null : null,
         entry_type: draft.entry_type,
         label: draft.entry_type === 'lesson' ? null : draft.label.trim(),
+        cycle_week: draftCycle,
+        bell_period_id: bellScheduleId ? draftBellPeriodId : null,
       };
+      if (bellScheduleId && !draftBellPeriodId) throw new Error('Select a configured bell period.');
+      if (bellScheduleId && draft.entry_type === 'lesson') {
+        const period = bellPeriods.find((item) => item.id === draftBellPeriodId);
+        if (period?.allows_double && doublePeriod) {
+          const nextPeriod = bellPeriods.find((item) => item.cycle_week === period.cycle_week
+            && item.day_of_week === period.day_of_week
+            && item.period_number === period.period_number + 1);
+          if (!nextPeriod || nextPeriod.starts_at !== period.ends_at || nextPeriod.period_type !== 'lesson') {
+            throw new Error('A double lesson requires an immediately consecutive lesson period.');
+          }
+          values.ends_at = nextPeriod.ends_at;
+        }
+      }
       const client = requireSupabase();
       const result = editing
         ? await client.from('timetable').update(values).eq('id', editing.id).eq('school_id', schoolId).eq('schedule_id', scheduleId)
@@ -440,6 +604,9 @@ export function TimetableManager({
         lunchEnabled,
         lunchAt,
         lunchMinutes: lunchDuration,
+        bellPeriods,
+        bellPeriodSubjects,
+        cycleWeeks,
       });
       const { data, error: generateError } = await requireSupabase()
         .rpc('generate_timetable_schedule', { target_schedule: scheduleId, generated_entries: generatedEntries });
@@ -457,6 +624,20 @@ export function TimetableManager({
     ...subject,
     availableTeachers: selectableTeachers(subject.id, draft.class_id),
   }));
+  const availableBellPeriods = bellPeriods.filter((period) =>
+    period.cycle_week === draftCycle
+    && period.day_of_week === Number(draft.day_of_week)
+    && (period.period_type === (draft.entry_type === 'lesson' ? 'lesson'
+      : draft.entry_type === 'other' ? 'other' : draft.entry_type)
+      || (draft.entry_type === 'other' && period.period_type === 'assembly')));
+  const selectedBellPeriod = bellPeriods.find((period) => period.id === draftBellPeriodId);
+  const nextDoublePeriod = selectedBellPeriod?.allows_double
+    ? bellPeriods.find((period) => period.cycle_week === selectedBellPeriod.cycle_week
+      && period.day_of_week === selectedBellPeriod.day_of_week
+      && period.period_number === selectedBellPeriod.period_number + 1
+      && period.period_type === 'lesson'
+      && period.starts_at === selectedBellPeriod.ends_at)
+    : undefined;
 
   return <>
     {error && !dialog && <ErrorState message={error} />}
@@ -469,12 +650,13 @@ export function TimetableManager({
       </div>}
     </div>
     {entries.length > 0 ? <div className="table-scroll timetable-entry-table"><table>
-      <thead><tr><th>Day</th><th>Time</th><th>Class</th><th>Subject / activity</th><th>Teacher</th><th>Room</th>{!readOnly && <th>Actions</th>}</tr></thead>
+      <thead><tr><th>Cycle</th><th>Day</th><th>Time</th><th>Class</th><th>Subject / activity</th><th>Teacher</th><th>Room</th>{!readOnly && <th>Actions</th>}</tr></thead>
       <tbody>{[...entries].sort((left, right) => left.day_of_week - right.day_of_week || left.starts_at.localeCompare(right.starts_at)).map((entry) => {
         const subject = subjects.find((item) => item.id === entry.subject_id);
         const schoolClass = classes.find((item) => item.id === entry.class_id);
         const teacher = teachers.find((item) => item.id === entry.teacher_id);
         return <tr key={entry.id}>
+          <td>{cycleWeeks === 2 ? `Week ${entry.cycle_week === 1 ? 'A' : 'B'}` : '—'}</td>
           <td>{weekdayOptions.find((item) => item.day === entry.day_of_week)?.label}</td>
           <td>{entry.starts_at.slice(0, 5)}–{entry.ends_at.slice(0, 5)}</td>
           <td>{schoolClass?.name ?? 'All classes'}</td>
@@ -489,13 +671,27 @@ export function TimetableManager({
     {dialog && <div className="modal-backdrop" onMouseDown={(event) => { if (event.target === event.currentTarget && !saving) setDialog(null); }}>
       {dialog === 'entry' ? <form className="modal-card modal-form timetable-editor-modal" onSubmit={(event) => void saveEntry(event)}>
         <div className="modal-heading"><div><span className="eyebrow">Schedule builder</span><h2>{editing ? 'Edit period' : 'Add period'}</h2></div><button className="icon-button" type="button" onClick={() => setDialog(null)} aria-label="Close dialog">×</button></div>
-        <div className="form-row"><label className="field"><span>Period type</span><select value={draft.entry_type} onChange={(event) => setDraft((current) => ({ ...current, entry_type: event.target.value as EntryKind }))}><option value="lesson">Lesson</option><option value="registration">Registration</option><option value="break">Break</option><option value="lunch">Lunch</option><option value="other">Other</option></select></label><label className="field"><span>Day</span><select value={draft.day_of_week} onChange={(event) => setDraft((current) => ({ ...current, day_of_week: event.target.value }))}>{weekdayOptions.map((item) => <option key={item.day} value={item.day}>{item.label}</option>)}</select></label></div>
+        <div className="form-row"><label className="field"><span>Period type</span><select value={draft.entry_type} onChange={(event) => { setDraft((current) => ({ ...current, entry_type: event.target.value as EntryKind })); setDraftBellPeriodId(''); }}><option value="lesson">Lesson</option><option value="registration">Registration</option><option value="break">Break</option><option value="lunch">Lunch</option><option value="other">Other / assembly</option></select></label><label className="field"><span>Day</span><select value={draft.day_of_week} onChange={(event) => { setDraft((current) => ({ ...current, day_of_week: event.target.value })); setDraftBellPeriodId(''); }}>{weekdayOptions.map((item) => <option key={item.day} value={item.day}>{item.label}</option>)}</select></label></div>
         {draft.entry_type === 'lesson' ? <>
           <label className="field"><span>Class</span><select required value={draft.class_id} onChange={(event) => setDraft((current) => ({ ...current, class_id: event.target.value, teacher_id: '' }))}><option value="">Choose a class</option>{classes.map((schoolClass) => <option key={schoolClass.id} value={schoolClass.id}>{schoolClass.name}</option>)}</select></label>
           <div className="form-row"><label className="field"><span>Subject</span><select required value={draft.subject_id} onChange={(event) => setDraft((current) => ({ ...current, subject_id: event.target.value, teacher_id: '' }))}><option value="">Choose a subject</option>{subjects.map((subject) => <option key={subject.id} value={subject.id}>{subject.name}</option>)}</select></label><label className="field"><span>Teacher</span><select value={draft.teacher_id} onChange={(event) => setDraft((current) => ({ ...current, teacher_id: event.target.value }))}><option value="">Unassigned</option>{subjectOptions.find((item) => item.id === draft.subject_id)?.availableTeachers.map((teacher) => <option key={teacher.id} value={teacher.id}>{teacher.first_name} {teacher.last_name}</option>)}</select></label></div>
           <label className="field"><span>Room</span><input value={draft.room} onChange={(event) => setDraft((current) => ({ ...current, room: event.target.value }))} maxLength={80} placeholder={classes.find((item) => item.id === draft.class_id)?.room ?? 'Room or classroom'} /></label>
         </> : <label className="field"><span>Activity name</span><input required maxLength={120} value={draft.label} onChange={(event) => setDraft((current) => ({ ...current, label: event.target.value }))} placeholder="e.g. Morning registration" /></label>}
-        <div className="form-row"><label className="field"><span>Start time</span><input required type="time" value={draft.starts_at} onChange={(event) => setDraft((current) => ({ ...current, starts_at: event.target.value }))} /></label><label className="field"><span>Duration (minutes)</span><input required type="number" min={5} max={720} value={draft.duration} onChange={(event) => setDraft((current) => ({ ...current, duration: event.target.value }))} /></label></div>
+        {bellScheduleId && <>
+          {cycleWeeks === 2 && <label className="field"><span>Rotation week</span><select value={draftCycle} onChange={(event) => { setDraftCycle(Number(event.target.value)); setDraftBellPeriodId(''); setDoublePeriod(false); }}><option value={1}>Week A</option><option value={2}>Week B</option></select></label>}
+          <label className="field"><span>Bell period</span><select required value={draftBellPeriodId} onChange={(event) => {
+            const selected = bellPeriods.find((period) => period.id === event.target.value);
+            setDraftBellPeriodId(event.target.value);
+            setDoublePeriod(false);
+            if (selected) setDraft((current) => ({ ...current, starts_at: selected.starts_at.slice(0, 5), duration: String(parseMinutes(selected.ends_at.slice(0, 5)) - parseMinutes(selected.starts_at.slice(0, 5))) }));
+          }}><option value="">Choose a configured period</option>{availableBellPeriods.map((period) => <option key={period.id} value={period.id}>P{period.period_number} · {period.name} · {period.starts_at.slice(0, 5)}–{period.ends_at.slice(0, 5)}</option>)}</select></label>
+          {draft.entry_type === 'lesson' && nextDoublePeriod && <label className="calendar-checkbox"><input type="checkbox" checked={doublePeriod} onChange={(event) => {
+            setDoublePeriod(event.target.checked);
+            if (event.target.checked && selectedBellPeriod && nextDoublePeriod) setDraft((current) => ({ ...current, duration: String(parseMinutes(nextDoublePeriod.ends_at.slice(0, 5)) - parseMinutes(selectedBellPeriod.starts_at.slice(0, 5))) }));
+            if (!event.target.checked && selectedBellPeriod) setDraft((current) => ({ ...current, duration: String(parseMinutes(selectedBellPeriod.ends_at.slice(0, 5)) - parseMinutes(selectedBellPeriod.starts_at.slice(0, 5))) }));
+          }} /><span>Use consecutive double period</span></label>}
+        </>}
+        {!bellScheduleId && <div className="form-row"><label className="field"><span>Start time</span><input required type="time" value={draft.starts_at} onChange={(event) => setDraft((current) => ({ ...current, starts_at: event.target.value }))} /></label><label className="field"><span>Duration (minutes)</span><input required type="number" min={5} max={720} value={draft.duration} onChange={(event) => setDraft((current) => ({ ...current, duration: event.target.value }))} /></label></div>}
         {error && <ErrorState message={error} />}
         <div className="modal-actions"><button className="button button-quiet" type="button" onClick={() => setDialog(null)}>Cancel</button><button className="button button-primary" type="submit" disabled={saving}>{saving ? 'Saving…' : editing ? 'Save period' : 'Add period'}</button></div>
       </form> : <form className="modal-card modal-form timetable-generator-modal" onSubmit={(event) => void generate(event)}>
@@ -507,11 +703,13 @@ export function TimetableManager({
           const possibleTeachers = selectableTeachers(subject.id, targetClassId === '*' ? '' : targetClassId);
           return <div className="generator-subject-row" key={subject.id}><strong>{subject.name}</strong><select aria-label={`Teacher for ${subject.name}`} value={plan?.teacher_id ?? ''} onChange={(event) => updatePlan(subject.id, 'teacher_id', event.target.value)}><option value="">{possibleTeachers.length ? 'Select teacher' : 'No eligible teacher'}</option>{possibleTeachers.map((teacher) => <option key={teacher.id} value={teacher.id}>{teacher.first_name} {teacher.last_name}</option>)}</select><input aria-label={`Weekly ${subject.name} lessons`} type="number" min={0} max={35} value={plan?.periods ?? 0} onChange={(event) => updatePlan(subject.id, 'periods', event.target.value)} /></div>;
         })}</div>
-        <div className="generator-days"><span className="generator-subject-heading">Teaching days</span><div>{weekdayOptions.map(({ day, label }) => <label key={day}><input type="checkbox" checked={weekdays.includes(day)} disabled={!operatingDays.includes(day)} onChange={() => setWeekdays((current) => current.includes(day) ? current.filter((value) => value !== day) : [...current, day].sort())} />{label}</label>)}</div></div>
-        <div className="form-row"><label className="field"><span>School day starts</span><input type="time" required value={startAt} onChange={(event) => setStartAt(event.target.value)} /></label><label className="field"><span>School day ends</span><input type="time" required value={finishAt} onChange={(event) => setFinishAt(event.target.value)} /></label></div>
-        <label className="field"><span>Lesson duration (minutes)</span><input type="number" min={15} max={180} required value={lessonDuration} onChange={(event) => setLessonDuration(Number(event.target.value))} /></label>
-        <div className="generator-constant"><label><input type="checkbox" checked={breakEnabled} onChange={(event) => setBreakEnabled(event.target.checked)} /><strong>Daily break</strong></label><div><input type="time" aria-label="Break starts" value={breakAt} onChange={(event) => setBreakAt(event.target.value)} disabled={!breakEnabled} /><input type="number" min={5} max={120} aria-label="Break duration" value={breakDuration} onChange={(event) => setBreakDuration(Number(event.target.value))} disabled={!breakEnabled} /><span>min</span></div></div>
-        <div className="generator-constant"><label><input type="checkbox" checked={lunchEnabled} onChange={(event) => setLunchEnabled(event.target.checked)} /><strong>Daily lunch</strong></label><div><input type="time" aria-label="Lunch starts" value={lunchAt} onChange={(event) => setLunchAt(event.target.value)} disabled={!lunchEnabled} /><input type="number" min={5} max={180} aria-label="Lunch duration" value={lunchDuration} onChange={(event) => setLunchDuration(Number(event.target.value))} disabled={!lunchEnabled} /><span>min</span></div></div>
+        {!bellScheduleId ? <>
+          <div className="generator-days"><span className="generator-subject-heading">Teaching days</span><div>{weekdayOptions.map(({ day, label }) => <label key={day}><input type="checkbox" checked={weekdays.includes(day)} disabled={!operatingDays.includes(day)} onChange={() => setWeekdays((current) => current.includes(day) ? current.filter((value) => value !== day) : [...current, day].sort())} />{label}</label>)}</div></div>
+          <div className="form-row"><label className="field"><span>School day starts</span><input type="time" required value={startAt} onChange={(event) => setStartAt(event.target.value)} /></label><label className="field"><span>School day ends</span><input type="time" required value={finishAt} onChange={(event) => setFinishAt(event.target.value)} /></label></div>
+          <label className="field"><span>Lesson duration (minutes)</span><input type="number" min={15} max={180} required value={lessonDuration} onChange={(event) => setLessonDuration(Number(event.target.value))} /></label>
+          <div className="generator-constant"><label><input type="checkbox" checked={breakEnabled} onChange={(event) => setBreakEnabled(event.target.checked)} /><strong>Daily break</strong></label><div><input type="time" aria-label="Break starts" value={breakAt} onChange={(event) => setBreakAt(event.target.value)} disabled={!breakEnabled} /><input type="number" min={5} max={120} aria-label="Break duration" value={breakDuration} onChange={(event) => setBreakDuration(Number(event.target.value))} disabled={!breakEnabled} /><span>min</span></div></div>
+          <div className="generator-constant"><label><input type="checkbox" checked={lunchEnabled} onChange={(event) => setLunchEnabled(event.target.checked)} /><strong>Daily lunch</strong></label><div><input type="time" aria-label="Lunch starts" value={lunchAt} onChange={(event) => setLunchAt(event.target.value)} disabled={!lunchEnabled} /><input type="number" min={5} max={180} aria-label="Lunch duration" value={lunchDuration} onChange={(event) => setLunchDuration(Number(event.target.value))} disabled={!lunchEnabled} /><span>min</span></div></div>
+        </> : <p className="calendar-muted-copy">Generation will place lessons into configured bell periods and include registration, breaks, lunch, and assembly periods for each cycle week.</p>}
         {error && <ErrorState message={error} />}
         <div className="modal-actions"><button className="button button-quiet" type="button" onClick={() => setDialog(null)}>Cancel</button><button className="button button-primary" type="submit" disabled={saving || referencesLoading || !classes.length || !subjects.length}>{saving ? 'Generating…' : 'Generate draft'}</button></div>
       </form>}

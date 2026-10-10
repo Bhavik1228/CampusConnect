@@ -719,6 +719,31 @@ td strong { color: #3e435a; font-weight: 600; }
 .pattern-existing-list strong { color: #5e647a; font-size: 9px; }
 .pattern-existing-list small { color: #989dae; font-size: 8px; }
 .calendar-checkbox { margin: 2px 0 13px; }
+.bell-management { display: grid; gap: 14px; }
+.bell-create-form { grid-template-columns: 1fr 1fr 1fr auto; }
+.bell-schedule-toolbar { display: flex; align-items: end; gap: 9px; }
+.bell-schedule-toolbar .field { min-width: min(320px, 100%); margin: 0 auto 0 0; }
+.bell-management-grid { display: grid; grid-template-columns: minmax(250px, .75fr) minmax(0, 1.25fr); gap: 14px; align-items: start; }
+.bell-period-form .calendar-form-actions { display: flex; flex-wrap: wrap; gap: 8px; }
+.bell-subject-rules { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 7px; max-height: 190px; overflow: auto; margin: 0 0 14px; padding: 10px; border: 1px solid #eff0f5; border-radius: 8px; }
+.bell-subject-rules legend { padding: 0 5px; color: #70768b; font-size: 9px; font-weight: 650; }
+.bell-subject-rules p { grid-column: 1 / -1; margin: 0; }
+.bell-subject-rules label { display: flex; align-items: center; gap: 6px; color: #73798d; font-size: 9px; }
+.bell-subject-rules input { accent-color: var(--purple); }
+.bell-cycle-tabs { margin-top: 4px; }
+.bell-preview-day { margin-top: 12px; }
+.bell-preview-day h4 { margin: 0 0 6px; color: #555b71; font-size: 10px; }
+.bell-period-row { display: grid; grid-template-columns: 92px minmax(80px, .7fr) minmax(100px, 1.4fr) auto; align-items: center; gap: 8px; min-height: 39px; padding: 5px 7px; border-top: 1px solid #f0f0f5; }
+.bell-period-row.editing { border-radius: 6px; background: #f5f3ff; }
+.bell-period-row time { color: #6559c9; font-size: 9px; font-weight: 700; white-space: nowrap; }
+.bell-period-type { overflow: hidden; color: #4b5067; font-size: 9px; font-weight: 650; text-overflow: ellipsis; white-space: nowrap; }
+.bell-period-row small { overflow: hidden; color: #989dae; font-size: 8px; text-overflow: ellipsis; white-space: nowrap; }
+.bell-period-actions { display: flex; gap: 2px; }
+.bell-period-actions .icon-button { width: 27px; height: 27px; }
+.bell-break, .bell-lunch { color: #b47a37; }
+.bell-assembly { color: #4a9a80; }
+.bell-registration { color: #7265d2; }
+.calendar-form-actions { display: flex; flex-wrap: wrap; gap: 8px; }
 @media (max-width: 1080px) {
   .timetable-stat-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
 }
@@ -727,9 +752,10 @@ td strong { color: #3e435a; font-weight: 600; }
   .timetable-heading-actions { width: 100%; justify-content: flex-start; }
   .timetable-main-grid, .timetable-insight-grid, .timetable-bottom-grid { grid-template-columns: 1fr; }
   .timetable-editor-toolbar { align-items: flex-start; flex-direction: column; }
-  .academic-calendar-layout, .calendar-management-grid { grid-template-columns: 1fr; }
+  .academic-calendar-layout, .calendar-management-grid, .bell-management-grid { grid-template-columns: 1fr; }
   .calendar-inline-form { grid-template-columns: 1fr 1fr; }
   .calendar-inline-form > .button { grid-column: 1 / -1; }
+  .bell-create-form { grid-template-columns: 1fr 1fr; }
 }
 @media (max-width: 460px) {
   .timetable-stat-grid { gap: 9px; }

@@ -20,11 +20,15 @@ interface TimetableSchedule {
   calendar_id: string;
   academic_year_id: string | null;
   week_pattern_id: string;
+  bell_schedule_id: string | null;
+  cycle_weeks: number;
 }
 
 interface CalendarChoice { id: string; name: string; division_name: string | null; is_default: boolean }
 interface YearChoice { id: string; name: string; calendar_id: string; is_current: boolean }
 interface PatternChoice { id: string; name: string; calendar_id: string }
+interface BellScheduleChoice { id: string; name: string; calendar_id: string; week_pattern_id: string; cycle_weeks: number }
+interface AcademicWeekChoice { calendar_id: string; academic_year_id: string; starts_on: string; ends_on: string; cycle_week: number }
 
 interface TimetableEntry {
   id: string;
@@ -38,6 +42,8 @@ interface TimetableEntry {
   room: string | null;
   entry_type: EntryType;
   label: string | null;
+  cycle_week: number;
+  bell_period_id: string | null;
   updated_at: string;
   class: Relation<{ name: string }>;
   subject: Relation<{ name: string }>;
@@ -62,7 +68,7 @@ interface Activity {
 const dayLabels = ['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday', 'Sunday'];
 const timetableSelect = [
   'id', 'schedule_id', 'class_id', 'subject_id', 'teacher_id', 'day_of_week',
-  'starts_at', 'ends_at', 'room', 'entry_type', 'label', 'updated_at',
+  'starts_at', 'ends_at', 'room', 'entry_type', 'label', 'updated_at', 'cycle_week', 'bell_period_id',
   'class:school_classes(name)', 'subject:subjects(name)',
   'teacher:teacher_profiles(first_name,last_name)',
   'schedule:timetable_schedules(name,status,updated_at)',
@@ -117,7 +123,9 @@ function findConflicts(entries: TimetableEntry[]): Conflict[] {
   for (let index = 0; index < lessons.length; index += 1) {
     const first = lessons[index];
     for (const second of lessons.slice(index + 1)) {
-      if (first.day_of_week !== second.day_of_week || first.schedule_id !== second.schedule_id) continue;
+      if (first.day_of_week !== second.day_of_week
+          || first.schedule_id !== second.schedule_id
+          || first.cycle_week !== second.cycle_week) continue;
       if (minutes(first.starts_at) >= minutes(second.ends_at) || minutes(second.starts_at) >= minutes(first.ends_at)) continue;
       const resources: string[] = [];
       if (first.class_id && first.class_id === second.class_id) resources.push(`Class ${className(first)}`);
@@ -137,7 +145,7 @@ function countOpenWindows(entries: TimetableEntry[], getResource: (entry: Timeta
     if (entry.entry_type !== 'lesson') continue;
     const resource = getResource(entry);
     if (!resource) continue;
-    const key = `${entry.schedule_id ?? 'legacy'}:${entry.day_of_week}:${resource}`;
+    const key = `${entry.schedule_id ?? 'legacy'}:${entry.cycle_week}:${entry.day_of_week}:${resource}`;
     groups.set(key, [...(groups.get(key) ?? []), entry]);
   }
   let gaps = 0;
@@ -188,6 +196,8 @@ export function TimetableDashboardPage() {
   const [calendars, setCalendars] = useState<CalendarChoice[]>([]);
   const [academicYears, setAcademicYears] = useState<YearChoice[]>([]);
   const [weekPatterns, setWeekPatterns] = useState<PatternChoice[]>([]);
+  const [bellSchedules, setBellSchedules] = useState<BellScheduleChoice[]>([]);
+  const [weeks, setWeeks] = useState<AcademicWeekChoice[]>([]);
   const [entries, setEntries] = useState<TimetableEntry[]>([]);
   const [activity, setActivity] = useState<Activity[]>([]);
   const [selectedScheduleId, setSelectedScheduleId] = useState('');
@@ -200,6 +210,7 @@ export function TimetableDashboardPage() {
   const [scheduleCalendarId, setScheduleCalendarId] = useState('');
   const [scheduleYearId, setScheduleYearId] = useState('');
   const [schedulePatternId, setSchedulePatternId] = useState('');
+  const [scheduleBellId, setScheduleBellId] = useState('');
 
   const refresh = useCallback(async () => {
     if (!schoolId) return;
@@ -207,9 +218,9 @@ export function TimetableDashboardPage() {
     setError('');
     try {
       const client = requireSupabase();
-      const [scheduleResult, timetableEntries, changesResult, calendarResult, yearResult, patternResult] = await Promise.all([
+      const [scheduleResult, timetableEntries, changesResult, calendarResult, yearResult, patternResult, bellResult, weekResult] = await Promise.all([
         client.from('timetable_schedules')
-          .select('id,name,status,updated_at,calendar_id,academic_year_id,week_pattern_id')
+          .select('id,name,status,updated_at,calendar_id,academic_year_id,week_pattern_id,bell_schedule_id,cycle_weeks')
           .eq('school_id', schoolId)
           .order('updated_at', { ascending: false }),
         loadEntries(schoolId),
@@ -221,16 +232,22 @@ export function TimetableDashboardPage() {
         client.from('academic_calendars').select('id,name,division_name,is_default').eq('school_id', schoolId).order('name'),
         client.from('academic_years').select('id,name,calendar_id,is_current').eq('school_id', schoolId).order('start_date', { ascending: false }),
         client.from('academic_calendar_week_patterns').select('id,name,calendar_id').eq('school_id', schoolId).order('name'),
+        client.from('academic_bell_schedules').select('id,name,calendar_id,week_pattern_id,cycle_weeks').eq('school_id', schoolId).order('name'),
+        client.from('academic_calendar_weeks').select('calendar_id,academic_year_id,starts_on,ends_on,cycle_week').eq('school_id', schoolId),
       ]);
       if (scheduleResult.error) throw scheduleResult.error;
       if (changesResult.error) throw changesResult.error;
       if (calendarResult.error) throw calendarResult.error;
       if (yearResult.error) throw yearResult.error;
       if (patternResult.error) throw patternResult.error;
+      if (bellResult.error) throw bellResult.error;
+      if (weekResult.error) throw weekResult.error;
       const nextSchedules = (scheduleResult.data ?? []) as TimetableSchedule[];
       setCalendars((calendarResult.data ?? []) as CalendarChoice[]);
       setAcademicYears((yearResult.data ?? []) as YearChoice[]);
       setWeekPatterns((patternResult.data ?? []) as PatternChoice[]);
+      setBellSchedules((bellResult.data ?? []) as BellScheduleChoice[]);
+      setWeeks((weekResult.data ?? []) as AcademicWeekChoice[]);
       setSchedules(nextSchedules);
       setEntries(timetableEntries);
       setActivity((changesResult.data ?? []).map((change) => ({
@@ -260,23 +277,44 @@ export function TimetableDashboardPage() {
     [entries, selectedScheduleId],
   );
   const lessons = useMemo(() => activeEntries.filter((entry) => entry.entry_type === 'lesson'), [activeEntries]);
+  const todaysDate = new Intl.DateTimeFormat('en-CA', { timeZone }).format(new Date());
+  const todaysCycleWeek = activeSchedule?.cycle_weeks === 2
+    ? weeks.find((week) => week.calendar_id === activeSchedule.calendar_id
+      && week.academic_year_id === activeSchedule.academic_year_id
+      && todaysDate >= week.starts_on
+      && todaysDate <= week.ends_on)?.cycle_week ?? 1
+    : 1;
   const conflicts = useMemo(() => findConflicts(activeEntries), [activeEntries]);
   const { dayOfWeek: today, time: currentTime } = getSchoolClock(timeZone);
   const todayEntries = useMemo(
-    () => activeEntries.filter((entry) => entry.day_of_week === today)
+    () => activeEntries.filter((entry) => entry.day_of_week === today && entry.cycle_week === todaysCycleWeek)
       .sort((left, right) => left.starts_at.localeCompare(right.starts_at)),
-    [activeEntries, today],
+    [activeEntries, today, todaysCycleWeek],
   );
-  const upcoming = useMemo(() => lessons
-    .map((entry) => {
-      let daysAway = (entry.day_of_week - today + 7) % 7;
-      if (daysAway === 0 && entry.starts_at.slice(0, 5) <= currentTime) daysAway = 7;
-      return { entry, sortKey: daysAway * 1440 + minutes(entry.starts_at) };
-    })
-    .sort((left, right) => left.sortKey - right.sortKey)
-    .slice(0, 5)
-    .map(({ entry, sortKey }) => ({ entry, daysAway: Math.floor(sortKey / 1440) })),
-  [lessons, today, currentTime]);
+  const upcoming = useMemo(() => {
+    const localToday = new Intl.DateTimeFormat('en-CA', { timeZone }).format(new Date());
+    const date = new Date(`${localToday}T12:00:00Z`);
+    const occurrences: { entry: TimetableEntry; daysAway: number; sortKey: number }[] = [];
+    for (let daysAway = 0; daysAway < 14; daysAway += 1) {
+      const dateKey = date.toISOString().slice(0, 10);
+      const weekday = ((today - 1 + daysAway) % 7) + 1;
+      const cycleWeek = activeSchedule?.cycle_weeks === 2
+        ? weeks.find((week) => week.calendar_id === activeSchedule.calendar_id
+          && week.academic_year_id === activeSchedule.academic_year_id
+          && dateKey >= week.starts_on
+          && dateKey <= week.ends_on)?.cycle_week ?? 1
+        : 1;
+      for (const entry of lessons) {
+        if (entry.day_of_week !== weekday || entry.cycle_week !== cycleWeek) continue;
+        if (daysAway === 0 && entry.starts_at.slice(0, 5) <= currentTime) continue;
+        occurrences.push({ entry, daysAway, sortKey: daysAway * 1440 + minutes(entry.starts_at) });
+      }
+      date.setUTCDate(date.getUTCDate() + 1);
+    }
+    return occurrences.sort((left, right) => left.sortKey - right.sortKey)
+      .slice(0, 5)
+      .map(({ entry, daysAway }) => ({ entry, daysAway }));
+  }, [lessons, today, currentTime, timeZone, weeks, activeSchedule]);
   const teacherWorkload = useMemo(() => {
     const workloads = new Map<string, { name: string; minutes: number }>();
     for (const entry of lessons) {
@@ -320,6 +358,7 @@ export function TimetableDashboardPage() {
     setSchedulePatternId(weekPatterns.find((item) => item.calendar_id === defaultCalendar?.id && item.name === 'Standard')?.id
       ?? weekPatterns.find((item) => item.calendar_id === defaultCalendar?.id)?.id
       ?? '');
+    setScheduleBellId(bellSchedules.find((item) => item.calendar_id === defaultCalendar?.id)?.id ?? '');
     setScheduleDialog('create');
     setError('');
     setSuccess('');
@@ -352,6 +391,8 @@ export function TimetableDashboardPage() {
             calendar_id: scheduleCalendarId,
             academic_year_id: scheduleYearId || null,
             week_pattern_id: schedulePatternId,
+            bell_schedule_id: scheduleBellId || null,
+            cycle_weeks: bellSchedules.find((item) => item.id === scheduleBellId)?.cycle_weeks ?? 1,
           })
           .select('id')
           .single();
@@ -437,6 +478,8 @@ export function TimetableDashboardPage() {
           weekPatternId={activeSchedule.week_pattern_id}
           calendarId={activeSchedule.calendar_id}
           academicYearId={activeSchedule.academic_year_id}
+          bellScheduleId={activeSchedule.bell_schedule_id}
+          cycleWeeks={activeSchedule.cycle_weeks}
           canManage={canManage}
           entries={activeEntries}
           onSaved={handleTimetableSaved}
@@ -448,11 +491,12 @@ export function TimetableDashboardPage() {
           </div>
           <div className="table-scroll">
             <table>
-              <thead><tr><th>Day</th><th>Time</th><th>Lesson / activity</th><th>Class</th><th>Teacher</th><th>Room</th></tr></thead>
+              <thead><tr><th>Cycle</th><th>Day</th><th>Time</th><th>Lesson / activity</th><th>Class</th><th>Teacher</th><th>Room</th></tr></thead>
               <tbody>{dayLabels.map((day, index) => {
                 const dayEntries = activeEntries.filter((entry) => entry.day_of_week === index + 1)
                   .sort((left, right) => left.starts_at.localeCompare(right.starts_at));
                 return dayEntries.map((entry) => <tr key={entry.id}>
+                  <td>{activeSchedule?.cycle_weeks === 2 ? `Week ${entry.cycle_week === 1 ? 'A' : 'B'}` : '—'}</td>
                   <td>{day}</td>
                   <td>{formatTime(entry.starts_at)}–{formatTime(entry.ends_at)}</td>
                   <td>{subjectName(entry)}</td>
@@ -561,9 +605,11 @@ export function TimetableDashboardPage() {
               setScheduleCalendarId(nextCalendar);
               setScheduleYearId(academicYears.find((item) => item.calendar_id === nextCalendar && item.is_current)?.id ?? '');
               setSchedulePatternId(weekPatterns.find((item) => item.calendar_id === nextCalendar && item.name === 'Standard')?.id ?? weekPatterns.find((item) => item.calendar_id === nextCalendar)?.id ?? '');
+              setScheduleBellId(bellSchedules.find((item) => item.calendar_id === nextCalendar)?.id ?? '');
             }}>{calendars.map((item) => <option value={item.id} key={item.id}>{item.name}{item.division_name ? ` · ${item.division_name}` : ''}</option>)}</select></label>
             <label className="field"><span>Academic year (optional)</span><select value={scheduleYearId} onChange={(event) => setScheduleYearId(event.target.value)}><option value="">No academic year</option>{academicYears.filter((item) => item.calendar_id === scheduleCalendarId).map((item) => <option value={item.id} key={item.id}>{item.name}{item.is_current ? ' · Current' : ''}</option>)}</select></label>
             <label className="field"><span>Week pattern</span><select required value={schedulePatternId} onChange={(event) => setSchedulePatternId(event.target.value)}>{weekPatterns.filter((item) => item.calendar_id === scheduleCalendarId).map((item) => <option value={item.id} key={item.id}>{item.name}</option>)}</select></label>
+            <label className="field"><span>Bell schedule (optional)</span><select value={scheduleBellId} onChange={(event) => setScheduleBellId(event.target.value)}><option value="">No bell periods</option>{bellSchedules.filter((item) => item.calendar_id === scheduleCalendarId && item.week_pattern_id === schedulePatternId).map((item) => <option value={item.id} key={item.id}>{item.name}{item.cycle_weeks === 2 ? ' · A/B cycle' : ''}</option>)}</select></label>
           </>}
           {scheduleDialog === 'create' && <p className="timetable-dialog-note"><BookOpen size={15} />New timetables start as drafts. Add periods manually or generate a weekly schedule in the schedule builder.</p>}
           <div className="modal-actions"><button className="button button-quiet" type="button" onClick={() => setScheduleDialog(null)}>Cancel</button><button className="button button-primary" type="submit" disabled={saving}>{saving ? 'Saving…' : scheduleDialog === 'create' ? 'Create draft' : 'Save details'}</button></div>

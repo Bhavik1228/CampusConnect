@@ -6,7 +6,7 @@ import { useAuth } from '../contexts/AuthContext';
 import { EmptyState, ErrorState, LoadingState, SuccessMessage } from '../components/Feedback';
 import { requireSupabase } from '../lib/supabase';
 
-type CalendarTab = 'years' | 'weeks' | 'dates' | 'exceptions';
+type CalendarTab = 'years' | 'weeks' | 'bell' | 'dates' | 'exceptions';
 type DateType = 'public_holiday' | 'closure' | 'examination' | 'activity' | 'special';
 type OverrideAction = 'add' | 'replace' | 'cancel';
 type Relation<T> = T | T[] | null;
@@ -48,6 +48,29 @@ interface AcademicWeek {
   starts_on: string;
   ends_on: string;
   pattern_id: string;
+  cycle_week: number;
+}
+interface BellSchedule {
+  id: string;
+  name: string;
+  week_pattern_id: string;
+  cycle_weeks: number;
+}
+interface BellPeriod {
+  id: string;
+  bell_schedule_id: string;
+  cycle_week: number;
+  day_of_week: number;
+  period_number: number;
+  name: string;
+  period_type: 'lesson' | 'break' | 'lunch' | 'assembly' | 'registration' | 'other';
+  starts_at: string;
+  ends_at: string;
+  allows_double: boolean;
+}
+interface BellPeriodSubject {
+  period_id: string;
+  subject_id: string;
 }
 interface CalendarDate {
   id: string;
@@ -65,10 +88,13 @@ interface Schedule {
   calendar_id: string;
   academic_year_id: string | null;
   week_pattern_id: string;
+  bell_schedule_id: string | null;
+  cycle_weeks: number;
 }
 interface TimetableEntry {
   id: string;
   schedule_id: string;
+  cycle_week: number;
   entry_type: 'lesson' | 'registration' | 'break' | 'lunch' | 'other';
   class_id: string | null;
   subject_id: string | null;
@@ -105,6 +131,7 @@ const weekdays = ['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Satur
 const calendarTabs: { id: CalendarTab; label: string }[] = [
   { id: 'years', label: 'Academic years & terms' },
   { id: 'weeks', label: 'Teaching weeks & days' },
+  { id: 'bell', label: 'Periods & bell schedules' },
   { id: 'dates', label: 'Holidays & special dates' },
   { id: 'exceptions', label: 'Timetable exceptions' },
 ];
@@ -157,6 +184,10 @@ export function AcademicCalendarPage() {
   const [patterns, setPatterns] = useState<WeekPattern[]>([]);
   const [patternDays, setPatternDays] = useState<PatternDay[]>([]);
   const [weeks, setWeeks] = useState<AcademicWeek[]>([]);
+  const [bellSchedules, setBellSchedules] = useState<BellSchedule[]>([]);
+  const [bellPeriods, setBellPeriods] = useState<BellPeriod[]>([]);
+  const [bellPeriodSubjects, setBellPeriodSubjects] = useState<BellPeriodSubject[]>([]);
+  const [bellScheduleId, setBellScheduleId] = useState('');
   const [calendarDates, setCalendarDates] = useState<CalendarDate[]>([]);
   const [schedules, setSchedules] = useState<Schedule[]>([]);
   const [entries, setEntries] = useState<TimetableEntry[]>([]);
@@ -190,6 +221,20 @@ export function AcademicCalendarPage() {
   const [weekPatternId, setWeekPatternId] = useState('');
   const [weekStart, setWeekStart] = useState('');
   const [weekEnd, setWeekEnd] = useState('');
+  const [weekCycle, setWeekCycle] = useState(1);
+  const [bellName, setBellName] = useState('');
+  const [bellPatternId, setBellPatternId] = useState('');
+  const [bellCycleWeeks, setBellCycleWeeks] = useState(1);
+  const [periodEditingId, setPeriodEditingId] = useState('');
+  const [periodCycle, setPeriodCycle] = useState(1);
+  const [periodDay, setPeriodDay] = useState(1);
+  const [periodNumber, setPeriodNumber] = useState(1);
+  const [periodName, setPeriodName] = useState('');
+  const [periodType, setPeriodType] = useState<BellPeriod['period_type']>('lesson');
+  const [periodStart, setPeriodStart] = useState('08:00');
+  const [periodEnd, setPeriodEnd] = useState('09:00');
+  const [periodAllowsDouble, setPeriodAllowsDouble] = useState(false);
+  const [periodAllowedSubjects, setPeriodAllowedSubjects] = useState<string[]>([]);
   const [dateTitle, setDateTitle] = useState('');
   const [dateType, setDateType] = useState<DateType>('public_holiday');
   const [dateDescription, setDateDescription] = useState('');
@@ -227,6 +272,9 @@ export function AcademicCalendarPage() {
         setPatterns([]);
         setPatternDays([]);
         setWeeks([]);
+        setBellSchedules([]);
+        setBellPeriods([]);
+        setBellPeriodSubjects([]);
         setCalendarDates([]);
         setSchedules([]);
         setEntries([]);
@@ -236,26 +284,51 @@ export function AcademicCalendarPage() {
       if (targetCalendarId !== calendarId) setCalendarId(targetCalendarId);
       const firstDay = `${year}-01-01`;
       const lastDay = `${year}-12-31`;
-      const [yearResult, termResult, patternResult, weekResult, dateResult, scheduleResult, classResult, subjectResult, teacherResult] = await Promise.all([
+      const [yearResult, termResult, patternResult, weekResult, bellScheduleResult, dateResult, scheduleResult, classResult, subjectResult, teacherResult] = await Promise.all([
         client.from('academic_years').select('id,name,start_date,end_date,is_current,calendar_id').eq('school_id', schoolId).eq('calendar_id', targetCalendarId).order('start_date', { ascending: false }),
         client.from('terms').select('id,name,start_date,end_date,academic_year_id').eq('school_id', schoolId).eq('calendar_id', targetCalendarId).order('start_date'),
         client.from('academic_calendar_week_patterns').select('id,name,calendar_id').eq('school_id', schoolId).eq('calendar_id', targetCalendarId).order('name'),
-        client.from('academic_calendar_weeks').select('id,week_number,starts_on,ends_on,pattern_id').eq('school_id', schoolId).eq('calendar_id', targetCalendarId).order('week_number'),
+        client.from('academic_calendar_weeks').select('id,week_number,starts_on,ends_on,pattern_id,cycle_week').eq('school_id', schoolId).eq('calendar_id', targetCalendarId).order('week_number'),
+        client.from('academic_bell_schedules').select('id,name,week_pattern_id,cycle_weeks').eq('school_id', schoolId).eq('calendar_id', targetCalendarId).order('name'),
         client.from('academic_calendar_dates').select('id,event_date,title,description,date_type,lessons_allowed,academic_year_id').eq('school_id', schoolId).eq('calendar_id', targetCalendarId).gte('event_date', firstDay).lte('event_date', lastDay).order('event_date'),
-        client.from('timetable_schedules').select('id,name,status,calendar_id,academic_year_id,week_pattern_id').eq('school_id', schoolId).eq('calendar_id', targetCalendarId).order('updated_at', { ascending: false }),
+        client.from('timetable_schedules').select('id,name,status,calendar_id,academic_year_id,week_pattern_id,bell_schedule_id,cycle_weeks').eq('school_id', schoolId).eq('calendar_id', targetCalendarId).order('updated_at', { ascending: false }),
         client.from('school_classes').select('id,name').eq('school_id', schoolId).eq('calendar_id', targetCalendarId).order('name'),
         client.from('subjects').select('id,name').eq('school_id', schoolId).order('name'),
         client.from('teacher_profiles').select('id,first_name,last_name').eq('school_id', schoolId).eq('status', 'active').order('last_name'),
       ]);
-      const failed = [yearResult.error, termResult.error, patternResult.error, weekResult.error, dateResult.error, scheduleResult.error, classResult.error, subjectResult.error, teacherResult.error].find(Boolean);
+      const failed = [yearResult.error, termResult.error, patternResult.error, weekResult.error, bellScheduleResult.error, dateResult.error, scheduleResult.error, classResult.error, subjectResult.error, teacherResult.error].find(Boolean);
       if (failed) throw failed;
       const yearList = (yearResult.data ?? []) as AcademicYear[];
       const patternList = (patternResult.data ?? []) as WeekPattern[];
+      const bellScheduleList = (bellScheduleResult.data ?? []) as BellSchedule[];
+      const bellScheduleIds = bellScheduleList.map((item) => item.id);
+      const bellPeriodResult = bellScheduleIds.length
+        ? await client.from('academic_bell_periods')
+          .select('id,bell_schedule_id,cycle_week,day_of_week,period_number,name,period_type,starts_at,ends_at,allows_double')
+          .eq('school_id', schoolId)
+          .in('bell_schedule_id', bellScheduleIds)
+          .order('cycle_week')
+          .order('day_of_week')
+          .order('period_number')
+        : { data: [], error: null };
+      if (bellPeriodResult.error) throw bellPeriodResult.error;
+      const bellPeriodList = (bellPeriodResult.data ?? []) as BellPeriod[];
+      const bellPeriodIds = bellPeriodList.map((item) => item.id);
+      const bellSubjectResult = bellPeriodIds.length
+        ? await client.from('academic_bell_period_subjects')
+          .select('period_id,subject_id')
+          .eq('school_id', schoolId)
+          .in('period_id', bellPeriodIds)
+        : { data: [], error: null };
+      if (bellSubjectResult.error) throw bellSubjectResult.error;
       const scheduleList = (scheduleResult.data ?? []) as Schedule[];
       setYears(yearList);
       setTerms((termResult.data ?? []) as AcademicTerm[]);
       setPatterns(patternList);
       setWeeks(((weekResult.data ?? []) as AcademicWeek[]).filter((item) => item.starts_on <= lastDay && item.ends_on >= firstDay));
+      setBellSchedules(bellScheduleList);
+      setBellPeriods(bellPeriodList);
+      setBellPeriodSubjects((bellSubjectResult.data ?? []) as BellPeriodSubject[]);
       setCalendarDates((dateResult.data ?? []) as CalendarDate[]);
       setSchedules(scheduleList);
       setClasses((classResult.data ?? []) as SchoolClass[]);
@@ -265,6 +338,10 @@ export function AcademicCalendarPage() {
       if (!termYearId && yearId) setTermYearId(yearId);
       if (!dateYearId && yearId) setDateYearId(yearId);
       if (!weekPatternId && patternList[0]) setWeekPatternId(patternList[0].id);
+      setBellScheduleId((current) => bellScheduleList.some((item) => item.id === current)
+        ? current
+        : bellScheduleList[0]?.id ?? '');
+      if (!bellPatternId && patternList[0]) setBellPatternId(patternList[0].id);
 
       if (patternList.length) {
         const patternDayResult = await client.from('academic_calendar_pattern_days')
@@ -280,7 +357,7 @@ export function AcademicCalendarPage() {
       const scheduleIds = scheduleList.filter((item) => canManage || item.status === 'published').map((item) => item.id);
       if (scheduleIds.length) {
         const [entryResult, overrideResult] = await Promise.all([
-          client.from('timetable').select('id,schedule_id,entry_type,class_id,subject_id,teacher_id,day_of_week,starts_at,ends_at,room,label,class:school_classes(name),subject:subjects(name),teacher:teacher_profiles(first_name,last_name)').eq('school_id', schoolId).in('schedule_id', scheduleIds).order('starts_at'),
+          client.from('timetable').select('id,schedule_id,cycle_week,entry_type,class_id,subject_id,teacher_id,day_of_week,starts_at,ends_at,room,label,class:school_classes(name),subject:subjects(name),teacher:teacher_profiles(first_name,last_name)').eq('school_id', schoolId).in('schedule_id', scheduleIds).order('starts_at'),
           client.from('timetable_date_overrides').select('id,schedule_id,event_date,action,original_entry_id,entry_type,class_id,subject_id,teacher_id,starts_at,ends_at,room,label').eq('school_id', schoolId).eq('calendar_id', targetCalendarId).gte('event_date', firstDay).lte('event_date', lastDay),
         ]);
         if (entryResult.error) throw entryResult.error;
@@ -296,7 +373,7 @@ export function AcademicCalendarPage() {
     } finally {
       setLoading(false);
     }
-  }, [schoolId, calendarId, year, canManage, termYearId, dateYearId, weekPatternId]);
+  }, [schoolId, calendarId, year, canManage, termYearId, dateYearId, weekPatternId, bellPatternId]);
 
   useEffect(() => { void refresh(); }, [refresh]);
 
@@ -306,6 +383,8 @@ export function AcademicCalendarPage() {
     ?? years[0]
     ?? null;
   const selectedWeek = weeks.find((item) => selectedDate >= item.starts_on && selectedDate <= item.ends_on);
+  const selectedBellSchedule = bellSchedules.find((item) => item.id === bellScheduleId) ?? null;
+  const selectedBellPeriods = bellPeriods.filter((item) => item.bell_schedule_id === bellScheduleId);
   const activePattern = patterns.find((pattern) => pattern.id === selectedWeek?.pattern_id)
     ?? patterns.find((pattern) => pattern.id === schedules.find((schedule) => schedule.academic_year_id === activeYear?.id)?.week_pattern_id)
     ?? patterns.find((pattern) => pattern.name === 'Standard')
@@ -320,8 +399,11 @@ export function AcademicCalendarPage() {
     .find((schedule) => schedule.academic_year_id === activeYear?.id && schedule.week_pattern_id === activePattern?.id)
     ?? schedules.find((schedule) => (schedule.status === 'published' || canManage) && schedule.week_pattern_id === activePattern?.id)
     ?? null;
+  const activeCycleWeek = selectedSchedule?.cycle_weeks === 2 ? selectedWeek?.cycle_week ?? 1 : 1;
   const baseDayEntries = selectedSchedule && isOpenDay && !dayClosed
-    ? entries.filter((entry) => entry.schedule_id === selectedSchedule.id && entry.day_of_week === dayNumber(selectedDate))
+    ? entries.filter((entry) => entry.schedule_id === selectedSchedule.id
+      && entry.day_of_week === dayNumber(selectedDate)
+      && entry.cycle_week === activeCycleWeek)
     : [];
   const dayOverrides = overrides.filter((item) => item.event_date === selectedDate && item.schedule_id === selectedSchedule?.id);
   const shownEntries = useMemo(() => {
@@ -335,6 +417,7 @@ export function AcademicCalendarPage() {
       return {
         id: item.id,
         schedule_id: item.schedule_id,
+        cycle_week: activeCycleWeek,
         entry_type: item.entry_type,
         class_id: item.class_id ?? original?.class_id ?? null,
         subject_id: item.subject_id ?? original?.subject_id ?? null,
@@ -471,7 +554,7 @@ export function AcademicCalendarPage() {
     setError('');
     try {
       const { error: insertError } = await requireSupabase().from('academic_calendar_weeks')
-        .insert({ school_id: schoolId, calendar_id: calendarId, academic_year_id: activeYear.id, pattern_id: weekPatternId, week_number: weekNumber, starts_on: weekStart, ends_on: weekEnd });
+        .insert({ school_id: schoolId, calendar_id: calendarId, academic_year_id: activeYear.id, pattern_id: weekPatternId, week_number: weekNumber, cycle_week: weekCycle, starts_on: weekStart, ends_on: weekEnd });
       if (insertError) throw insertError;
       setWeekNumber((value) => value + 1);
       setWeekStart('');
@@ -490,6 +573,152 @@ export function AcademicCalendarPage() {
       if (deleteError) throw deleteError;
       await finishMutation('Teaching week removed.');
     } catch (mutationError) { reportMutationError(mutationError, 'Could not remove the teaching week.'); }
+    finally { setSaving(false); }
+  }
+
+  async function createBellSchedule(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    if (!schoolId || !calendarId || !bellPatternId) return;
+    setSaving(true);
+    setError('');
+    try {
+      const { data, error: insertError } = await requireSupabase().from('academic_bell_schedules')
+        .insert({
+          school_id: schoolId,
+          calendar_id: calendarId,
+          week_pattern_id: bellPatternId,
+          name: bellName.trim(),
+          cycle_weeks: bellCycleWeeks,
+        })
+        .select('id')
+        .single();
+      if (insertError) throw insertError;
+      setBellScheduleId(data.id);
+      setBellName('');
+      await finishMutation('Bell schedule created.');
+    } catch (mutationError) { reportMutationError(mutationError, 'Could not create this bell schedule.'); }
+    finally { setSaving(false); }
+  }
+
+  async function updateBellSchedule(updates: Partial<Pick<BellSchedule, 'name' | 'cycle_weeks'>>) {
+    if (!schoolId || !selectedBellSchedule) return;
+    setSaving(true);
+    setError('');
+    try {
+      const { error: updateError } = await requireSupabase().from('academic_bell_schedules')
+        .update(updates)
+        .eq('id', selectedBellSchedule.id)
+        .eq('school_id', schoolId);
+      if (updateError) throw updateError;
+      await finishMutation('Bell schedule settings updated.');
+    } catch (mutationError) { reportMutationError(mutationError, 'Could not update the bell schedule.'); }
+    finally { setSaving(false); }
+  }
+
+  async function deleteBellSchedule(targetId: string) {
+    if (!window.confirm('Delete this bell schedule and all of its period definitions? Timetables using it must be detached first.')) return;
+    setSaving(true);
+    setError('');
+    try {
+      const { error: deleteError } = await requireSupabase().from('academic_bell_schedules')
+        .delete()
+        .eq('id', targetId)
+        .eq('school_id', schoolId);
+      if (deleteError) throw deleteError;
+      if (targetId === bellScheduleId) setBellScheduleId('');
+      await finishMutation('Bell schedule deleted.');
+    } catch (mutationError) { reportMutationError(mutationError, 'Could not delete this bell schedule.'); }
+    finally { setSaving(false); }
+  }
+
+  function editBellPeriod(period: BellPeriod) {
+    setPeriodEditingId(period.id);
+    setPeriodCycle(period.cycle_week);
+    setPeriodDay(period.day_of_week);
+    setPeriodNumber(period.period_number);
+    setPeriodName(period.name);
+    setPeriodType(period.period_type);
+    setPeriodStart(period.starts_at.slice(0, 5));
+    setPeriodEnd(period.ends_at.slice(0, 5));
+    setPeriodAllowsDouble(period.allows_double);
+    setPeriodAllowedSubjects(bellPeriodSubjects
+      .filter((item) => item.period_id === period.id)
+      .map((item) => item.subject_id));
+    setError('');
+  }
+
+  function resetBellPeriodForm() {
+    setPeriodEditingId('');
+    setPeriodName('');
+    setPeriodType('lesson');
+    setPeriodStart('08:00');
+    setPeriodEnd('09:00');
+    setPeriodAllowsDouble(false);
+    setPeriodAllowedSubjects([]);
+  }
+
+  async function saveBellPeriod(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    if (!schoolId || !selectedBellSchedule) return;
+    if (periodEnd <= periodStart) { setError('Period end time must be later than its start.'); return; }
+    setSaving(true);
+    setError('');
+    try {
+      const client = requireSupabase();
+      const values = {
+        school_id: schoolId,
+        bell_schedule_id: selectedBellSchedule.id,
+        cycle_week: periodCycle,
+        day_of_week: periodDay,
+        period_number: periodNumber,
+        name: periodName.trim(),
+        period_type: periodType,
+        starts_at: `${periodStart}:00`,
+        ends_at: `${periodEnd}:00`,
+        allows_double: periodType === 'lesson' && periodAllowsDouble,
+      };
+      const periodResult = periodEditingId
+        ? await client.from('academic_bell_periods').update(values).eq('id', periodEditingId).eq('school_id', schoolId).select('id').single()
+        : await client.from('academic_bell_periods').insert(values).select('id').single();
+      if (periodResult.error) throw periodResult.error;
+      const savedPeriodId = periodResult.data.id;
+      const previousSubjects = bellPeriodSubjects
+        .filter((item) => item.period_id === savedPeriodId)
+        .map((item) => item.subject_id)
+        .sort();
+      const nextSubjects = (periodType === 'lesson' ? periodAllowedSubjects : []).slice().sort();
+      if (previousSubjects.join(',') !== nextSubjects.join(',')) {
+        const { error: deleteRulesError } = await client.from('academic_bell_period_subjects')
+          .delete()
+          .eq('school_id', schoolId)
+          .eq('period_id', savedPeriodId);
+        if (deleteRulesError) throw new Error(`Period saved, but its previous subject availability could not be cleared: ${deleteRulesError.message}`);
+        if (nextSubjects.length) {
+          const { error: ruleError } = await client.from('academic_bell_period_subjects').insert(
+            nextSubjects.map((subjectId) => ({ school_id: schoolId, period_id: savedPeriodId, subject_id: subjectId })),
+          );
+          if (ruleError) throw new Error(`Period saved, but subject availability could not be saved: ${ruleError.message}`);
+        }
+      }
+      resetBellPeriodForm();
+      await finishMutation(periodEditingId ? 'Bell period updated.' : 'Bell period added.');
+    } catch (mutationError) { reportMutationError(mutationError, 'Could not save this bell period.'); }
+    finally { setSaving(false); }
+  }
+
+  async function deleteBellPeriod(periodId: string) {
+    if (!window.confirm('Delete this bell period? Timetable entries using it will need to be updated.')) return;
+    setSaving(true);
+    setError('');
+    try {
+      const { error: deleteError } = await requireSupabase().from('academic_bell_periods')
+        .delete()
+        .eq('id', periodId)
+        .eq('school_id', schoolId);
+      if (deleteError) throw deleteError;
+      if (periodEditingId === periodId) resetBellPeriodForm();
+      await finishMutation('Bell period deleted.');
+    } catch (mutationError) { reportMutationError(mutationError, 'Could not delete this bell period.'); }
     finally { setSaving(false); }
   }
 
@@ -585,7 +814,10 @@ export function AcademicCalendarPage() {
   }
 
   const applicableOverrides = overrides.filter((item) => item.event_date === selectedDate);
-  const exceptionEntries = entries.filter((entry) => entry.schedule_id === overrideScheduleId && entry.day_of_week === dayNumber(selectedDate) && entry.entry_type === 'lesson');
+  const exceptionEntries = entries.filter((entry) => entry.schedule_id === overrideScheduleId
+    && entry.day_of_week === dayNumber(selectedDate)
+    && entry.cycle_week === activeCycleWeek
+    && entry.entry_type === 'lesson');
 
   return <div className="page-stack academic-calendar-page">
     <div className="page-heading academic-calendar-heading">
@@ -624,7 +856,7 @@ export function AcademicCalendarPage() {
         <article className="content-card selected-date-panel">
           <span className="eyebrow">{activeCalendar.name}{activeCalendar.division_name ? ` · ${activeCalendar.division_name}` : ''}</span>
           <h2>{displayDate(selectedDate, { weekday: 'long', month: 'long', day: 'numeric', year: 'numeric' })}</h2>
-          {activeYear && <p className="calendar-context">{activeYear.name}{selectedWeek ? ` · Teaching week ${selectedWeek.week_number}` : ''}{activePattern ? ` · ${activePattern.name}` : ''}</p>}
+          {activeYear && <p className="calendar-context">{activeYear.name}{selectedWeek ? ` · Teaching week ${selectedWeek.week_number} · Cycle ${selectedWeek.cycle_week === 1 ? 'A' : 'B'}` : ''}{activePattern ? ` · ${activePattern.name}` : ''}</p>}
           {!isOpenDay && <div className="calendar-status-note"><CalendarDays size={15} />This is not an operating day for the selected week pattern.</div>}
           {dayClosed && <div className="calendar-closure-note"><AlertTriangle size={15} />Normal lessons are not scheduled on this date.</div>}
           <div className="selected-date-events">
@@ -679,11 +911,55 @@ export function AcademicCalendarPage() {
           </form>
           <form className="calendar-config-form" onSubmit={(event) => void createWeek(event)}>
             <h3>Add teaching week</h3><p className="calendar-muted-copy">{activeYear ? `For ${activeYear.name}. Weeks must fit within the academic-year dates.` : 'Add an academic year first.'}</p>
-            <div className="form-row"><label className="field"><span>Week number</span><input required type="number" min={1} max={80} value={weekNumber} onChange={(event) => setWeekNumber(Number(event.target.value))} /></label><label className="field"><span>Pattern</span><select required value={weekPatternId} onChange={(event) => setWeekPatternId(event.target.value)}>{patterns.map((item) => <option key={item.id} value={item.id}>{item.name}</option>)}</select></label></div>
+            <div className="form-row"><label className="field"><span>Week number</span><input required type="number" min={1} max={80} value={weekNumber} onChange={(event) => setWeekNumber(Number(event.target.value))} /></label><label className="field"><span>Cycle week</span><select value={weekCycle} onChange={(event) => setWeekCycle(Number(event.target.value))}><option value={1}>Week A / cycle 1</option><option value={2}>Week B / cycle 2</option></select></label></div>
+            <label className="field"><span>Pattern</span><select required value={weekPatternId} onChange={(event) => setWeekPatternId(event.target.value)}>{patterns.map((item) => <option key={item.id} value={item.id}>{item.name}</option>)}</select></label>
             <div className="form-row"><label className="field"><span>Week starts</span><input required type="date" value={weekStart} onChange={(event) => setWeekStart(event.target.value)} /></label><label className="field"><span>Week ends</span><input required type="date" value={weekEnd} onChange={(event) => setWeekEnd(event.target.value)} /></label></div>
             <button className="button button-primary" type="submit" disabled={saving || !activeYear || !patterns.length}>Add teaching week</button>
-            <div className="calendar-record-list">{weeks.map((item) => <div className="calendar-record-row" key={item.id}><div><strong>Week {item.week_number} · {patterns.find((pattern) => pattern.id === item.pattern_id)?.name}</strong><small>{displayDate(item.starts_on)} – {displayDate(item.ends_on)}</small></div><button className="icon-button" type="button" onClick={() => void deleteWeek(item.id)} disabled={saving} aria-label={`Delete week ${item.week_number}`}><Trash2 size={14} /></button></div>)}{!weeks.length && <p className="calendar-muted-copy">No teaching weeks configured in this calendar year view.</p>}</div>
+            <div className="calendar-record-list">{weeks.map((item) => <div className="calendar-record-row" key={item.id}><div><strong>Week {item.week_number} · Cycle {item.cycle_week === 1 ? 'A' : 'B'} · {patterns.find((pattern) => pattern.id === item.pattern_id)?.name}</strong><small>{displayDate(item.starts_on)} – {displayDate(item.ends_on)}</small></div><button className="icon-button" type="button" onClick={() => void deleteWeek(item.id)} disabled={saving} aria-label={`Delete week ${item.week_number}`}><Trash2 size={14} /></button></div>)}{!weeks.length && <p className="calendar-muted-copy">No teaching weeks configured in this calendar year view.</p>}</div>
           </form>
+        </div>}
+        {tab === 'bell' && <div className="bell-management">
+          <form className="calendar-inline-form bell-create-form" onSubmit={(event) => void createBellSchedule(event)}>
+            <label className="field"><span>Bell schedule name</span><input required minLength={2} maxLength={100} value={bellName} onChange={(event) => setBellName(event.target.value)} placeholder="e.g. Standard day" /></label>
+            <label className="field"><span>Week pattern</span><select required value={bellPatternId} onChange={(event) => setBellPatternId(event.target.value)}>{patterns.map((item) => <option key={item.id} value={item.id}>{item.name}</option>)}</select></label>
+            <label className="field"><span>Rotation cycle</span><select value={bellCycleWeeks} onChange={(event) => setBellCycleWeeks(Number(event.target.value))}><option value={1}>Weekly schedule</option><option value={2}>Two-week rotation (A/B)</option></select></label>
+            <button className="button button-primary" type="submit" disabled={saving || !patterns.length}>Create bell schedule</button>
+          </form>
+          {bellSchedules.length > 0 && <div className="bell-schedule-toolbar">
+            <label className="field"><span>Bell schedule</span><select value={bellScheduleId} onChange={(event) => { setBellScheduleId(event.target.value); resetBellPeriodForm(); }}>{bellSchedules.map((item) => <option key={item.id} value={item.id}>{item.name}</option>)}</select></label>
+            {selectedBellSchedule && <><button className="button button-quiet" type="button" disabled={saving} onClick={() => void updateBellSchedule({ cycle_weeks: selectedBellSchedule.cycle_weeks === 1 ? 2 : 1 })}>{selectedBellSchedule.cycle_weeks === 1 ? 'Enable A/B rotation' : 'Use weekly schedule'}</button><button className="icon-button" type="button" disabled={saving} aria-label="Delete bell schedule" onClick={() => void deleteBellSchedule(selectedBellSchedule.id)}><Trash2 size={15} /></button></>}
+          </div>}
+          {!bellSchedules.length && <EmptyState title="No bell schedules" detail="Create a bell schedule to configure day-specific periods, breaks, assemblies, registration, and lesson availability." />}
+          {selectedBellSchedule && <div className="bell-management-grid">
+            <form className="calendar-config-form bell-period-form" onSubmit={(event) => void saveBellPeriod(event)}>
+              <h3>{periodEditingId ? 'Edit period' : 'Add period'}</h3>
+              {selectedBellSchedule.cycle_weeks === 2 && <label className="field"><span>Rotation week</span><select value={periodCycle} onChange={(event) => setPeriodCycle(Number(event.target.value))}><option value={1}>Week A</option><option value={2}>Week B</option></select></label>}
+              <label className="field"><span>Day</span><select value={periodDay} onChange={(event) => setPeriodDay(Number(event.target.value))}>{weekdays.map((day, index) => <option value={index + 1} key={day} disabled={!patternDays.some((item) => item.pattern_id === selectedBellSchedule.week_pattern_id && item.day_of_week === index + 1 && item.is_open)}>{day}</option>)}</select></label>
+              <div className="form-row"><label className="field"><span>Period number</span><input required type="number" min={1} max={24} value={periodNumber} onChange={(event) => setPeriodNumber(Number(event.target.value))} /></label><label className="field"><span>Period type</span><select value={periodType} onChange={(event) => { setPeriodType(event.target.value as BellPeriod['period_type']); if (event.target.value !== 'lesson') setPeriodAllowsDouble(false); }}><option value="lesson">Lesson</option><option value="break">Break</option><option value="lunch">Lunch</option><option value="assembly">Assembly</option><option value="registration">Registration</option><option value="other">Other</option></select></label></div>
+              <label className="field"><span>Period name</span><input required maxLength={80} value={periodName} onChange={(event) => setPeriodName(event.target.value)} placeholder={periodType === 'lesson' ? 'e.g. Period 1' : `e.g. ${periodType}`} /></label>
+              <div className="form-row"><label className="field"><span>Starts</span><input required type="time" value={periodStart} onChange={(event) => setPeriodStart(event.target.value)} /></label><label className="field"><span>Ends</span><input required type="time" value={periodEnd} onChange={(event) => setPeriodEnd(event.target.value)} /></label></div>
+              {periodType === 'lesson' && <>
+                <label className="calendar-checkbox"><input type="checkbox" checked={periodAllowsDouble} onChange={(event) => setPeriodAllowsDouble(event.target.checked)} /><span>Allow this period to begin a double lesson</span></label>
+                <fieldset className="bell-subject-rules"><legend>Subject availability</legend><p className="calendar-muted-copy">Leave all unchecked to allow any subject.</p>{subjects.map((subject) => <label key={subject.id}><input type="checkbox" checked={periodAllowedSubjects.includes(subject.id)} onChange={() => setPeriodAllowedSubjects((current) => current.includes(subject.id) ? current.filter((id) => id !== subject.id) : [...current, subject.id])} />{subject.name}</label>)}</fieldset>
+              </>}
+              <div className="calendar-form-actions"><button className="button button-primary" type="submit" disabled={saving}>{periodEditingId ? 'Save period' : 'Add period'}</button>{periodEditingId && <button className="button button-quiet" type="button" onClick={resetBellPeriodForm}>Cancel edit</button>}</div>
+            </form>
+            <div className="bell-preview">
+              <div className="calendar-record-list"><h3>{selectedBellSchedule.name} · preview</h3>
+                {selectedBellSchedule.cycle_weeks === 2 && <div className="calendar-tabs bell-cycle-tabs">{[1, 2].map((cycle) => <button type="button" key={cycle} className={periodCycle === cycle ? 'active' : ''} onClick={() => setPeriodCycle(cycle)}>{cycle === 1 ? 'Week A' : 'Week B'}</button>)}</div>}
+                {weekdays.map((day, dayIndex) => {
+                  const isOpen = patternDays.some((item) => item.pattern_id === selectedBellSchedule.week_pattern_id && item.day_of_week === dayIndex + 1 && item.is_open);
+                  const dayPeriods = selectedBellPeriods.filter((item) => item.cycle_week === periodCycle && item.day_of_week === dayIndex + 1);
+                  if (!isOpen && !dayPeriods.length) return null;
+                  return <section className="bell-preview-day" key={day}><h4>{day}</h4>{dayPeriods.length ? dayPeriods.map((period) => {
+                    const ruleIds = bellPeriodSubjects.filter((item) => item.period_id === period.id).map((item) => item.subject_id);
+                    const isEditing = periodEditingId === period.id;
+                    return <div className={`bell-period-row${isEditing ? ' editing' : ''}`} key={period.id}><time>{period.starts_at.slice(0, 5)}–{period.ends_at.slice(0, 5)}</time><span className={`bell-period-type bell-${period.period_type}`}>{period.name}</span><small>{period.period_type}{period.allows_double ? ' · double allowed' : ''}{ruleIds.length ? ` · ${ruleIds.map((id) => subjects.find((subject) => subject.id === id)?.name ?? 'Subject').join(', ')}` : ''}</small><span className="bell-period-actions"><button className="icon-button" type="button" aria-label={`Edit ${period.name}`} onClick={() => editBellPeriod(period)}><span aria-hidden="true">✎</span></button><button className="icon-button" type="button" aria-label={`Delete ${period.name}`} disabled={saving} onClick={() => void deleteBellPeriod(period.id)}><Trash2 size={14} /></button></span></div>;
+                  }) : <p className="calendar-muted-copy">No periods configured yet.</p>}</section>;
+                })}
+              </div>
+            </div>
+          </div>}
         </div>}
         {tab === 'dates' && <div className="calendar-management-grid">
           <form className="calendar-config-form" onSubmit={(event) => void createCalendarDate(event)}>
