@@ -6,13 +6,14 @@ import {
 import { useAuth } from '../contexts/AuthContext';
 import { EmptyState, ErrorState, LoadingState, SuccessMessage } from '../components/Feedback';
 import { requireSupabase } from '../lib/supabase';
+import { AttendanceAutomationPanel } from './AttendanceAutomationPanel';
 import type { SchoolClass } from '../types/database';
 
 type Status = 'present' | 'absent' | 'late' | 'excused';
 type SessionType = 'daily' | 'morning' | 'afternoon' | 'lesson';
 type SessionState = 'open' | 'submitted' | 'closed';
 type AbsenceCategory = 'unexplained' | 'medical' | 'authorized' | 'other';
-type Tab = 'register' | 'history' | 'reports' | 'explanations' | 'settings' | 'my-attendance';
+type Tab = 'register' | 'history' | 'reports' | 'explanations' | 'settings' | 'my-attendance' | 'advanced';
 
 interface RosterStudent {
   id: string;
@@ -145,6 +146,14 @@ export function AttendancePage() {
   const [parentExplanationsEnabled, setParentExplanationsEnabled] = useState(true);
   const [notifyAbsence, setNotifyAbsence] = useState(false);
   const [notifyLate, setNotifyLate] = useState(false);
+  const [attendanceTarget, setAttendanceTarget] = useState('95');
+  const [attendanceWarning, setAttendanceWarning] = useState('90');
+  const [repeatedAbsenceThreshold, setRepeatedAbsenceThreshold] = useState('3');
+  const [consecutiveAbsenceThreshold, setConsecutiveAbsenceThreshold] = useState('3');
+  const [autoLockAfterDays, setAutoLockAfterDays] = useState('');
+  const [lateToAbsenceMinutes, setLateToAbsenceMinutes] = useState('');
+  const [calculationBasis, setCalculationBasis] = useState<'daily' | 'lesson'>('daily');
+  const [excusedCountsAsPresent, setExcusedCountsAsPresent] = useState(false);
   const [overrideDay, setOverrideDay] = useState(false);
   const [overrideReason, setOverrideReason] = useState('');
   const [historySessions, setHistorySessions] = useState<HistorySession[]>([]);
@@ -217,7 +226,7 @@ export function AttendancePage() {
           .select('status,label,enabled,counts_as_present,sort_order')
           .eq('school_id', schoolId).order('sort_order'),
         client.from('attendance_settings')
-          .select('default_session_type,late_after,require_complete_register,allow_parent_explanations,notify_on_absence,notify_on_late')
+          .select('default_session_type,late_after,require_complete_register,allow_parent_explanations,notify_on_absence,notify_on_late,attendance_target_percent,attendance_warning_percent,repeated_absence_threshold,consecutive_absence_threshold,auto_lock_after_days,late_to_absence_after_minutes,attendance_calculation_basis,excused_counts_as_present')
           .eq('school_id', schoolId).maybeSingle(),
       ]);
       const failed = [classResult.error, yearResult.error, termResult.error, statusResult.error, settingsResult.error].find(Boolean);
@@ -233,7 +242,18 @@ export function AttendancePage() {
           ? await client.from('teacher_class_assignments').select('class_id').eq('school_id', schoolId).in('teacher_id', teacherIds)
           : { data: [], error: null };
         if (assignmentError) throw assignmentError;
+        const { data: substituteRows, error: substituteError } = teacherIds.length
+          ? await client.from('attendance_substitute_assignments')
+            .select('session:attendance_sessions!inner(class_id)')
+            .eq('school_id', schoolId).in('substitute_teacher_id', teacherIds)
+          : { data: [], error: null };
+        if (substituteError) throw substituteError;
         const assignedIds = new Set((assignmentRows ?? []).map((row) => row.class_id));
+        for (const item of substituteRows ?? []) {
+          const session = item.session as { class_id: string } | { class_id: string }[] | null;
+          const classId = Array.isArray(session) ? session[0]?.class_id : session?.class_id;
+          if (classId) assignedIds.add(classId);
+        }
         allowedClasses = allowedClasses.filter((schoolClass) => assignedIds.has(schoolClass.id));
       }
 
@@ -251,6 +271,14 @@ export function AttendancePage() {
         setParentExplanationsEnabled(settingsResult.data.allow_parent_explanations);
         setNotifyAbsence(settingsResult.data.notify_on_absence);
         setNotifyLate(settingsResult.data.notify_on_late);
+        setAttendanceTarget(String(settingsResult.data.attendance_target_percent));
+        setAttendanceWarning(String(settingsResult.data.attendance_warning_percent));
+        setRepeatedAbsenceThreshold(String(settingsResult.data.repeated_absence_threshold));
+        setConsecutiveAbsenceThreshold(String(settingsResult.data.consecutive_absence_threshold));
+        setAutoLockAfterDays(settingsResult.data.auto_lock_after_days === null ? '' : String(settingsResult.data.auto_lock_after_days));
+        setLateToAbsenceMinutes(settingsResult.data.late_to_absence_after_minutes === null ? '' : String(settingsResult.data.late_to_absence_after_minutes));
+        setCalculationBasis(settingsResult.data.attendance_calculation_basis);
+        setExcusedCountsAsPresent(settingsResult.data.excused_counts_as_present);
         setSessionType((current) => current === 'daily' ? selectedDefaultType : current);
       }
 
@@ -580,6 +608,10 @@ export function AttendancePage() {
   async function saveSettings(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
     if (!schoolId || !canManage) return;
+    if (Number(attendanceWarning) > Number(attendanceTarget)) {
+      setError('The warning threshold cannot be higher than the attendance target.');
+      return;
+    }
     if (!statusSettings.some((item) => item.enabled)) {
       setError('Enable at least one attendance status.');
       return;
@@ -597,6 +629,14 @@ export function AttendancePage() {
         allow_parent_explanations: parentExplanationsEnabled,
         notify_on_absence: notifyAbsence,
         notify_on_late: notifyLate,
+        attendance_target_percent: Number(attendanceTarget),
+        attendance_warning_percent: Number(attendanceWarning),
+        repeated_absence_threshold: Number(repeatedAbsenceThreshold),
+        consecutive_absence_threshold: Number(consecutiveAbsenceThreshold),
+        auto_lock_after_days: autoLockAfterDays ? Number(autoLockAfterDays) : null,
+        late_to_absence_after_minutes: lateToAbsenceMinutes ? Number(lateToAbsenceMinutes) : null,
+        attendance_calculation_basis: calculationBasis,
+        excused_counts_as_present: excusedCountsAsPresent,
         updated_by: user?.id,
       }, { onConflict: 'school_id' });
       if (settingsError) throw settingsError;
@@ -675,8 +715,15 @@ export function AttendancePage() {
       return name.includes(searchText.trim().toLowerCase());
     });
   }, [reportRecords, reportStudents, selectedStatus, searchText]);
-  const attendancePercent = reportRecords.length
-    ? Math.round(reportRecords.filter((record) => statusSettings.find((item) => item.status === record.status)?.counts_as_present).length / reportRecords.length * 100)
+  const calculationRecords = reportRecords.filter((record) => {
+    const recordSession = historySessions.find((item) => item.id === record.session_id);
+    return calculationBasis === 'lesson'
+      ? recordSession?.session_type === 'lesson'
+      : recordSession?.session_type !== 'lesson';
+  });
+  const attendancePercent = calculationRecords.length
+    ? Math.round(calculationRecords.filter((record) => statusSettings.find((item) => item.status === record.status)?.counts_as_present
+      || (record.status === 'excused' && excusedCountsAsPresent)).length / calculationRecords.length * 100)
     : 0;
   const calendarMonthDate = new Date(`${date.slice(0, 7)}-01T12:00:00`);
   const calendarDaysCount = new Date(calendarMonthDate.getFullYear(), calendarMonthDate.getMonth() + 1, 0).getDate();
@@ -715,10 +762,14 @@ export function AttendancePage() {
       { id: 'register', label: 'Take attendance' },
       { id: 'history', label: 'History' },
       { id: 'reports', label: 'Reports' },
+      { id: 'advanced', label: 'Automation & workflows' },
       { id: 'explanations', label: 'Absence explanations' },
       ...(canManage ? [{ id: 'settings' as const, label: 'Attendance setup' }] : []),
     ]
-    : [{ id: 'my-attendance', label: role === 'parent' ? "Children's attendance" : 'My attendance' }];
+    : [
+    { id: 'my-attendance', label: role === 'parent' ? "Children's attendance" : 'My attendance' },
+    ...(role === 'parent' || role === 'student' ? [{ id: 'advanced' as const, label: 'Leave & corrections' }] : []),
+    ];
 
   if (loading) return <LoadingState label="Loading attendance workspace…" />;
 
@@ -840,6 +891,14 @@ export function AttendancePage() {
         })}</tbody></table></div> : <EmptyState title="No explanations awaiting review" detail="Parent-submitted absence explanations will appear here." />}
       </section>}
 
+      {tab === 'advanced' && schoolId && user && role && role !== 'system_admin' && <AttendanceAutomationPanel
+        schoolId={schoolId}
+        userId={user.id}
+        role={role}
+        active
+        classes={classes.map((item) => ({ id: item.id, name: item.name }))}
+      />}
+
       {canManage && tab === 'settings' && <form className="content-card attendance-settings-card" onSubmit={(event) => void saveSettings(event)}>
         <div className="attendance-table-heading"><div><span className="eyebrow"><Settings2 size={14} /> School policy</span><h2>Attendance defaults</h2></div></div>
         <div className="attendance-settings-grid"><label>Default session type<select value={defaultSessionType} onChange={(event) => setDefaultSessionType(event.target.value as SessionType)}>{sessionTypes.filter((item) => item.value !== 'lesson').map((item) => <option key={item.value} value={item.value}>{item.label}</option>)}</select></label><label>Late threshold (optional)<input type="time" value={lateAfter} onChange={(event) => setLateAfter(event.target.value)} /></label></div>
@@ -847,8 +906,19 @@ export function AttendancePage() {
         <label className="attendance-setting-check"><input type="checkbox" checked={parentExplanationsEnabled} onChange={(event) => setParentExplanationsEnabled(event.target.checked)} />Accept parent and guardian absence explanations</label>
         <label className="attendance-setting-check"><input type="checkbox" checked={notifyAbsence} onChange={(event) => setNotifyAbsence(event.target.checked)} />Send in-app notifications to linked students and guardians when marked absent</label>
         <label className="attendance-setting-check"><input type="checkbox" checked={notifyLate} onChange={(event) => setNotifyLate(event.target.checked)} />Send in-app notifications to linked students and guardians when marked late</label>
+        <h3>Attendance automation and calculations</h3>
+        <div className="attendance-settings-grid">
+          <label>Attendance target (%)<input type="number" min="0" max="100" step="0.1" value={attendanceTarget} onChange={(event) => setAttendanceTarget(event.target.value)} required /></label>
+          <label>Warning threshold (%)<input type="number" min="0" max="100" step="0.1" value={attendanceWarning} onChange={(event) => setAttendanceWarning(event.target.value)} required /></label>
+          <label>Repeated absences (last 30 days)<input type="number" min="2" max="30" value={repeatedAbsenceThreshold} onChange={(event) => setRepeatedAbsenceThreshold(event.target.value)} required /></label>
+          <label>Consecutive school-day absences<input type="number" min="2" max="30" value={consecutiveAbsenceThreshold} onChange={(event) => setConsecutiveAbsenceThreshold(event.target.value)} required /></label>
+          <label>Automatic lock after submission (days)<input type="number" min="1" max="90" value={autoLockAfterDays} onChange={(event) => setAutoLockAfterDays(event.target.value)} placeholder="Disabled" /></label>
+          <label>Convert very late arrivals to absent after (minutes)<input type="number" min="30" max="360" value={lateToAbsenceMinutes} onChange={(event) => setLateToAbsenceMinutes(event.target.value)} placeholder="Disabled" /></label>
+          <label>Attendance calculation basis<select value={calculationBasis} onChange={(event) => setCalculationBasis(event.target.value as 'daily' | 'lesson')}><option value="daily">Daily / registration</option><option value="lesson">Lesson level</option></select></label>
+        </div>
+        <label className="attendance-setting-check"><input type="checkbox" checked={excusedCountsAsPresent} onChange={(event) => setExcusedCountsAsPresent(event.target.checked)} />Count excused attendance toward the attendance percentage</label>
         <h3>Permitted attendance statuses</h3><div className="attendance-status-settings">{statusSettings.map((item) => <div key={item.status}><label><input type="checkbox" checked={item.enabled} onChange={(event) => setStatusSettings((current) => current.map((status) => status.status === item.status ? { ...status, enabled: event.target.checked } : status))} /><strong>{item.status}</strong></label><input aria-label={`${item.status} label`} value={item.label} maxLength={30} onChange={(event) => setStatusSettings((current) => current.map((status) => status.status === item.status ? { ...status, label: event.target.value } : status))} /><label><input type="checkbox" checked={item.counts_as_present} onChange={(event) => setStatusSettings((current) => current.map((status) => status.status === item.status ? { ...status, counts_as_present: event.target.checked } : status))} />Counts toward attendance</label><input aria-label={`${item.label} display order`} type="number" min="0" max="99" value={item.sort_order} onChange={(event) => setStatusSettings((current) => current.map((status) => status.status === item.status ? { ...status, sort_order: Number(event.target.value) } : status))} /></div>)}</div>
-        <div className="attendance-form-footer"><span>Holiday and configured non-school-day rules are checked when a session is opened.</span><button className="button button-primary" type="submit" disabled={saving}><Save size={15} />{saving ? 'Saving…' : 'Save attendance setup'}</button></div>
+        <div className="attendance-form-footer"><span>Threshold scans and automatic locking run when staff use Run follow-up scan in the advanced attendance workspace.</span><button className="button button-primary" type="submit" disabled={saving}><Save size={15} />{saving ? 'Saving…' : 'Save attendance setup'}</button></div>
       </form>}
 
       {canSeePersonal && tab === 'my-attendance' && <>

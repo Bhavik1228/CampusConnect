@@ -372,6 +372,8 @@ export function TimetableManager({
   const [draftBellPeriodId, setDraftBellPeriodId] = useState('');
   const [doublePeriod, setDoublePeriod] = useState(false);
   const [targetClassId, setTargetClassId] = useState('*');
+  const [assignmentTeacherId, setAssignmentTeacherId] = useState('');
+  const [assignmentSubjectId, setAssignmentSubjectId] = useState('');
   const [plans, setPlans] = useState<SubjectPlan[]>([]);
   const [weekdays, setWeekdays] = useState([1, 2, 3, 4, 5]);
   const [startAt, setStartAt] = useState('08:00');
@@ -620,6 +622,49 @@ export function TimetableManager({
     }
   }
 
+  async function assignTeacherSubject(event: FormEvent<HTMLFormElement>) {
+      event.preventDefault();
+      if (!assignmentTeacherId || !assignmentSubjectId) return;
+      setSaving(true);
+      setError('');
+      try {
+        const { error: assignmentError } = await requireSupabase().from('teacher_subjects').insert({
+          school_id: schoolId,
+          teacher_id: assignmentTeacherId,
+          subject_id: assignmentSubjectId,
+        });
+        if (assignmentError) throw assignmentError;
+        setSubjectTeachers((current) => [...current, {
+          teacher_id: assignmentTeacherId,
+          subject_id: assignmentSubjectId,
+        }]);
+        setAssignmentTeacherId('');
+        setAssignmentSubjectId('');
+      } catch (assignmentError) {
+        setError(assignmentError instanceof Error ? assignmentError.message : 'Could not assign this subject to the teacher.');
+      } finally {
+        setSaving(false);
+      }
+  }
+
+  async function removeTeacherSubject(assignment: SubjectTeacher) {
+      setSaving(true);
+      setError('');
+      try {
+        const { error: assignmentError } = await requireSupabase().from('teacher_subjects').delete()
+          .eq('school_id', schoolId)
+          .eq('teacher_id', assignment.teacher_id)
+          .eq('subject_id', assignment.subject_id);
+        if (assignmentError) throw assignmentError;
+        setSubjectTeachers((current) => current.filter((item) =>
+          item.teacher_id !== assignment.teacher_id || item.subject_id !== assignment.subject_id));
+      } catch (assignmentError) {
+        setError(assignmentError instanceof Error ? assignmentError.message : 'Could not remove this teacher subject assignment.');
+      } finally {
+        setSaving(false);
+    }
+  }
+
   const subjectOptions = subjects.map((subject) => ({
     ...subject,
     availableTeachers: selectableTeachers(subject.id, draft.class_id),
@@ -649,6 +694,24 @@ export function TimetableManager({
         <button type="button" className="button button-primary" onClick={() => { setError(''); setDialog('generate'); }} disabled={readOnly || saving || referencesLoading}><CalendarClock size={15} />Generate timetable</button>
       </div>}
     </div>
+    {!readOnly && <section className="content-card timetable-assignment-card">
+      <div><span className="eyebrow">Timetable eligibility</span><h2>Teacher subject assignments</h2>
+        <p>Assign each teacher to the subjects they are qualified to teach. The generator uses these assignments to choose eligible teachers.</p></div>
+      <form className="timetable-assignment-form" onSubmit={(event) => void assignTeacherSubject(event)}>
+        <label className="field"><span>Teacher</span><select required value={assignmentTeacherId} onChange={(event) => setAssignmentTeacherId(event.target.value)}><option value="">Choose a teacher</option>{teachers.map((teacher) => <option key={teacher.id} value={teacher.id}>{teacher.first_name} {teacher.last_name}</option>)}</select></label>
+        <label className="field"><span>Subject</span><select required value={assignmentSubjectId} onChange={(event) => setAssignmentSubjectId(event.target.value)}><option value="">Choose a subject</option>{subjects.map((subject) => <option key={subject.id} value={subject.id}>{subject.name}</option>)}</select></label>
+        <button type="submit" className="button button-primary" disabled={saving || !assignmentTeacherId || !assignmentSubjectId}><Plus size={15} />Assign subject</button>
+      </form>
+      {subjectTeachers.length ? <div className="timetable-assignment-list">{subjectTeachers.map((assignment) => {
+        const teacher = teachers.find((item) => item.id === assignment.teacher_id);
+        const subject = subjects.find((item) => item.id === assignment.subject_id);
+        if (!teacher || !subject) return null;
+        return <span key={`${assignment.teacher_id}:${assignment.subject_id}`}>
+          {teacher.first_name} {teacher.last_name} · {subject.name}
+          <button type="button" className="icon-button" aria-label={`Remove ${subject.name} from ${teacher.first_name} ${teacher.last_name}`} onClick={() => void removeTeacherSubject(assignment)} disabled={saving}><Trash2 size={13} /></button>
+        </span>;
+      })}</div> : <p className="timetable-assignment-empty">No teacher subject assignments yet. Add assignments before generating the timetable.</p>}
+    </section>}
     {entries.length > 0 ? <div className="table-scroll timetable-entry-table"><table>
       <thead><tr><th>Cycle</th><th>Day</th><th>Time</th><th>Class</th><th>Subject / activity</th><th>Teacher</th><th>Room</th>{!readOnly && <th>Actions</th>}</tr></thead>
       <tbody>{[...entries].sort((left, right) => left.day_of_week - right.day_of_week || left.starts_at.localeCompare(right.starts_at)).map((entry) => {

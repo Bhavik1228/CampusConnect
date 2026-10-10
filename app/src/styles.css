@@ -243,6 +243,41 @@ td strong { color: #3e435a; font-weight: 600; }
 .attendance-settings-card input[type=time], .attendance-status-settings input[type=number] {
   min-height: 36px; padding: 0 10px; border: 1px solid #e5e6ee; border-radius: 8px; background: #fff; color: #42485e; font-size: 11px;
 }
+.attendance-advanced-workspace { display: grid; gap: 14px; min-width: 0; }
+.attendance-advanced-message { padding: 10px 13px; border: 1px solid; border-radius: 8px; font-size: 11px; }
+.attendance-advanced-message.error { border-color: #f1d4d9; background: #fff4f5; color: #a34352; }
+.attendance-advanced-message.success { border-color: #cbe9d8; background: #eff9f3; color: #317b55; }
+.attendance-automation-form { display: grid; gap: 15px; padding: 18px; }
+.attendance-automation-form h2 { margin: 5px 0; color: #30354b; font-size: 15px; }
+.attendance-automation-form p, .attendance-automation-copy { margin: 4px 0 0; color: #81869a; font-size: 11px; line-height: 1.55; }
+.attendance-automation-fields { display: grid; grid-template-columns: repeat(auto-fit, minmax(165px, 1fr)); align-items: end; gap: 11px; }
+.attendance-automation-fields label { display: grid; gap: 6px; color: #555b70; font-size: 10px; font-weight: 700; }
+.attendance-automation-fields input, .attendance-automation-fields select, .attendance-automation-fields textarea,
+.attendance-template-grid input, .attendance-template-grid textarea {
+  width: 100%; min-height: 36px; padding: 8px 10px; border: 1px solid #e5e6ee; border-radius: 8px; background: #fff; color: #42485e; font-size: 11px;
+}
+.attendance-automation-fields textarea, .attendance-template-grid textarea { min-height: 76px; resize: vertical; }
+.attendance-operations-card { padding: 0; overflow: hidden; }
+.attendance-operations-card > .attendance-automation-copy { padding: 0 17px 12px; }
+.attendance-file-input { display: grid; gap: 7px; padding: 0 17px 15px; color: #555b70; font-size: 10px; font-weight: 700; }
+.attendance-file-input input { max-width: 100%; color: #62677b; font-size: 11px; }
+.attendance-template-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(260px, 1fr)); gap: 12px; padding: 15px; }
+.attendance-template-grid article { display: grid; align-content: start; gap: 9px; padding: 13px; border: 1px solid #ececf3; border-radius: 9px; }
+.attendance-template-grid article .attendance-setting-check { color: #555b70; font-size: 10px; font-weight: 700; }
+.attendance-template-grid .button { justify-self: start; }
+.timetable-assignment-card { display: grid; gap: 12px; padding: 17px; }
+.timetable-assignment-card h2 { margin: 5px 0; color: #30354b; font-size: 15px; }
+.timetable-assignment-card p { margin: 4px 0 0; color: #81869a; font-size: 11px; line-height: 1.55; }
+.timetable-assignment-form { display: grid; grid-template-columns: repeat(2, minmax(160px, 1fr)) auto; align-items: end; gap: 10px; }
+.timetable-assignment-list { display: flex; flex-wrap: wrap; gap: 8px; }
+.timetable-assignment-list > span { display: inline-flex; align-items: center; gap: 6px; padding: 4px 6px 4px 10px; border: 1px solid #e8e9f0; border-radius: 20px; color: #555b70; font-size: 10px; }
+.timetable-assignment-list .icon-button { width: 24px; height: 24px; }
+.timetable-assignment-empty { padding: 10px 12px; border: 1px dashed #dedfe8; border-radius: 8px; }
+@media (max-width: 720px) {
+  .attendance-automation-fields { grid-template-columns: 1fr; }
+  .attendance-template-grid { grid-template-columns: 1fr; }
+  .timetable-assignment-form { grid-template-columns: 1fr; }
+}
 .attendance-override { display: flex; align-items: center; flex-wrap: wrap; gap: 10px; padding: 12px 15px; border: 1px solid #f0dfbd; border-radius: 10px; background: #fffaf0; color: #79602d; font-size: 11px; }
 .attendance-override > label, .attendance-setting-check { display: flex; align-items: center; gap: 8px; }
 .attendance-override input[type=text] { width: min(360px, 100%); min-height: 34px; padding: 0 10px; border: 1px solid #eadbbd; border-radius: 7px; }
