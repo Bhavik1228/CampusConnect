@@ -13,6 +13,7 @@ import { SchoolSettingsPage } from '../pages/SchoolSettingsPage';
 import { LandingPage } from '../pages/LandingPage';
 import { TimetableDashboardPage } from '../pages/TimetableDashboardPage';
 import { AcademicCalendarPage } from '../pages/AcademicCalendarPage';
+import { TestMakerPage } from '../pages/TestMakerPage';
 
 function RouteGate({ authOnly = true }: { authOnly?: boolean }) {
   const { user, loading, memberships } = useAuth();
@@ -46,7 +47,7 @@ export function ProtectedApp() {
           <Route path="/timetable" element={<TimetableDashboardPage />} />
           <Route path="/academic-calendar" element={<AcademicCalendarPage />} />
           <Route path="/attendance" element={<AttendancePage />} />
-          <Route path="/learning" element={<AcademicPages kind="learning" />} />
+          <Route path="/learning" element={<TestMakerPage />} />
           <Route path="/calendar" element={<AcademicPages kind="calendar" />} />
           <Route path="/settings" element={<SchoolSettingsPage />} />
         </Route>
