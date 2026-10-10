@@ -1,0 +1,112 @@
+name: Import authorized past paper
+
+on:
+  workflow_dispatch:
+    inputs:
+      source_url:
+        description: HTTPS URL for a paper the school is licensed or permitted to store
+        required: true
+        type: string
+      school_id:
+        description: Target school UUID
+        required: true
+        type: string
+      created_by:
+        description: Teacher or school-admin profile UUID
+        required: true
+        type: string
+      subject_name:
+        description: Subject name
+        required: true
+        type: string
+      subject_code:
+        description: Syllabus code
+        required: true
+        type: string
+      year:
+        description: Exam year
+        required: true
+        type: string
+      session:
+        description: Exam session (m=March, s=June, w=November)
+        required: true
+        type: choice
+        options:
+          - m
+          - s
+          - w
+      paper_number:
+        description: Paper variant, for example 11 or 22
+        required: true
+        type: string
+      document_type:
+        description: Document type
+        required: true
+        type: choice
+        options:
+          - qp
+          - ms
+          - er
+          - specimen
+      rights_basis:
+        description: License or permission that authorizes this copy and school storage
+        required: true
+        type: string
+      rights_confirmed:
+        description: Confirm the school has permission to copy and store this document
+        required: true
+        type: boolean
+
+permissions:
+  contents: read
+
+jobs:
+  import:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check out application
+        uses: actions/checkout@v4
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+          cache-dependency-path: app/package-lock.json
+
+      - name: Install app dependencies
+        working-directory: app
+        run: npm ci
+
+      - name: Import paper directly to private Firebase Storage
+        working-directory: app
+        env:
+          SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+          SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
+          FIREBASE_SERVICE_ACCOUNT: ${{ secrets.FIREBASE_SERVICE_ACCOUNT }}
+          FIREBASE_STORAGE_BUCKET: ${{ secrets.FIREBASE_STORAGE_BUCKET }}
+          PAPER_SOURCE_HOSTS: ${{ vars.PAPER_SOURCE_HOSTS }}
+          INPUT_SOURCE_URL: ${{ inputs.source_url }}
+          INPUT_SCHOOL_ID: ${{ inputs.school_id }}
+          INPUT_CREATED_BY: ${{ inputs.created_by }}
+          INPUT_SUBJECT_NAME: ${{ inputs.subject_name }}
+          INPUT_SUBJECT_CODE: ${{ inputs.subject_code }}
+          INPUT_YEAR: ${{ inputs.year }}
+          INPUT_SESSION: ${{ inputs.session }}
+          INPUT_PAPER_NUMBER: ${{ inputs.paper_number }}
+          INPUT_DOCUMENT_TYPE: ${{ inputs.document_type }}
+          INPUT_RIGHTS_BASIS: ${{ inputs.rights_basis }}
+          INPUT_RIGHTS_CONFIRMED: ${{ inputs.rights_confirmed }}
+        run: >-
+          npm run import:authorized-paper --
+          --source-url "$INPUT_SOURCE_URL"
+          --school-id "$INPUT_SCHOOL_ID"
+          --created-by "$INPUT_CREATED_BY"
+          --subject-name "$INPUT_SUBJECT_NAME"
+          --subject-code "$INPUT_SUBJECT_CODE"
+          --year "$INPUT_YEAR"
+          --session "$INPUT_SESSION"
+          --paper-number "$INPUT_PAPER_NUMBER"
+          --document-type "$INPUT_DOCUMENT_TYPE"
+          --rights-basis "$INPUT_RIGHTS_BASIS"
+          --rights-confirmed "$INPUT_RIGHTS_CONFIRMED"

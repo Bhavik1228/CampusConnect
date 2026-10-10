@@ -20,6 +20,18 @@ type Question = {
   source_url: string;
   mark_scheme: string;
 };
+type PastPaper = {
+  id: string;
+  subject_name: string;
+  subject_code: string;
+  year: number;
+  session: 'm' | 's' | 'w';
+  paper_number: string;
+  document_type: 'qp' | 'ms' | 'er' | 'specimen';
+  file_name: string;
+  file_size: number;
+  created_at: string;
+};
 type Assessment = {
   id: string;
   created_by: string;
@@ -116,7 +128,8 @@ export function TestMakerPage() {
   const [editingQuestionId, setEditingQuestionId] = useState('');
   const [query, setQuery] = useState('');
   const [topicFilter, setTopicFilter] = useState('');
-  const [view, setView] = useState<'assessments' | 'library'>('assessments');
+  const [papers, setPapers] = useState<PastPaper[]>([]);
+  const [view, setView] = useState<'assessments' | 'library' | 'papers'>('assessments');
   const [includeMarkScheme, setIncludeMarkScheme] = useState(false);
   const [printMode, setPrintMode] = useState<PrintMode>('paper');
   const [loading, setLoading] = useState(true);
@@ -128,6 +141,7 @@ export function TestMakerPage() {
     if (!schoolId) return;
     setAssessments([]);
     setQuestions([]);
+    setPapers([]);
     setActiveAssessmentId('');
     setForm({ ...EMPTY_ASSESSMENT });
     setQuery('');
@@ -138,15 +152,18 @@ export function TestMakerPage() {
       setError('');
       try {
         const client = requireSupabase();
-        const [assessmentResult, questionResult] = await Promise.all([
+        const [assessmentResult, questionResult, papersResult] = await Promise.all([
           client.from('learning_assessments').select('*').eq('school_id', schoolId).order('updated_at', { ascending: false }),
           client.from('learning_questions').select('*').eq('school_id', schoolId).order('created_at', { ascending: false }),
+          client.from('past_papers').select('id, subject_name, subject_code, year, session, paper_number, document_type, file_name, file_size, created_at').eq('school_id', schoolId).order('year', { ascending: false }),
         ]);
         if (assessmentResult.error) throw assessmentResult.error;
         if (questionResult.error) throw questionResult.error;
+        if (papersResult.error) throw papersResult.error;
         if (alive) {
           setAssessments((assessmentResult.data ?? []) as Assessment[]);
           setQuestions((questionResult.data ?? []) as Question[]);
+          setPapers((papersResult.data ?? []) as PastPaper[]);
         }
       } catch (loadError) {
         if (alive) setError(getErrorMessage(loadError, 'Could not load the Test Maker.'));
@@ -412,9 +429,10 @@ export function TestMakerPage() {
       <div className="test-maker-tabs" role="tablist" aria-label="Test Maker">
         <button className={view === 'assessments' ? 'active' : ''} onClick={() => setView('assessments')} role="tab" aria-selected={view === 'assessments'}><FileText size={15} /> Tests <span>{assessments.length}</span></button>
         <button className={view === 'library' ? 'active' : ''} onClick={() => setView('library')} role="tab" aria-selected={view === 'library'}><Library size={15} /> Question library <span>{questions.length}</span></button>
+        <button className={view === 'papers' ? 'active' : ''} onClick={() => setView('papers')} role="tab" aria-selected={view === 'papers'}><BookOpenCheck size={15} /> Past papers <span>{papers.length}</span></button>
       </div>
 
-      {loading ? <LoadingState label="Loading tests and questions…" /> : view === 'assessments' ? (
+      {loading ? <LoadingState label="Loading tests, questions, and past papers…" /> : view === 'assessments' ? (
         <div className="test-maker-layout">
           <section className="content-card test-list-card">
             <div className="section-heading"><div><span className="eyebrow">Your workspace</span><h2>Saved tests</h2></div><span className="test-count">{assessments.length}</span></div>
@@ -477,7 +495,7 @@ export function TestMakerPage() {
             </form>
           </section>
         </div>
-      ) : (
+      ) : view === 'library' ? (
         <div className="question-library-layout">
           <section className="content-card library-card">
             <div className="section-heading"><div><span className="eyebrow">School resources</span><h2>Question library</h2></div><span className="test-count">{questions.length}</span></div>
@@ -512,6 +530,22 @@ export function TestMakerPage() {
             </form>
           </section>
         </div>
+      ) : (
+        <section className="content-card authorized-papers-card">
+          <div className="section-heading"><div><span className="eyebrow">School resources</span><h2>Authorized past papers</h2></div><span className="test-count">{papers.length}</span></div>
+          <div className="authorized-papers-notice"><strong>Privately stored in Firebase</strong><p>These records are visible to this school only. Paper files are not publicly exposed; authenticated PDF viewing will be available when a signed-link endpoint is configured.</p></div>
+          <label className="library-search authorized-paper-search"><Search size={15} /><input value={query} onChange={(event) => setQuery(event.target.value)} placeholder="Search subject, code, year, or paper type" /></label>
+          <div className="authorized-paper-list">
+            {papers.filter((paper) => `${paper.subject_name} ${paper.subject_code} ${paper.year} ${paper.paper_number} ${paper.document_type}`.toLowerCase().includes(query.toLowerCase())).map((paper) => (
+              <article className="authorized-paper-item" key={paper.id}>
+                <div><strong>{paper.subject_name} <span>{paper.subject_code}</span></strong><p>{paper.year} · {paper.session === 'm' ? 'March' : paper.session === 's' ? 'June' : 'November'} · Paper {paper.paper_number}</p><small>{paper.document_type === 'qp' ? 'Question paper' : paper.document_type === 'ms' ? 'Mark scheme' : paper.document_type === 'er' ? 'Examiner report' : 'Specimen'} · {(paper.file_size / (1024 * 1024)).toFixed(1)} MB</small></div>
+                <time dateTime={paper.created_at}>{new Date(paper.created_at).toLocaleDateString()}</time>
+              </article>
+            ))}
+            {!papers.length && <div className="test-empty"><span><BookOpenCheck size={20} /></span><strong>No past papers imported</strong><p>Authorized imports can be run from GitHub Actions using the documented workflow.</p></div>}
+            {papers.length > 0 && !papers.some((paper) => `${paper.subject_name} ${paper.subject_code} ${paper.year} ${paper.paper_number} ${paper.document_type}`.toLowerCase().includes(query.toLowerCase())) && <p className="test-inline-empty">No past papers match this search.</p>}
+          </div>
+        </section>
       )}
 
       <section className={`print-assessment${printMode === 'answer-sheet' ? ' answer-sheet-only' : ''}`}>
