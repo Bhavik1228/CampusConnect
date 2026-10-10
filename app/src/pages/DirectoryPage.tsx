@@ -7,6 +7,8 @@ import { EmptyState, ErrorState, LoadingState } from '../components/Feedback';
 
 type Kind = 'students' | 'teachers' | 'classes' | 'subjects';
 type DirectoryRow = Student | SchoolClass | Subject | { id: string; first_name: string; last_name: string; email: string | null; status: string };
+type ClassCalendar = { id: string; name: string; division_name: string | null; is_default: boolean };
+type ClassAcademicYear = { id: string; name: string; calendar_id: string; is_current: boolean };
 
 const config: Record<Kind, { title: string; description: string; singular: string; searchHint: string }> = {
   students: { title: 'Students', description: 'Manage student records, enrollment, and class placement.', singular: 'student', searchHint: 'Search name or student ID' },
@@ -19,6 +21,9 @@ export function DirectoryPage({ kind }: { kind: Kind }) {
   const { activeMembership, activeMembership: membership } = useAuth();
   const [rows, setRows] = useState<DirectoryRow[]>([]);
   const [classes, setClasses] = useState<SchoolClass[]>([]);
+  const [classCalendars, setClassCalendars] = useState<ClassCalendar[]>([]);
+  const [classAcademicYears, setClassAcademicYears] = useState<ClassAcademicYear[]>([]);
+  const [classCalendarId, setClassCalendarId] = useState('');
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
   const [query, setQuery] = useState('');
@@ -51,9 +56,21 @@ export function DirectoryPage({ kind }: { kind: Kind }) {
         if (queryError) throw queryError;
         setRows(data ?? []);
       } else if (kind === 'classes') {
-        const { data, error: queryError } = await client.from('school_classes').select('id,school_id,name,grade_level,academic_year_id,created_at').eq('school_id', schoolId).order('name').range(0, 99);
-        if (queryError) throw queryError;
-        setRows(data ?? []);
+        const [classResult, calendarResult, yearResult] = await Promise.all([
+          client.from('school_classes').select('id,school_id,name,grade_level,academic_year_id,created_at').eq('school_id', schoolId).order('name').range(0, 99),
+          client.from('academic_calendars').select('id,name,division_name,is_default').eq('school_id', schoolId).order('name'),
+          client.from('academic_years').select('id,name,calendar_id,is_current').eq('school_id', schoolId).order('start_date', { ascending: false }),
+        ]);
+        if (classResult.error) throw classResult.error;
+        if (calendarResult.error) throw calendarResult.error;
+        if (yearResult.error) throw yearResult.error;
+        const calendars = (calendarResult.data ?? []) as ClassCalendar[];
+        setRows(classResult.data ?? []);
+        setClassCalendars(calendars);
+        setClassAcademicYears((yearResult.data ?? []) as ClassAcademicYear[]);
+        setClassCalendarId((current) => calendars.some((calendar) => calendar.id === current)
+          ? current
+          : calendars.find((calendar) => calendar.is_default)?.id ?? calendars[0]?.id ?? '');
       } else {
         const { data, error: queryError } = await client.from('subjects').select('id,school_id,name,code,created_at').eq('school_id', schoolId).order('name').range(0, 99);
         if (queryError) throw queryError;
@@ -115,10 +132,13 @@ export function DirectoryPage({ kind }: { kind: Kind }) {
           email: String(formData.get('email')).trim() || null,
         });
       } else if (kind === 'classes') {
+        const calendarId = String(formData.get('calendar_id')) || null;
         result = await client.from('school_classes').insert({
           school_id: schoolId,
           name: String(formData.get('name')).trim(),
           grade_level: String(formData.get('grade_level')).trim() || null,
+          calendar_id: calendarId,
+          academic_year_id: String(formData.get('academic_year_id')) || null,
         });
       } else {
         result = await client.from('subjects').insert({
@@ -153,7 +173,7 @@ export function DirectoryPage({ kind }: { kind: Kind }) {
         {loading ? <LoadingState label={`Loading ${meta.title.toLowerCase()}…`} /> : filteredRows.length === 0 ? <EmptyState title={query ? 'No matching records' : `No ${meta.title.toLowerCase()} yet`} detail={query ? 'Try a different search term.' : canManage ? `Add your first ${meta.singular} to begin building your school records.` : `Records will appear here when your school adds ${meta.title.toLowerCase()}.`} /> : kind === 'students' || kind === 'teachers' ? <div className="table-scroll"><table><thead><tr><th>Name</th>{kind === 'students' && <><th>Student ID</th><th>Class</th></>}<th>Status</th></tr></thead><tbody>{filteredRows.map(personRow)}</tbody></table></div> : <div className="table-scroll"><table><thead><tr><th>{kind === 'classes' ? 'Class name' : 'Subject'}</th><th>{kind === 'classes' ? 'Grade level' : 'Code'}</th><th>Created</th></tr></thead><tbody>{filteredRows.map((row) => { const createdAt = kind === 'classes' ? (row as SchoolClass).created_at : (row as Subject).created_at; return kind === 'classes' ? <tr key={row.id}><td><strong>{(row as SchoolClass).name}</strong></td><td>{(row as SchoolClass).grade_level ?? '—'}</td><td>{new Date(createdAt).toLocaleDateString()}</td></tr> : <tr key={row.id}><td><strong>{(row as Subject).name}</strong></td><td className="mono-cell">{(row as Subject).code ?? '—'}</td><td>{new Date(createdAt).toLocaleDateString()}</td></tr>; })}</tbody></table></div>}
       </section>
       {showForm && <div className="modal-backdrop" role="presentation" onMouseDown={(event) => { if (event.target === event.currentTarget) setShowForm(false); }}><section className="modal-card" role="dialog" aria-modal="true" aria-labelledby="record-modal-title"><div className="modal-heading"><div><span className="eyebrow">School records</span><h2 id="record-modal-title">Add {meta.singular}</h2></div><button className="icon-button" onClick={() => setShowForm(false)} aria-label="Close dialog"><X size={19} /></button></div><form className="modal-form" onSubmit={addRecord}>
-        {kind === 'students' || kind === 'teachers' ? <><div className="form-row"><label className="field"><span>First name</span><input required name="first_name" maxLength={80} /></label><label className="field"><span>Last name</span><input required name="last_name" maxLength={80} /></label></div><label className="field"><span>Email <small>(optional)</small></span><input name="email" type="email" maxLength={254} /></label>{kind === 'students' && <><label className="field"><span>Student ID</span><input required name="student_number" maxLength={40} /></label><div className="form-row"><label className="field"><span>Date of birth <small>(optional)</small></span><input name="date_of_birth" type="date" /></label><label className="field"><span>Class <small>(optional)</small></span><select name="class_id" defaultValue=""><option value="">Not assigned</option>{classes.map((schoolClass) => <option key={schoolClass.id} value={schoolClass.id}>{schoolClass.name}</option>)}</select></label></div></>}</> : kind === 'classes' ? <><label className="field"><span>Class name</span><input required name="name" maxLength={100} placeholder="e.g. Grade 7 Blue" /></label><label className="field"><span>Grade level <small>(optional)</small></span><input name="grade_level" maxLength={50} placeholder="e.g. Grade 7" /></label></> : <><label className="field"><span>Subject name</span><input required name="name" maxLength={100} placeholder="e.g. Mathematics" /></label><label className="field"><span>Subject code <small>(optional)</small></span><input name="code" maxLength={20} /></label></>}
+        {kind === 'students' || kind === 'teachers' ? <><div className="form-row"><label className="field"><span>First name</span><input required name="first_name" maxLength={80} /></label><label className="field"><span>Last name</span><input required name="last_name" maxLength={80} /></label></div><label className="field"><span>Email <small>(optional)</small></span><input name="email" type="email" maxLength={254} /></label>{kind === 'students' && <><label className="field"><span>Student ID</span><input required name="student_number" maxLength={40} /></label><div className="form-row"><label className="field"><span>Date of birth <small>(optional)</small></span><input name="date_of_birth" type="date" /></label><label className="field"><span>Class <small>(optional)</small></span><select name="class_id" defaultValue=""><option value="">Not assigned</option>{classes.map((schoolClass) => <option key={schoolClass.id} value={schoolClass.id}>{schoolClass.name}</option>)}</select></label></div></>}</> : kind === 'classes' ? <><label className="field"><span>Class name</span><input required name="name" maxLength={100} placeholder="e.g. Grade 7 Blue" /></label><label className="field"><span>Grade level <small>(optional)</small></span><input name="grade_level" maxLength={50} placeholder="e.g. Grade 7" /></label><label className="field"><span>Academic calendar / division</span><select required name="calendar_id" value={classCalendarId} onChange={(event) => setClassCalendarId(event.target.value)}>{classCalendars.map((calendar) => <option key={calendar.id} value={calendar.id}>{calendar.name}{calendar.division_name ? ` · ${calendar.division_name}` : calendar.is_default ? ' · Default' : ''}</option>)}</select></label><label className="field"><span>Academic year <small>(optional)</small></span><select name="academic_year_id" defaultValue=""><option value="">Not assigned</option>{classAcademicYears.filter((year) => year.calendar_id === classCalendarId).map((academicYear) => <option key={academicYear.id} value={academicYear.id}>{academicYear.name}{academicYear.is_current ? ' · Current' : ''}</option>)}</select></label></> : <><label className="field"><span>Subject name</span><input required name="name" maxLength={100} placeholder="e.g. Mathematics" /></label><label className="field"><span>Subject code <small>(optional)</small></span><input name="code" maxLength={20} /></label></>}
         {formError && <ErrorState message={formError} />}<div className="modal-actions"><button className="button button-quiet" type="button" onClick={() => setShowForm(false)}>Cancel</button><button className="button button-primary" type="submit" disabled={saving}>{saving ? 'Saving…' : `Save ${meta.singular}`}</button></div>
       </form></section></div>}
     </div>

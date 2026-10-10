@@ -18,6 +18,7 @@ const navigation = [
   ] },
   { title: 'Academics', items: [
     { to: '/timetable', label: 'Timetable', icon: CalendarClock },
+    { to: '/academic-calendar', label: 'Academic calendar', icon: CalendarDays },
     { to: '/attendance', label: 'Attendance', icon: ClipboardCheck },
     { to: '/learning', label: 'Learning', icon: BookOpenText },
     { to: '/calendar', label: 'Calendar', icon: CalendarDays },
@@ -27,7 +28,7 @@ const navigation = [
 const pageNames: Record<string, string> = {
   '/dashboard': 'Overview', '/students': 'Students', '/teachers': 'Teachers',
   '/classes': 'Classes', '/subjects': 'Subjects', '/timetable': 'Timetable', '/attendance': 'Attendance',
-  '/learning': 'Learning', '/calendar': 'Calendar', '/settings': 'Settings',
+  '/learning': 'Learning', '/calendar': 'Calendar', '/academic-calendar': 'Academic calendar', '/settings': 'Settings',
 };
 
 export function AppShell() {

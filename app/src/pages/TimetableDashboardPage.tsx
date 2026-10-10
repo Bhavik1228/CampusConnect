@@ -6,6 +6,7 @@ import {
 import { useAuth } from '../contexts/AuthContext';
 import { EmptyState, ErrorState, LoadingState, SuccessMessage } from '../components/Feedback';
 import { requireSupabase } from '../lib/supabase';
+import { TimetableManager } from './TimetableManager';
 
 type ScheduleStatus = 'draft' | 'published' | 'archived';
 type EntryType = 'lesson' | 'registration' | 'break' | 'lunch' | 'other';
@@ -16,7 +17,14 @@ interface TimetableSchedule {
   name: string;
   status: ScheduleStatus;
   updated_at: string;
+  calendar_id: string;
+  academic_year_id: string | null;
+  week_pattern_id: string;
 }
+
+interface CalendarChoice { id: string; name: string; division_name: string | null; is_default: boolean }
+interface YearChoice { id: string; name: string; calendar_id: string; is_current: boolean }
+interface PatternChoice { id: string; name: string; calendar_id: string }
 
 interface TimetableEntry {
   id: string;
@@ -45,6 +53,7 @@ interface Conflict {
 
 interface Activity {
   id: string;
+  scheduleId: string;
   title: string;
   detail: string;
   updatedAt: string;
@@ -176,7 +185,11 @@ export function TimetableDashboardPage() {
     || activeMembership?.role === 'academic_coordinator'
     || activeMembership?.role === 'system_admin';
   const [schedules, setSchedules] = useState<TimetableSchedule[]>([]);
+  const [calendars, setCalendars] = useState<CalendarChoice[]>([]);
+  const [academicYears, setAcademicYears] = useState<YearChoice[]>([]);
+  const [weekPatterns, setWeekPatterns] = useState<PatternChoice[]>([]);
   const [entries, setEntries] = useState<TimetableEntry[]>([]);
+  const [activity, setActivity] = useState<Activity[]>([]);
   const [selectedScheduleId, setSelectedScheduleId] = useState('');
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
@@ -184,6 +197,9 @@ export function TimetableDashboardPage() {
   const [success, setSuccess] = useState('');
   const [scheduleDialog, setScheduleDialog] = useState<'create' | 'edit' | null>(null);
   const [scheduleName, setScheduleName] = useState('');
+  const [scheduleCalendarId, setScheduleCalendarId] = useState('');
+  const [scheduleYearId, setScheduleYearId] = useState('');
+  const [schedulePatternId, setSchedulePatternId] = useState('');
 
   const refresh = useCallback(async () => {
     if (!schoolId) return;
@@ -191,17 +207,39 @@ export function TimetableDashboardPage() {
     setError('');
     try {
       const client = requireSupabase();
-      const [scheduleResult, timetableEntries] = await Promise.all([
+      const [scheduleResult, timetableEntries, changesResult, calendarResult, yearResult, patternResult] = await Promise.all([
         client.from('timetable_schedules')
-          .select('id,name,status,updated_at')
+          .select('id,name,status,updated_at,calendar_id,academic_year_id,week_pattern_id')
           .eq('school_id', schoolId)
           .order('updated_at', { ascending: false }),
         loadEntries(schoolId),
+        client.from('timetable_schedule_changes')
+          .select('id,schedule_id,action,summary,created_at')
+          .eq('school_id', schoolId)
+          .order('created_at', { ascending: false })
+          .limit(50),
+        client.from('academic_calendars').select('id,name,division_name,is_default').eq('school_id', schoolId).order('name'),
+        client.from('academic_years').select('id,name,calendar_id,is_current').eq('school_id', schoolId).order('start_date', { ascending: false }),
+        client.from('academic_calendar_week_patterns').select('id,name,calendar_id').eq('school_id', schoolId).order('name'),
       ]);
       if (scheduleResult.error) throw scheduleResult.error;
+      if (changesResult.error) throw changesResult.error;
+      if (calendarResult.error) throw calendarResult.error;
+      if (yearResult.error) throw yearResult.error;
+      if (patternResult.error) throw patternResult.error;
       const nextSchedules = (scheduleResult.data ?? []) as TimetableSchedule[];
+      setCalendars((calendarResult.data ?? []) as CalendarChoice[]);
+      setAcademicYears((yearResult.data ?? []) as YearChoice[]);
+      setWeekPatterns((patternResult.data ?? []) as PatternChoice[]);
       setSchedules(nextSchedules);
       setEntries(timetableEntries);
+      setActivity((changesResult.data ?? []).map((change) => ({
+        id: change.id,
+        scheduleId: change.schedule_id,
+        title: change.summary,
+        detail: change.action.replaceAll('_', ' '),
+        updatedAt: change.created_at,
+      })));
       setSelectedScheduleId((current) => nextSchedules.some((schedule) => schedule.id === current)
         ? current
         : nextSchedules[0]?.id ?? '');
@@ -263,23 +301,10 @@ export function TimetableDashboardPage() {
   const roomAssignmentCoverage = lessons.length
     ? Math.round(lessons.filter((entry) => entry.room?.trim()).length / lessons.length * 100)
     : 0;
-  const recentChanges = useMemo<Activity[]>(() => {
-    const scheduleActivities = schedules.map((schedule) => ({
-      id: `schedule-${schedule.id}`,
-      title: schedule.name,
-      detail: `${schedule.status === 'published' ? 'Published' : schedule.status === 'archived' ? 'Archived' : 'Draft'} timetable`,
-      updatedAt: schedule.updated_at,
-    }));
-    const entryActivities = activeEntries.map((entry) => ({
-      id: entry.id,
-      title: subjectName(entry),
-      detail: `${className(entry)} · ${dayLabels[entry.day_of_week - 1] ?? 'Day'}${entry.entry_type === 'lesson' ? ' lesson' : ''}`,
-      updatedAt: entry.updated_at,
-    }));
-    return [...scheduleActivities, ...entryActivities]
-      .sort((left, right) => right.updatedAt.localeCompare(left.updatedAt))
-      .slice(0, 5);
-  }, [activeEntries, schedules]);
+  const recentChanges = useMemo(
+    () => activity.filter((change) => !selectedScheduleId || change.scheduleId === selectedScheduleId).slice(0, 5),
+    [activity, selectedScheduleId],
+  );
 
   const classCount = new Set(lessons.map((entry) => entry.class_id).filter(Boolean)).size;
   const unassignedCount = lessons.filter((entry) => !entry.teacher_id || !entry.room?.trim()).length;
@@ -288,6 +313,13 @@ export function TimetableDashboardPage() {
 
   function openCreateDialog() {
     setScheduleName('');
+    const defaultCalendar = calendars.find((calendar) => calendar.is_default) ?? calendars[0];
+    setScheduleCalendarId(defaultCalendar?.id ?? '');
+    const currentYear = academicYears.find((item) => item.calendar_id === defaultCalendar?.id && item.is_current);
+    setScheduleYearId(currentYear?.id ?? '');
+    setSchedulePatternId(weekPatterns.find((item) => item.calendar_id === defaultCalendar?.id && item.name === 'Standard')?.id
+      ?? weekPatterns.find((item) => item.calendar_id === defaultCalendar?.id)?.id
+      ?? '');
     setScheduleDialog('create');
     setError('');
     setSuccess('');
@@ -303,7 +335,7 @@ export function TimetableDashboardPage() {
 
   async function saveSchedule(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
-    if (!schoolId || !scheduleName.trim()) return;
+    if (!schoolId || !scheduleName.trim() || (scheduleDialog === 'create' && (!scheduleCalendarId || !schedulePatternId))) return;
     setSaving(true);
     setError('');
     setSuccess('');
@@ -313,7 +345,14 @@ export function TimetableDashboardPage() {
         if (!user) throw new Error('Your signed-in account could not be identified.');
         const { data, error: insertError } = await client
           .from('timetable_schedules')
-          .insert({ school_id: schoolId, name: scheduleName.trim(), created_by: user.id })
+          .insert({
+            school_id: schoolId,
+            name: scheduleName.trim(),
+            created_by: user.id,
+            calendar_id: scheduleCalendarId,
+            academic_year_id: scheduleYearId || null,
+            week_pattern_id: schedulePatternId,
+          })
           .select('id')
           .single();
         if (insertError) throw insertError;
@@ -356,6 +395,11 @@ export function TimetableDashboardPage() {
     }
   }
 
+  async function handleTimetableSaved(message: string) {
+    setSuccess(message);
+    await refresh();
+  }
+
   function exportPdf() {
     window.print();
   }
@@ -385,6 +429,18 @@ export function TimetableDashboardPage() {
       {error && <ErrorState message={error} />}
       {success && <SuccessMessage message={success} />}
       {loading ? <LoadingState label="Loading timetable data…" /> : <>
+        {activeSchedule && <TimetableManager
+          key={activeSchedule.id}
+          schoolId={schoolId ?? ''}
+          scheduleId={activeSchedule.id}
+          scheduleStatus={activeSchedule.status}
+          weekPatternId={activeSchedule.week_pattern_id}
+          calendarId={activeSchedule.calendar_id}
+          academicYearId={activeSchedule.academic_year_id}
+          canManage={canManage}
+          entries={activeEntries}
+          onSaved={handleTimetableSaved}
+        />}
         <section className="print-timetable" aria-label="Printable weekly timetable">
           <div className="print-timetable-heading">
             <span>{activeMembership?.school.name}</span>
@@ -486,7 +542,6 @@ export function TimetableDashboardPage() {
               {canManage ? <>
                 <button type="button" onClick={openCreateDialog}><Plus size={16} /><span>Create timetable</span><ArrowUpRight size={15} /></button>
                 <button type="button" onClick={openEditDialog} disabled={!activeSchedule}><Edit3 size={16} /><span>Edit timetable details</span><ArrowUpRight size={15} /></button>
-                <button type="button" disabled title="Automatic generation is part of a later timetable setup phase."><RefreshCw size={16} /><span>Generate timetable</span><ArrowUpRight size={15} /></button>
                 <button type="button" onClick={() => void publishSchedule()} disabled={!activeSchedule || activeSchedule.status === 'published' || saving || publishBlocked} title={publishBlocked ? 'Resolve conflicts, assign teachers and rooms, and add lessons before publishing.' : ''}><Check size={16} /><span>Publish selected</span><ArrowUpRight size={15} /></button>
               </> : <p className="panel-footnote">Timetables are managed by your school administrator or academic coordinator.</p>}
               <button type="button" onClick={exportPdf}><Printer size={16} /><span>Print / save as PDF</span><ArrowUpRight size={15} /></button>
@@ -500,7 +555,17 @@ export function TimetableDashboardPage() {
         <form className="modal-card modal-form" onSubmit={(event) => void saveSchedule(event)}>
           <div className="modal-heading"><div><span className="eyebrow">{scheduleDialog === 'create' ? 'New schedule' : 'Timetable settings'}</span><h2>{scheduleDialog === 'create' ? 'Create timetable' : 'Edit timetable details'}</h2></div><button className="icon-button" type="button" onClick={() => setScheduleDialog(null)} aria-label="Close"><span aria-hidden="true">×</span></button></div>
           <label className="field"><span>Timetable name</span><input required minLength={2} maxLength={120} value={scheduleName} onChange={(event) => setScheduleName(event.target.value)} placeholder="e.g. Term 1 timetable" autoFocus /></label>
-          {scheduleDialog === 'create' && <p className="timetable-dialog-note"><BookOpen size={15} />New timetables start as drafts. Lesson scheduling and automatic generation setup will be available in the next phase.</p>}
+          {scheduleDialog === 'create' && <>
+            <label className="field"><span>Academic calendar / division</span><select required value={scheduleCalendarId} onChange={(event) => {
+              const nextCalendar = event.target.value;
+              setScheduleCalendarId(nextCalendar);
+              setScheduleYearId(academicYears.find((item) => item.calendar_id === nextCalendar && item.is_current)?.id ?? '');
+              setSchedulePatternId(weekPatterns.find((item) => item.calendar_id === nextCalendar && item.name === 'Standard')?.id ?? weekPatterns.find((item) => item.calendar_id === nextCalendar)?.id ?? '');
+            }}>{calendars.map((item) => <option value={item.id} key={item.id}>{item.name}{item.division_name ? ` · ${item.division_name}` : ''}</option>)}</select></label>
+            <label className="field"><span>Academic year (optional)</span><select value={scheduleYearId} onChange={(event) => setScheduleYearId(event.target.value)}><option value="">No academic year</option>{academicYears.filter((item) => item.calendar_id === scheduleCalendarId).map((item) => <option value={item.id} key={item.id}>{item.name}{item.is_current ? ' · Current' : ''}</option>)}</select></label>
+            <label className="field"><span>Week pattern</span><select required value={schedulePatternId} onChange={(event) => setSchedulePatternId(event.target.value)}>{weekPatterns.filter((item) => item.calendar_id === scheduleCalendarId).map((item) => <option value={item.id} key={item.id}>{item.name}</option>)}</select></label>
+          </>}
+          {scheduleDialog === 'create' && <p className="timetable-dialog-note"><BookOpen size={15} />New timetables start as drafts. Add periods manually or generate a weekly schedule in the schedule builder.</p>}
           <div className="modal-actions"><button className="button button-quiet" type="button" onClick={() => setScheduleDialog(null)}>Cancel</button><button className="button button-primary" type="submit" disabled={saving}>{saving ? 'Saving…' : scheduleDialog === 'create' ? 'Create draft' : 'Save details'}</button></div>
         </form>
       </div>}
