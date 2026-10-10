@@ -3,7 +3,7 @@ import { NavLink, Outlet, useLocation, useNavigate } from 'react-router-dom';
 import {
   BookMarked, BookOpenCheck, BookOpenText, CalendarDays, Check, ChevronDown,
   ChevronLeft, ClipboardCheck, GraduationCap, LayoutDashboard, LogOut, Menu,
-  Settings, Users, UsersRound, X,
+  Settings, Users, UsersRound, X, CalendarClock,
 } from 'lucide-react';
 import { useAuth } from '../contexts/AuthContext';
 import { ErrorState } from './Feedback';
@@ -17,6 +17,7 @@ const navigation = [
     { to: '/subjects', label: 'Subjects', icon: BookMarked },
   ] },
   { title: 'Academics', items: [
+    { to: '/timetable', label: 'Timetable', icon: CalendarClock },
     { to: '/attendance', label: 'Attendance', icon: ClipboardCheck },
     { to: '/learning', label: 'Learning', icon: BookOpenText },
     { to: '/calendar', label: 'Calendar', icon: CalendarDays },
@@ -25,7 +26,7 @@ const navigation = [
 
 const pageNames: Record<string, string> = {
   '/dashboard': 'Overview', '/students': 'Students', '/teachers': 'Teachers',
-  '/classes': 'Classes', '/subjects': 'Subjects', '/attendance': 'Attendance',
+  '/classes': 'Classes', '/subjects': 'Subjects', '/timetable': 'Timetable', '/attendance': 'Attendance',
   '/learning': 'Learning', '/calendar': 'Calendar', '/settings': 'Settings',
 };
 
@@ -57,7 +58,7 @@ export function AppShell() {
       <div className="school-picker-wrap">
         <button className="school-picker" onClick={() => setSchoolMenuOpen(!schoolMenuOpen)} aria-expanded={schoolMenuOpen}>
           <span className="school-monogram">{activeMembership?.school.name.slice(0, 1).toUpperCase() ?? 'S'}</span>
-          <span className="school-picker-copy"><strong>{activeMembership?.school.name}</strong><small>{activeMembership?.role.replace('_', ' ')}</small></span>
+          <span className="school-picker-copy"><strong>{activeMembership?.school.name}</strong><small>{activeMembership?.role.replace(/_/g, ' ')}</small></span>
           <ChevronDown size={16} />
         </button>
         {schoolMenuOpen && <div className="school-menu">{memberships.map((membership) => <button key={membership.school_id} onClick={() => { selectSchool(membership.school_id); setSchoolMenuOpen(false); setMobileOpen(false); }}><span>{membership.school.name}</span>{membership.school_id === activeMembership?.school_id && <Check size={15} />}</button>)}</div>}
@@ -79,7 +80,7 @@ export function AppShell() {
       <main className="workspace">
         <header className="topbar">
           <div className="topbar-left"><button className="icon-button mobile-menu" onClick={() => setMobileOpen(true)} aria-label="Open navigation"><Menu size={21} /></button><span className="breadcrumbs">Workspace <ChevronLeft size={14} className="crumb-chevron" /> <strong>{title}</strong></span></div>
-          <div className="topbar-actions"><span className="role-badge"><span></span>{activeMembership?.role.replace('_', ' ')}</span></div>
+          <div className="topbar-actions"><span className="role-badge"><span></span>{activeMembership?.role.replace(/_/g, ' ')}</span></div>
         </header>
         <div className="page-content">{logoutError && <ErrorState message={logoutError} />}<Outlet /></div>
         <footer className="workspace-footer"><span>Campus Connect</span><span>School information & learning management</span></footer>

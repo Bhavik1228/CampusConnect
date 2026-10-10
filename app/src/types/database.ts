@@ -1,4 +1,4 @@
-export type AppRole = 'system_admin' | 'school_admin' | 'teacher' | 'student' | 'parent';
+export type AppRole = 'system_admin' | 'school_admin' | 'academic_coordinator' | 'teacher' | 'student' | 'parent';
 
 export interface SchoolMembership {
   school_id: string;

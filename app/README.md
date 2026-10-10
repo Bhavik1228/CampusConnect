@@ -34,22 +34,24 @@ Supabase is the only application backend. No service-role key belongs in the bro
    VITE_SUPABASE_ANON_KEY=your-anon-key
    ```
 
-3. Apply `app/supabase/migrations/202610090001_initial_campus_connect.sql` using the Supabase CLI or the Supabase SQL editor. With the CLI installed and linked to your project, run these commands from `app/`:
+3. Apply `app/supabase/migrations/202610090001_initial_campus_connect.sql` using the Supabase CLI or the Supabase SQL editor. From `app/`, authenticate, link this folder to your Supabase project, and push pending migrations:
 
    ```powershell
-   supabase link --project-ref <your-project-ref>
-   supabase db push
+   npx supabase login
+   npx supabase link --project-ref <your-project-ref>
+   npx supabase db push
    ```
 
-   This migration creates the schema, tenant-aware RLS policies, profile creation trigger, audit triggers, and private Storage buckets. Review the policies against your deployment's exact requirements before production rollout.
+   `npx` runs the Supabase CLI without requiring a global install. Get the project ref from the Supabase dashboard URL or **Project Settings → General**. The initial migration creates the schema, tenant-aware RLS policies, profile creation trigger, audit triggers, and private Storage buckets. Review the policies against your deployment's exact requirements before production rollout.
+   The `202610100001_timetable_dashboard.sql` migration adds timetable schedules and the `academic_coordinator` role. `npx supabase db push` applies all pending migrations, including this one. School administrators and academic coordinators can create and rename draft schedules, resolve assignment or clash alerts, publish complete schedules, and print or save the dashboard as PDF. Automatic schedule generation and period editing are planned for a later phase.
 4. If the SQL Editor reports `column reference "school_id" is ambiguous` after a previous attempt, first run `app/supabase/migrations/202610090003_repair_ambiguous_school_policies.sql` in a new SQL Editor query. If it reports that the initial schema is missing, run the corrected `202610090001_initial_campus_connect.sql` first instead.
 5. In **Authentication → URL Configuration**, set the Site URL to your deployed app origin and add its `/login` callback URL to Redirect URLs. During local development, allow the actual Vite origin, for example `http://localhost:5173/login` or `http://127.0.0.1:5173/login`.
 6. In **Authentication → Providers → Email**, enable email signup and email confirmation. Configure the **Confirm signup** and **Reset password** templates. Supabase sends those transactional messages; the app directs confirmation and recovery links back to `/login`.
 7. Apply the newer login-alert migration and deploy the Supabase Edge Function:
 
    ```powershell
-   supabase db push
-   supabase functions deploy login-alert
+   npx supabase db push
+   npx supabase functions deploy login-alert
    ```
 
 8. In the Supabase dashboard's **Edge Functions → Secrets**, set `POSTMARK_SERVER_TOKEN`, `POSTMARK_FROM_EMAIL` (a verified Postmark sender), `SECURITY_ALERT_EMAIL` (the security mailbox), and `LOGIN_ALERT_HASH_SECRET` (a random secret of at least 32 bytes). Do not put these values in the Vite `.env` file or browser bundle. Supabase supplies the function with its project URL and service-role secret; the service-role secret must remain in Edge Function/server configuration only.
@@ -60,6 +62,12 @@ The project URL and anon key must come from the same active Supabase project. Co
 Supabase Auth sends signup verification and password-reset messages. The deployed `login-alert` Edge Function uses Postmark for successful-login notices and notifies the designated security mailbox after five failed-login responses for the same account/source within 15 minutes; repeat notices are limited to one per hour for that pair. Failed-attempt reports originate in the browser after Supabase rejects a sign-in, so treat them as a security signal, not authoritative audit evidence. Failed-attempt fingerprints are HMACed server-side and retained for at most 30 days. Do not email passwords, access tokens, or the submitted login credentials.
 
 For production, configure custom SMTP in Supabase for reliable verification and password-reset delivery (the default email service is rate-limited and intended for testing), and verify the sender domain in Postmark. The Postmark Edge Function can be deployed without Postmark secrets, but alerts will return an error and will not be delivered until those secrets and the migration are configured.
+
+## Deploying the app to Vercel
+
+For this repository, set the Vercel project's **Root Directory** to `app`. In **Settings → Environment Variables**, set `VITE_SUPABASE_URL` to the exact Project URL shown in Supabase **Project Settings → API**, and `VITE_SUPABASE_ANON_KEY` to that same project's public anon key. These are build-time Vite variables: save them for Production (and Preview if needed), then redeploy the app. Updating only `app/.env` on your computer does not update the deployed site.
+
+The `app/vercel.json` rewrite lets React Router serve `/login` and other client-side routes on a direct visit or an email-confirmation/password-reset redirect. In Supabase **Authentication → URL Configuration**, set the Site URL to the deployed site and add `https://<your-vercel-domain>/login` to Redirect URLs. After redeploying, open the Vercel `/login` route directly; it should load the app rather than return a 404.
 
 ## Run locally
 
