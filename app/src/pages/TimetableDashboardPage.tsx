@@ -300,7 +300,11 @@ export function TimetableDashboardPage() {
   const timetableSlots = useMemo(() => {
     const byTime = new Map<string, { startsAt: string; endsAt: string }>();
     for (const entry of timetableEntriesForClass) {
-      byTime.set(`${entry.starts_at}:${entry.ends_at}`, { startsAt: entry.starts_at, endsAt: entry.ends_at });
+      const existing = byTime.get(entry.starts_at);
+      byTime.set(entry.starts_at, {
+        startsAt: entry.starts_at,
+        endsAt: !existing || entry.ends_at > existing.endsAt ? entry.ends_at : existing.endsAt,
+      });
     }
     return [...byTime.values()].sort((left, right) =>
       left.startsAt.localeCompare(right.startsAt) || left.endsAt.localeCompare(right.endsAt));
@@ -545,8 +549,7 @@ export function TimetableDashboardPage() {
                 {timetableSlots.map((slot) => {
                   const slotEntries = timetableEntriesForClass.filter((entry) =>
                     entry.day_of_week === dayOfWeek
-                    && entry.starts_at === slot.startsAt
-                    && entry.ends_at === slot.endsAt)
+                    && entry.starts_at === slot.startsAt)
                     .sort((left, right) => Number(right.class_id === selectedTimetableClassId)
                       - Number(left.class_id === selectedTimetableClassId));
                   const entry = slotEntries[0];
