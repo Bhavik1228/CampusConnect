@@ -12,6 +12,7 @@ Campus Connect is the Vite + React application for the school information and le
 - Student, teacher, class, and subject directory views, search, and administrator-only create flows
 - Foundational academic, timetable, attendance, assignment, announcement, event, messaging, notification, audit, and private file-storage schema
 - Responsive application shell, mobile navigation, loading/error/empty states
+- School administrator settings for school identity and branding, grading and academic-year defaults, attendance policies, family/student portals, notification preferences, 45+ module/feature switches, and security/privacy policies
 - School-scoped Test Maker for teacher-created and authorized-resource assessments, question libraries, configuration, and print-to-PDF previews
 - Assessment result entry with validated marks, calculated percentages, and searchable student attempt histories
 - Authorized past-paper ingestion to private Firebase Storage, with school metadata catalogued in Supabase

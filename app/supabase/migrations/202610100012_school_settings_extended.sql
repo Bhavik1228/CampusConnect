@@ -279,62 +279,62 @@ alter table public.school_notification_templates enable row level security;
 -- Policies for school_academic_policies
 create policy "School admins manage academic policies"
   on public.school_academic_policies for all to authenticated
-  using (public.has_school_role(school_id, array['school_admin']::public.app_role[]))
-  with check (public.has_school_role(school_id, array['school_admin']::public.app_role[]));
+  using (public.has_school_role(school_id, '{school_admin}'::public.app_role[]))
+  with check (public.has_school_role(school_id, '{school_admin}'::public.app_role[]));
 
 create policy "School staff read academic policies"
   on public.school_academic_policies for select to authenticated
-  using (public.has_school_role(school_id, array['school_admin', 'teacher', 'academic_coordinator']::public.app_role[]));
+  using (public.has_school_role(school_id, '{school_admin,teacher,academic_coordinator}'::public.app_role[]));
 
 -- Policies for school_communication_settings
 create policy "School admins manage communication settings"
   on public.school_communication_settings for all to authenticated
-  using (public.has_school_role(school_id, array['school_admin']::public.app_role[]))
-  with check (public.has_school_role(school_id, array['school_admin']::public.app_role[]));
+  using (public.has_school_role(school_id, '{school_admin}'::public.app_role[]))
+  with check (public.has_school_role(school_id, '{school_admin}'::public.app_role[]));
 
 create policy "School staff read communication settings"
   on public.school_communication_settings for select to authenticated
-  using (public.has_school_role(school_id, array['school_admin', 'teacher', 'academic_coordinator']::public.app_role[]));
+  using (public.has_school_role(school_id, '{school_admin,teacher,academic_coordinator}'::public.app_role[]));
 
 -- Policies for school_module_settings
 create policy "School admins manage module settings"
   on public.school_module_settings for all to authenticated
-  using (public.has_school_role(school_id, array['school_admin']::public.app_role[]))
-  with check (public.has_school_role(school_id, array['school_admin']::public.app_role[]));
+  using (public.has_school_role(school_id, '{school_admin}'::public.app_role[]))
+  with check (public.has_school_role(school_id, '{school_admin}'::public.app_role[]));
 
 create policy "School staff read module settings"
   on public.school_module_settings for select to authenticated
-  using (public.has_school_role(school_id, array['school_admin', 'teacher', 'academic_coordinator']::public.app_role[]));
+  using (public.has_school_role(school_id, '{school_admin,teacher,academic_coordinator}'::public.app_role[]));
 
 -- Policies for school_security_settings
 create policy "School admins manage security settings"
   on public.school_security_settings for all to authenticated
-  using (public.has_school_role(school_id, array['school_admin']::public.app_role[]))
-  with check (public.has_school_role(school_id, array['school_admin']::public.app_role[]));
+  using (public.has_school_role(school_id, '{school_admin}'::public.app_role[]))
+  with check (public.has_school_role(school_id, '{school_admin}'::public.app_role[]));
 
 create policy "School staff read security settings"
   on public.school_security_settings for select to authenticated
-  using (public.has_school_role(school_id, array['school_admin', 'teacher', 'academic_coordinator']::public.app_role[]));
+  using (public.has_school_role(school_id, '{school_admin}'::public.app_role[]));
 
 -- Policies for school_integration_settings
 create policy "School admins manage integration settings"
   on public.school_integration_settings for all to authenticated
-  using (public.has_school_role(school_id, array['school_admin']::public.app_role[]))
-  with check (public.has_school_role(school_id, array['school_admin']::public.app_role[]));
+  using (public.has_school_role(school_id, '{school_admin}'::public.app_role[]))
+  with check (public.has_school_role(school_id, '{school_admin}'::public.app_role[]));
 
 create policy "School staff read integration settings"
   on public.school_integration_settings for select to authenticated
-  using (public.has_school_role(school_id, array['school_admin', 'teacher', 'academic_coordinator']::public.app_role[]));
+  using (public.has_school_role(school_id, '{school_admin}'::public.app_role[]));
 
 -- Policies for school_notification_templates
 create policy "School admins manage notification templates"
   on public.school_notification_templates for all to authenticated
-  using (public.has_school_role(school_id, array['school_admin']::public.app_role[]))
-  with check (public.has_school_role(school_id, array['school_admin']::public.app_role[]));
+  using (public.has_school_role(school_id, '{school_admin}'::public.app_role[]))
+  with check (public.has_school_role(school_id, '{school_admin}'::public.app_role[]));
 
 create policy "School staff read notification templates"
   on public.school_notification_templates for select to authenticated
-  using (public.has_school_role(school_id, array['school_admin', 'teacher', 'academic_coordinator']::public.app_role[]));
+  using (public.has_school_role(school_id, '{school_admin,teacher,academic_coordinator}'::public.app_role[]));
 
 -- Grants
 grant select, insert, update, delete on public.school_academic_policies to authenticated;
