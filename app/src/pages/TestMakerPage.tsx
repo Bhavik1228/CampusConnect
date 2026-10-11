@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useState, type ChangeEvent, type FormEvent } from 'react';
 import {
-  BookOpenCheck, Check, Copy, ExternalLink, FilePlus2, FileText, Filter,
-  Library, Pencil, Plus, Printer, Save, Search, Trash2, X,
+  BookOpenCheck, Check, ClipboardCheck, Copy, ExternalLink, FilePlus2, FileText, Filter,
+  History, Library, Pencil, Plus, Printer, Save, Search, Trash2, X,
 } from 'lucide-react';
 import { useAuth } from '../contexts/AuthContext';
 import { ErrorState, LoadingState } from '../components/Feedback';
@@ -9,6 +9,7 @@ import { requireSupabase } from '../lib/supabase';
 
 type Difficulty = 'Foundation' | 'Standard' | 'Challenging' | 'Mixed';
 type AssessmentStatus = 'draft' | 'ready';
+type LearningView = 'assessments' | 'library' | 'papers' | 'results';
 type Question = {
   id: string;
   question_text: string;
@@ -53,6 +54,32 @@ type Assessment = {
   status: AssessmentStatus;
   updated_at: string;
 };
+type StudentChoice = {
+  id: string;
+  student_number: string;
+  first_name: string;
+  last_name: string;
+  status: string;
+};
+type AssessmentResult = {
+  id: string;
+  student_id: string;
+  assessment_id: string;
+  marks_obtained: number;
+  maximum_marks: number;
+  percentage: number;
+  assessment_date: string;
+  notes: string;
+  created_at: string;
+  updated_at: string;
+};
+type ResultForm = {
+  student_id: string;
+  assessment_id: string;
+  marks_obtained: string;
+  assessment_date: string;
+  notes: string;
+};
 type AssessmentForm = Omit<Assessment, 'id' | 'created_by' | 'updated_at'>;
 type QuestionForm = Omit<Question, 'id'>;
 type PrintMode = 'paper' | 'answer-sheet';
@@ -77,6 +104,12 @@ const EMPTY_ASSESSMENT: AssessmentForm = {
   question_ids: [], status: 'draft',
 };
 const CAMBRIDGE_PAST_PAPERS_URL = 'https://www.cambridgeinternational.org/support-and-training-for-schools/support-for-teachers/past-papers/';
+
+function localDate() {
+  const date = new Date();
+  date.setMinutes(date.getMinutes() - date.getTimezoneOffset());
+  return date.toISOString().slice(0, 10);
+}
 
 function toAssessmentForm(assessment: Assessment): AssessmentForm {
   const { id: _id, created_by: _createdBy, updated_at: _updatedAt, ...form } = assessment;
@@ -122,14 +155,25 @@ export function TestMakerPage() {
   const schoolId = activeMembership?.school_id;
   const [assessments, setAssessments] = useState<Assessment[]>([]);
   const [questions, setQuestions] = useState<Question[]>([]);
+  const [students, setStudents] = useState<StudentChoice[]>([]);
+  const [results, setResults] = useState<AssessmentResult[]>([]);
   const [activeAssessmentId, setActiveAssessmentId] = useState('');
+  const [editingResultId, setEditingResultId] = useState('');
+  const [resultForm, setResultForm] = useState<ResultForm>({
+    student_id: '',
+    assessment_id: '',
+    marks_obtained: '',
+    assessment_date: localDate(),
+    notes: '',
+  });
   const [form, setForm] = useState<AssessmentForm>(EMPTY_ASSESSMENT);
   const [questionForm, setQuestionForm] = useState<QuestionForm>(EMPTY_QUESTION);
   const [editingQuestionId, setEditingQuestionId] = useState('');
   const [query, setQuery] = useState('');
+  const [resultQuery, setResultQuery] = useState('');
   const [topicFilter, setTopicFilter] = useState('');
   const [papers, setPapers] = useState<PastPaper[]>([]);
-  const [view, setView] = useState<'assessments' | 'library' | 'papers'>('assessments');
+  const [view, setView] = useState<LearningView>('assessments');
   const [includeMarkScheme, setIncludeMarkScheme] = useState(false);
   const [printMode, setPrintMode] = useState<PrintMode>('paper');
   const [loading, setLoading] = useState(true);
@@ -141,10 +185,15 @@ export function TestMakerPage() {
     if (!schoolId) return;
     setAssessments([]);
     setQuestions([]);
+    setStudents([]);
+    setResults([]);
     setPapers([]);
     setActiveAssessmentId('');
+    setEditingResultId('');
+    setResultForm({ student_id: '', assessment_id: '', marks_obtained: '', assessment_date: localDate(), notes: '' });
     setForm({ ...EMPTY_ASSESSMENT });
     setQuery('');
+    setResultQuery('');
     setTopicFilter('');
     let alive = true;
     async function load() {
@@ -152,18 +201,24 @@ export function TestMakerPage() {
       setError('');
       try {
         const client = requireSupabase();
-        const [assessmentResult, questionResult, papersResult] = await Promise.all([
+        const [assessmentResult, questionResult, papersResult, studentResult, resultResult] = await Promise.all([
           client.from('learning_assessments').select('*').eq('school_id', schoolId).order('updated_at', { ascending: false }),
           client.from('learning_questions').select('*').eq('school_id', schoolId).order('created_at', { ascending: false }),
           client.from('past_papers').select('id, subject_name, subject_code, year, session, paper_number, document_type, file_name, file_size, created_at').eq('school_id', schoolId).order('year', { ascending: false }),
+          client.from('students').select('id, student_number, first_name, last_name, status').eq('school_id', schoolId).order('last_name').order('first_name'),
+          client.from('learning_assessment_results').select('id, student_id, assessment_id, marks_obtained, maximum_marks, percentage, assessment_date, notes, created_at, updated_at').eq('school_id', schoolId).order('assessment_date', { ascending: false }).order('created_at', { ascending: false }),
         ]);
         if (assessmentResult.error) throw assessmentResult.error;
         if (questionResult.error) throw questionResult.error;
         if (papersResult.error) throw papersResult.error;
+        if (studentResult.error) throw studentResult.error;
+        if (resultResult.error) throw resultResult.error;
         if (alive) {
           setAssessments((assessmentResult.data ?? []) as Assessment[]);
           setQuestions((questionResult.data ?? []) as Question[]);
           setPapers((papersResult.data ?? []) as PastPaper[]);
+          setStudents((studentResult.data ?? []) as StudentChoice[]);
+          setResults((resultResult.data ?? []) as AssessmentResult[]);
         }
       } catch (loadError) {
         if (alive) setError(getErrorMessage(loadError, 'Could not load the Test Maker.'));
@@ -195,10 +250,26 @@ export function TestMakerPage() {
     return text.includes(query.toLowerCase()) && (!topicFilter || question.topic === topicFilter);
   });
   const topics = [...new Set(questions.map((question) => question.topic).filter(Boolean))].sort();
+  const resultAverage = results.length
+    ? results.reduce((sum, result) => sum + Number(result.percentage), 0) / results.length
+    : 0;
+  const visibleResults = results.filter((result) => {
+    const student = students.find((item) => item.id === result.student_id);
+    const assessment = assessments.find((item) => item.id === result.assessment_id);
+    const text = `${student?.first_name ?? ''} ${student?.last_name ?? ''} ${student?.student_number ?? ''} ${assessment?.title ?? ''} ${assessment?.subject ?? ''}`.toLowerCase();
+    return text.includes(resultQuery.trim().toLowerCase());
+  });
+  const selectedResultAssessment = assessments.find((assessment) => assessment.id === resultForm.assessment_id);
+  const editingResult = results.find((result) => result.id === editingResultId);
+  const resultMaximumMarks = editingResult
+    ? Number(editingResult.maximum_marks)
+    : Number(selectedResultAssessment?.total_marks ?? 0);
+  const recordableAssessments = assessments.filter((assessment) => Number(assessment.total_marks) > 0);
 
   function beginNewAssessment() {
     setActiveAssessmentId('');
     setForm({ ...EMPTY_ASSESSMENT });
+    setView('assessments');
     setNotice('');
   }
 
@@ -233,6 +304,7 @@ export function TestMakerPage() {
       const payload = {
         ...form,
         title: form.title.trim(),
+        total_marks: form.total_marks || calculatedMarks,
         school_id: schoolId,
         updated_at: new Date().toISOString(),
       };
@@ -276,6 +348,10 @@ export function TestMakerPage() {
   }
 
   async function deleteAssessment(assessment: Assessment) {
+    if (results.some((result) => result.assessment_id === assessment.id)) {
+      setError('This test has recorded student results and cannot be deleted without losing assessment history.');
+      return;
+    }
     if (!schoolId || !window.confirm(`Delete “${assessment.title}”? This cannot be undone.`)) return;
     setError('');
     setNotice('');
@@ -287,6 +363,92 @@ export function TestMakerPage() {
       setNotice('Test deleted.');
     } catch (deleteError) {
       setError(getErrorMessage(deleteError, 'Could not delete the test.'));
+    }
+  }
+
+  async function saveResult(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    if (!schoolId || !user) return;
+    const marksObtained = Number(resultForm.marks_obtained);
+    if (!resultForm.student_id || !resultForm.assessment_id || !resultForm.assessment_date) {
+      setError('Select a student, test, and assessment date.');
+      return;
+    }
+    if (!Number.isFinite(marksObtained) || marksObtained < 0 || marksObtained > resultMaximumMarks) {
+      setError(`Marks must be between 0 and ${resultMaximumMarks}.`);
+      return;
+    }
+    if (resultMaximumMarks <= 0) {
+      setError('Set a total greater than zero on the test before recording results.');
+      return;
+    }
+    setSaving(true);
+    setError('');
+    setNotice('');
+    try {
+      const client = requireSupabase();
+      const commonPayload = {
+        marks_obtained: marksObtained,
+        assessment_date: resultForm.assessment_date,
+        notes: resultForm.notes.trim(),
+        updated_at: new Date().toISOString(),
+      };
+      const result = editingResultId
+        ? await client.from('learning_assessment_results').update(commonPayload).eq('id', editingResultId).eq('school_id', schoolId).select().single()
+        : await client.from('learning_assessment_results').insert({
+          ...commonPayload,
+          school_id: schoolId,
+          created_by: user.id,
+          student_id: resultForm.student_id,
+          assessment_id: resultForm.assessment_id,
+          maximum_marks: resultMaximumMarks,
+        }).select().single();
+      if (result.error) throw result.error;
+      const saved = result.data as AssessmentResult;
+      setResults((current) => [
+        saved,
+        ...current.filter((item) => item.id !== saved.id),
+      ].sort((left, right) => right.assessment_date.localeCompare(left.assessment_date) || right.created_at.localeCompare(left.created_at)));
+      setEditingResultId('');
+      setResultForm((current) => ({ ...current, marks_obtained: '', assessment_date: localDate(), notes: '' }));
+      setNotice(editingResultId ? 'Assessment result updated.' : 'Assessment result recorded.');
+    } catch (saveError) {
+      setError(getErrorMessage(saveError, 'Could not save the assessment result.'));
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  function editResult(result: AssessmentResult) {
+    setEditingResultId(result.id);
+    setResultForm({
+      student_id: result.student_id,
+      assessment_id: result.assessment_id,
+      marks_obtained: String(result.marks_obtained),
+      assessment_date: result.assessment_date,
+      notes: result.notes,
+    });
+    setError('');
+    setNotice('');
+  }
+
+  function cancelResultEdit() {
+    setEditingResultId('');
+    setResultForm((current) => ({ ...current, marks_obtained: '', assessment_date: localDate(), notes: '' }));
+  }
+
+  async function deleteResult(result: AssessmentResult) {
+    if (!schoolId || !window.confirm('Delete this recorded result? This cannot be undone.')) return;
+    setError('');
+    setNotice('');
+    try {
+      const { error: deleteError } = await requireSupabase().from('learning_assessment_results').delete().eq('id', result.id).eq('school_id', schoolId);
+      if (deleteError) throw deleteError;
+      setResults((current) => current.filter((item) => item.id !== result.id));
+      if (editingResultId === result.id) cancelResultEdit();
+      setNotice('Assessment result deleted.');
+    } catch (deleteError) {
+      setError(getErrorMessage(deleteError, 'Could not delete the assessment result.'));
     }
   }
 
@@ -411,13 +573,13 @@ export function TestMakerPage() {
   return (
     <div className="page-stack test-maker-page">
       <div className="page-heading">
-        <div><span className="eyebrow">{activeMembership?.school.name}</span><h1>Learning</h1><p>Create, organize, and print custom assessments for your classes.</p></div>
+        <div><span className="eyebrow">{activeMembership?.school.name}</span><h1>Learning</h1><p>Create tests, record marks, and review student assessment histories.</p></div>
         <button className="button button-primary" onClick={beginNewAssessment}><Plus size={15} /> New test</button>
       </div>
 
       <section className="test-maker-banner">
         <div className="test-maker-banner-icon"><BookOpenCheck size={20} /></div>
-        <div><strong>Test Maker · Phase 1</strong><p>Build Cambridge-aligned or fully manual assessments. AI test generation is planned for a future phase.</p></div>
+        <div><strong>Test Maker &amp; Results</strong><p>Create assessments, record student marks, and review each learner’s assessment history.</p></div>
         <a className="button button-quiet test-maker-external" href={CAMBRIDGE_PAST_PAPERS_URL} target="_blank" rel="noreferrer">
           Official Cambridge papers <ExternalLink size={14} />
         </a>
@@ -428,11 +590,12 @@ export function TestMakerPage() {
 
       <div className="test-maker-tabs" role="tablist" aria-label="Test Maker">
         <button className={view === 'assessments' ? 'active' : ''} onClick={() => setView('assessments')} role="tab" aria-selected={view === 'assessments'}><FileText size={15} /> Tests <span>{assessments.length}</span></button>
+        <button className={view === 'results' ? 'active' : ''} onClick={() => setView('results')} role="tab" aria-selected={view === 'results'}><ClipboardCheck size={15} /> Results <span>{results.length}</span></button>
         <button className={view === 'library' ? 'active' : ''} onClick={() => setView('library')} role="tab" aria-selected={view === 'library'}><Library size={15} /> Question library <span>{questions.length}</span></button>
         <button className={view === 'papers' ? 'active' : ''} onClick={() => setView('papers')} role="tab" aria-selected={view === 'papers'}><BookOpenCheck size={15} /> Past papers <span>{papers.length}</span></button>
       </div>
 
-      {loading ? <LoadingState label="Loading tests, questions, and past papers…" /> : view === 'assessments' ? (
+      {loading ? <LoadingState label="Loading tests, students, results, questions, and past papers…" /> : view === 'assessments' ? (
         <div className="test-maker-layout">
           <section className="content-card test-list-card">
             <div className="section-heading"><div><span className="eyebrow">Your workspace</span><h2>Saved tests</h2></div><span className="test-count">{assessments.length}</span></div>
@@ -493,6 +656,41 @@ export function TestMakerPage() {
               </div>
               <div className="test-editor-footer"><span>Questions currently add up to <strong>{calculatedMarks}</strong> marks.</span><button type="button" className="text-action" onClick={() => setIncludeMarkScheme((current) => !current)}><Check size={14} />{includeMarkScheme ? 'Mark scheme included in print' : 'Add mark scheme to print'}</button></div>
             </form>
+          </section>
+        </div>
+      ) : view === 'results' ? (
+        <div className="assessment-results-layout">
+          <section className="content-card result-entry-card">
+            <div className="section-heading"><div><span className="eyebrow">{editingResultId ? 'Correct a recorded mark' : 'Record an assessment'}</span><h2>{editingResultId ? 'Edit result' : 'Enter student marks'}</h2></div></div>
+            <form className="result-entry-form" onSubmit={(event) => void saveResult(event)}>
+              <label>Student<select required value={resultForm.student_id} disabled={Boolean(editingResultId)} onChange={(event) => setResultForm((current) => ({ ...current, student_id: event.target.value }))}><option value="">Choose a student</option>{students.filter((student) => student.status === 'active' || student.id === resultForm.student_id).map((student) => <option key={student.id} value={student.id}>{student.last_name}, {student.first_name} · {student.student_number}</option>)}</select></label>
+              <label>Test<select required value={resultForm.assessment_id} disabled={Boolean(editingResultId)} onChange={(event) => setResultForm((current) => ({ ...current, assessment_id: event.target.value, marks_obtained: '' }))}><option value="">Choose a test</option>{recordableAssessments.map((assessment) => <option key={assessment.id} value={assessment.id}>{assessment.title} · {assessment.total_marks} marks</option>)}{editingResult && !recordableAssessments.some((assessment) => assessment.id === editingResult.assessment_id) && <option value={editingResult.assessment_id}>{assessments.find((assessment) => assessment.id === editingResult.assessment_id)?.title ?? 'Saved test'} · {editingResult.maximum_marks} marks</option>}</select></label>
+              <div className="result-entry-fields">
+                <label>Marks earned<input required type="number" min="0" max={resultMaximumMarks || undefined} step="0.01" value={resultForm.marks_obtained} onChange={(event) => setResultForm((current) => ({ ...current, marks_obtained: event.target.value }))} placeholder="0" /></label>
+                <label>Out of<input readOnly value={resultMaximumMarks || ''} aria-label="Maximum marks for selected test" placeholder="Select a test" /></label>
+              </div>
+              <label>Assessment date<input required type="date" value={resultForm.assessment_date} onChange={(event) => setResultForm((current) => ({ ...current, assessment_date: event.target.value }))} /></label>
+              <label>Notes (optional)<textarea rows={3} value={resultForm.notes} onChange={(event) => setResultForm((current) => ({ ...current, notes: event.target.value }))} placeholder="Feedback or marking notes" /></label>
+              {!recordableAssessments.length && !editingResult && <p className="result-form-hint">Save a test with a total greater than zero to start recording results.</p>}
+              <div className="test-form-actions"><button className="button button-primary" disabled={saving || (!editingResultId && !recordableAssessments.length)}><Save size={14} />{saving ? 'Saving…' : editingResultId ? 'Update result' : 'Record result'}</button>{editingResultId && <button type="button" className="button button-quiet" onClick={cancelResultEdit}>Cancel</button>}</div>
+            </form>
+          </section>
+
+          <section className="content-card result-history-card">
+            <div className="section-heading"><div><span className="eyebrow">Student assessment histories</span><h2>Recorded results</h2></div><span className="test-count">{results.length}</span></div>
+            <div className="result-summary"><span><strong>{results.length}</strong> attempts recorded</span><span><strong>{new Set(results.map((result) => result.student_id)).size}</strong> students</span><span><strong>{results.length ? `${resultAverage.toFixed(1)}%` : '—'}</strong> average</span></div>
+            <label className="library-search result-history-search"><Search size={15} /><input value={resultQuery} onChange={(event) => setResultQuery(event.target.value)} placeholder="Find a student or test" /></label>
+            {visibleResults.length ? <div className="result-history-list">
+              {visibleResults.map((result) => {
+                const student = students.find((item) => item.id === result.student_id);
+                const assessment = assessments.find((item) => item.id === result.assessment_id);
+                return <article className={`result-history-item${editingResultId === result.id ? ' selected' : ''}`} key={result.id}>
+                  <div className="result-history-main"><span className="result-history-date">{new Date(`${result.assessment_date}T00:00:00`).toLocaleDateString()}</span><strong>{student ? `${student.first_name} ${student.last_name}` : 'Student record unavailable'}</strong><span>{assessment?.title ?? 'Saved test'}{assessment?.subject ? ` · ${assessment.subject}` : ''}</span>{result.notes && <small>{result.notes}</small>}</div>
+                  <div className="result-history-score"><strong>{result.marks_obtained} <span>/ {result.maximum_marks}</span></strong><small>{Number(result.percentage).toFixed(1)}%</small></div>
+                  <div className="result-history-actions"><button className="icon-button" title="Edit result" aria-label="Edit result" onClick={() => editResult(result)}><Pencil size={14} /></button><button className="icon-button danger-icon" title="Delete result" aria-label="Delete result" onClick={() => void deleteResult(result)}><Trash2 size={14} /></button></div>
+                </article>;
+              })}
+            </div> : <div className="test-empty"><span><History size={20} /></span><strong>{results.length ? 'No matching results' : 'No results recorded yet'}</strong><p>{results.length ? 'Try another student name, number, or test title.' : 'Record a student’s marks above to start building their assessment history.'}</p></div>}
           </section>
         </div>
       ) : view === 'library' ? (
