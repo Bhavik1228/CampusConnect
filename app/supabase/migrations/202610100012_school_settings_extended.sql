@@ -239,10 +239,16 @@ create table if not exists public.school_notification_templates (
 );
 
 -- Default notification templates
-insert into public.school_notification_templates (school_id, event_type, channel, enabled, title_template, body_template, available_variables)
-select school.id, template.event_type, template.channel, template.enabled, template.title_template, template.body_template, template.available_variables
-from public.schools school
-cross join (values
+create or replace function public.seed_school_notification_templates(target_school uuid)
+returns void
+language plpgsql
+security definer
+set search_path = public
+as $$
+begin
+  insert into public.school_notification_templates (school_id, event_type, channel, enabled, title_template, body_template, available_variables)
+  select target_school, template.event_type, template.channel, template.enabled, template.title_template, template.body_template, template.available_variables::jsonb
+  from (values
   ('welcome', 'in_app', true, 'Welcome to {school_name}!', 'Your account has been created. Please complete your profile.', '["school_name", "user_name", "login_url"]'),
   ('welcome', 'email', true, 'Welcome to {school_name}!', 'Dear {user_name},\n\nWelcome to {school_name}. Your account has been created. Please log in at {login_url} to complete your profile.\n\nBest regards,\n{school_name} Administration', '["school_name", "user_name", "login_url"]'),
   ('password_reset', 'in_app', true, 'Password Reset Request', 'Click the link to reset your password. This link expires in 1 hour.', '["reset_url", "expiry_hours"]'),
@@ -264,9 +270,13 @@ cross join (values
   ('report_card_available', 'in_app', true, 'Report Card Available', 'Your {term} report card is now available.', '["term", "academic_year", "report_url"]'),
   ('report_card_available', 'email', true, 'Report Card Available', 'Dear {user_name},\n\nThe {term} {academic_year} report card for {student_name} is now available.\n\nView it here: {report_url}', '["user_name", "student_name", "term", "academic_year", "report_url"]'),
   ('system_maintenance', 'in_app', true, 'Scheduled Maintenance', 'System maintenance is scheduled for {maintenance_date} from {start_time} to {end_time}. Some features may be unavailable.', '["maintenance_date", "start_time", "end_time", "affected_features"]'),
-  ('system_maintenance', 'email', true, 'Scheduled System Maintenance', 'Dear {user_name},\n\nScheduled maintenance will occur on {maintenance_date} from {start_time} to {end_time}.\n\nAffected features: {affected_features}\n\nWe apologize for any inconvenience.', '["user_name", "maintenance_date", "start_time", "end_time", "affected_features"]")
+  ('system_maintenance', 'email', true, 'Scheduled System Maintenance', 'Dear {user_name},\n\nScheduled maintenance will occur on {maintenance_date} from {start_time} to {end_time}.\n\nAffected features: {affected_features}\n\nWe apologize for any inconvenience.', '["user_name", "maintenance_date", "start_time", "end_time", "affected_features"]')
 ) as template(event_type, channel, enabled, title_template, body_template, available_variables)
 on conflict (school_id, event_type, channel) do nothing;
+end;
+$$;
+
+revoke all on function public.seed_school_notification_templates(uuid) from public;
 
 -- Enable RLS on new tables
 alter table public.school_academic_policies enable row level security;
@@ -367,6 +377,8 @@ begin
   insert into public.school_integration_settings (school_id) values (new.id)
   on conflict (school_id) do nothing;
   
+  perform public.seed_school_notification_templates(new.id);
+
   return new;
 end;
 $$;
@@ -422,3 +434,6 @@ on conflict (school_id) do nothing;
 insert into public.school_integration_settings (school_id)
 select id from public.schools
 on conflict (school_id) do nothing;
+
+select public.seed_school_notification_templates(school.id)
+from public.schools school;
