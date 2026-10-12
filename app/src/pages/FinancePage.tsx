@@ -3,7 +3,7 @@ import { Banknote, Download, FileText, Receipt, WalletCards } from 'lucide-react
 import { useAuth } from '../contexts/AuthContext';
 import { EmptyState, ErrorState, LoadingState, SuccessMessage } from '../components/Feedback';
 import { requireSupabase } from '../lib/supabase';
-import type { FinancePdfSection } from '../lib/finance-pdf';
+import type { FinancePdfDocument, FinancePdfSection } from '../lib/finance-pdf';
 import type { AppRole } from '../types/database';
 
 type FinanceTab = 'overview' | 'structures' | 'invoices' | 'payments' | 'statements';
@@ -189,49 +189,19 @@ export function FinancePage() {
   }
 
   function invoiceSections(invoice: FeeInvoice): FinancePdfSection[] {
-    const invoiceAllocations = allocations.filter((allocation) => allocation.invoice_id === invoice.id);
     const invoiceAdjustments = adjustments.filter((adjustment) => adjustment.invoice_id === invoice.id);
-    const events: { date: string; order: number; description: string; debit: number; credit: number }[] = [
-      { date: invoice.issued_on, order: 0, description: invoice.description, debit: invoice.amount, credit: 0 },
-      ...(invoice.discount_amount > 0 ? [{
-        date: invoice.issued_on,
-        order: 1,
-        description: `Discount / scholarship${invoice.discount_reason ? `: ${invoice.discount_reason}` : ''}`,
-        debit: 0,
-        credit: invoice.discount_amount,
-      }] : []),
-      ...invoiceAdjustments.map((adjustment) => ({
-        date: adjustment.created_at.slice(0, 10),
-        order: adjustment.adjustment_type === 'charge' ? 2 : 3,
-        description: `${adjustment.adjustment_type === 'charge' ? 'Additional charge' : 'Credit adjustment'}: ${adjustment.reason}`,
-        debit: adjustment.adjustment_type === 'charge' ? adjustment.amount : 0,
-        credit: adjustment.adjustment_type === 'credit' ? adjustment.amount : 0,
-      })),
-      ...invoiceAllocations.map((allocation) => {
-        const payment = payments.find((item) => item.id === allocation.payment_id);
-        return {
-          date: payment?.payment_date ?? invoice.issued_on,
-          order: 4,
-          description: `Payment allocation${payment ? `: ${payment.receipt_number}` : ''}`,
-          debit: 0,
-          credit: allocation.amount,
-        };
-      }),
+    const rows = [
+      [invoice.description, pdfMoney(invoice.amount, invoice.currency_code)],
+      ...(invoice.discount_amount > 0 ? [[
+        `Discount / scholarship${invoice.discount_reason ? ` — ${invoice.discount_reason}` : ''}`,
+        `-${pdfMoney(invoice.discount_amount, invoice.currency_code)}`,
+      ]] : []),
+      ...invoiceAdjustments.map((adjustment) => [
+        `${adjustment.adjustment_type === 'charge' ? 'Additional charge' : 'Credit adjustment'} — ${adjustment.reason}`,
+        `${adjustment.adjustment_type === 'credit' ? '-' : ''}${pdfMoney(adjustment.amount, invoice.currency_code)}`,
+      ]),
     ];
-    events.sort((left, right) => left.date.localeCompare(right.date) || left.order - right.order);
-    let balance = 0;
-    const rows = events.map((event) => {
-      balance += event.debit - event.credit;
-      return [
-        event.date,
-        event.description,
-        event.debit ? pdfMoney(event.debit, invoice.currency_code) : '-',
-        event.credit ? pdfMoney(event.credit, invoice.currency_code) : '-',
-        pdfMoney(balance, invoice.currency_code),
-      ];
-    });
-    rows.push(['', 'Outstanding balance', '-', '-', pdfMoney(outstandingByInvoice.get(invoice.id) ?? 0, invoice.currency_code)]);
-    return [{ title: 'Invoice details', columns: ['Date', 'Description', 'Debit', 'Credit', 'Balance'], rows }];
+    return [{ title: 'Invoice items', columns: ['Description', 'Amount'], rows }];
   }
 
   function statementSections(studentId: string): FinancePdfSection[] {
@@ -301,18 +271,56 @@ export function FinancePage() {
         pdfMoney(balance, item.currency),
       ];
     });
-    return [{ title: 'Account activity', columns: ['Date', 'Entry', 'Reference', 'Currency', 'Debit', 'Credit', 'Balance'], rows }];
+    const summary = [...balances.entries()].map(([currency, balance]) => (
+      balance < 0
+        ? `Credit on account · ${pdfMoney(Math.abs(balance), currency)}`
+        : `Closing balance · ${pdfMoney(balance, currency)}`
+    ));
+    return [{
+      title: 'Account activity',
+      columns: ['Date', 'Entry', 'Reference', 'Currency', 'Debit', 'Credit', 'Balance'],
+      rows,
+      summary,
+    }];
   }
 
   function downloadInvoice(invoice: FeeInvoice) {
+    const invoiceAllocations = allocations.filter((allocation) => allocation.invoice_id === invoice.id);
+    const invoiceAdjustments = adjustments.filter((adjustment) => adjustment.invoice_id === invoice.id);
+    const adjustmentTotal = invoiceAdjustments.reduce(
+      (total, adjustment) => total + (adjustment.adjustment_type === 'charge' ? adjustment.amount : -adjustment.amount),
+      0,
+    );
+    const amountPaid = invoiceAllocations.reduce((total, allocation) => total + allocation.amount, 0);
+    const balanceDue = outstandingByInvoice.get(invoice.id) ?? 0;
+    const student = studentsById.get(invoice.student_id);
+    const document: FinancePdfDocument = {
+      kind: 'invoice',
+      number: invoice.invoice_number,
+      issuedOn: invoice.issued_on,
+      dueOn: invoice.due_on,
+      recipientName: student ? `${student.first_name} ${student.last_name}` : 'Unknown student',
+      recipientReference: student ? `Student number: ${student.student_number}` : undefined,
+      status: invoice.status === 'void'
+        ? 'Void'
+        : balanceDue === 0
+          ? 'Paid'
+          : amountPaid > 0
+            ? 'Partially paid'
+            : 'Unpaid',
+      currencyCode: invoice.currency_code,
+      subtotal: invoice.amount,
+      discount: invoice.discount_amount,
+      adjustments: adjustmentTotal,
+      amountPaid,
+      balanceDue,
+    };
     void runPdfExport(({ downloadFinancePdf }) => downloadFinancePdf({
-      title: `Invoice ${invoice.invoice_number}`,
+      title: 'Invoice',
       schoolName: activeMembership?.school.name ?? 'School',
+      issuerDetails: getIssuerDetails(),
       filename: invoice.invoice_number,
-      details: [
-        `Student: ${displayStudent(invoice.student_id)}`,
-        `Issued: ${invoice.issued_on} | Due: ${invoice.due_on} | Status: ${invoice.status}`,
-      ],
+      document,
       sections: invoiceSections(invoice),
     }));
   }
@@ -332,7 +340,9 @@ export function FinancePage() {
     void runPdfExport(({ downloadFinancePdf }) => downloadFinancePdf({
       title: 'All student fee invoices',
       schoolName: activeMembership?.school.name ?? 'School',
+      issuerDetails: getIssuerDetails(),
       filename: `all-invoices-${new Date().toISOString().slice(0, 10)}`,
+      document: { kind: 'register', issuedOn: new Date().toISOString().slice(0, 10) },
       details: [`Invoices included: ${rows.length}`],
       sections: [{ title: 'Invoice register', columns: ['Invoice', 'Student', 'Description', 'Issued', 'Due', 'Amount', 'Discount', 'Outstanding', 'Status'], rows }],
     }));
@@ -341,16 +351,24 @@ export function FinancePage() {
   function downloadReceipt(payment: FeePayment) {
     const receiptAllocations = allocations.filter((allocation) => allocation.payment_id === payment.id);
     const allocatedTotal = receiptAllocations.reduce((total, allocation) => total + allocation.amount, 0);
+    const student = studentsById.get(payment.student_id);
     void runPdfExport(({ downloadFinancePdf }) => downloadFinancePdf({
-      title: `Payment receipt ${payment.receipt_number}`,
+      title: 'Payment receipt',
       schoolName: activeMembership?.school.name ?? 'School',
+      issuerDetails: getIssuerDetails(),
       filename: payment.receipt_number,
-      details: [
-        `Student: ${displayStudent(payment.student_id)}`,
-        `Receipt: ${payment.receipt_number} | Date: ${payment.payment_date}`,
-      ],
+      document: {
+        kind: 'receipt',
+        number: payment.receipt_number,
+        issuedOn: payment.payment_date,
+        recipientName: student ? `${student.first_name} ${student.last_name}` : 'Unknown student',
+        recipientReference: student ? `Student number: ${student.student_number}` : undefined,
+        currencyCode: payment.currency_code,
+        paymentAmount: payment.amount,
+        paymentMethod: payment.payment_method,
+        paymentReference: payment.reference || undefined,
+      },
       sections: [
-        { title: 'Payment received', columns: ['Amount', 'Currency', 'Method', 'Reference'], rows: [[payment.amount.toFixed(2), payment.currency_code, payment.payment_method.replace(/_/g, ' '), payment.reference || '-']] },
         { title: 'Invoice allocation', columns: ['Invoice', 'Invoice description', 'Allocated'], rows: receiptAllocations.length
           ? receiptAllocations.map((allocation) => {
             const invoice = invoices.find((item) => item.id === allocation.invoice_id);
@@ -379,7 +397,9 @@ export function FinancePage() {
     void runPdfExport(({ downloadFinancePdf }) => downloadFinancePdf({
       title: 'All payment receipts',
       schoolName: activeMembership?.school.name ?? 'School',
+      issuerDetails: getIssuerDetails(),
       filename: `all-receipts-${new Date().toISOString().slice(0, 10)}`,
+      document: { kind: 'register', issuedOn: new Date().toISOString().slice(0, 10) },
       details: [`Receipts included: ${rows.length}`],
       sections: [{ title: 'Receipt register', columns: ['Receipt', 'Student', 'Date', 'Method', 'Reference', 'Amount', 'Unallocated'], rows }],
     }));
@@ -392,11 +412,18 @@ export function FinancePage() {
       return;
     }
     const sections = statementSections(studentId);
+    const statementStudent = studentsById.get(studentId);
     void runPdfExport(({ downloadFinancePdf }) => downloadFinancePdf({
-      title: 'Student account statement',
+      title: 'Account statement',
       schoolName: activeMembership?.school.name ?? 'School',
+      issuerDetails: getIssuerDetails(),
       filename: `statement-${student.student_number}-${new Date().toISOString().slice(0, 10)}`,
-      details: [`Student: ${student.first_name} ${student.last_name}`, `Student number: ${student.student_number}`],
+      document: {
+        kind: 'statement',
+        issuedOn: new Date().toISOString().slice(0, 10),
+        recipientName: statementStudent ? `${statementStudent.first_name} ${statementStudent.last_name}` : 'Unknown student',
+        recipientReference: `Student number: ${student.student_number}`,
+      },
       sections: sections.map((section) => section.rows.length ? section : {
         ...section,
         rows: [['-', 'No account activity', '-', '-', '-', '-', '0.00']],
@@ -416,7 +443,9 @@ export function FinancePage() {
     void runPdfExport(({ downloadFinancePdf }) => downloadFinancePdf({
       title: 'All student account statements',
       schoolName: activeMembership?.school.name ?? 'School',
+      issuerDetails: getIssuerDetails(),
       filename: `all-statements-${new Date().toISOString().slice(0, 10)}`,
+      document: { kind: 'statement', issuedOn: new Date().toISOString().slice(0, 10) },
       details: [`Students included: ${sections.length}`],
       sections,
     }));
@@ -433,7 +462,9 @@ export function FinancePage() {
     void runPdfExport(({ downloadFinancePdf }) => downloadFinancePdf({
       title: 'Fee structure catalog',
       schoolName: activeMembership?.school.name ?? 'School',
+      issuerDetails: getIssuerDetails(),
       filename: `fee-structures-${new Date().toISOString().slice(0, 10)}`,
+      document: { kind: 'catalog', issuedOn: new Date().toISOString().slice(0, 10) },
       sections: [{ title: 'Fee structures', columns: ['Name', 'Description', 'Amount', 'Default due date', 'Status'], rows }],
     }));
   }
@@ -441,6 +472,12 @@ export function FinancePage() {
   function displayStudent(studentId: string) {
     const student = studentsById.get(studentId);
     return student ? `${student.first_name} ${student.last_name} · ${student.student_number}` : 'Unknown student';
+  }
+
+  function getIssuerDetails() {
+    const school = activeMembership?.school;
+    return [school?.address, school?.contact_phone, school?.contact_email, school?.website]
+      .filter((detail): detail is string => Boolean(detail?.trim()));
   }
 
   function showSuccess(message: string) {

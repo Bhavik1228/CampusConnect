@@ -7,6 +7,10 @@ export interface SchoolMembership {
     id: string;
     name: string;
     timezone: string;
+    address?: string | null;
+    contact_email?: string | null;
+    contact_phone?: string | null;
+    website?: string | null;
     logo_path: string | null;
     primary_color: string | null;
     secondary_color: string | null;
