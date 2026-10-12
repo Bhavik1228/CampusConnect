@@ -23,7 +23,7 @@ function respond(status: number, body: Record<string, string>) {
 }
 
 Deno.serve(async (request: Request) => {
-  if (request.method === 'OPTIONS') return new Response('ok', { headers: corsHeaders });
+  if (request.method === 'OPTIONS') return new Response(null, { status: 204, headers: corsHeaders });
   if (request.method !== 'POST') return respond(405, { error: 'Method not allowed.' });
 
   try {
