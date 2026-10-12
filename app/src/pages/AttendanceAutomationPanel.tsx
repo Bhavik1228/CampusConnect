@@ -5,8 +5,9 @@ import {
 } from 'lucide-react';
 import { EmptyState } from '../components/Feedback';
 import { requireSupabase } from '../lib/supabase';
+import type { AppRole } from '../types/database';
 
-type Role = 'school_admin' | 'academic_coordinator' | 'teacher' | 'student' | 'parent';
+type Role = AppRole;
 type AttendanceStatus = 'present' | 'absent' | 'late' | 'excused';
 type PanelTab = 'automation' | 'leave' | 'analytics' | 'operations';
 

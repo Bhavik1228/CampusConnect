@@ -2,7 +2,7 @@ import { useEffect, useState } from 'react';
 import {
   ArrowRight, BookOpen, BookOpenCheck, BookOpenText, Building2, CalendarDays,
   Check, ChevronDown, ClipboardCheck, GraduationCap, LayoutDashboard, Menu,
-  MessageSquareText, ShieldCheck, Users, UsersRound, X,
+  MessageSquareText, ShieldCheck, Users, UsersRound, WalletCards, X,
 } from 'lucide-react';
 import { Link } from 'react-router-dom';
 import type { CSSProperties } from 'react';
@@ -12,6 +12,7 @@ const features = [
   { icon: GraduationCap, tone: 'violet', title: 'Student information', description: 'Keep enrollment, profiles, class placement, and academic records together across the student journey.' },
   { icon: BookOpenText, tone: 'sky', title: 'Learning & assessment', description: 'Organize assignments, learning resources, quizzes, exams, grading, and student progress.' },
   { icon: CalendarDays, tone: 'green', title: 'Timetables & calendars', description: 'Coordinate lessons, academic terms, schedules, and school events across your organization.' },
+  { icon: WalletCards, tone: 'teal', title: 'Student fee management', description: 'Manage fee structures, invoices, discounts, payment allocations, receipts, and student account balances.' },
   { icon: MessageSquareText, tone: 'amber', title: 'School communication', description: 'Keep announcements, notices, and school conversations connected to the people who need them.' },
   { icon: LayoutDashboard, tone: 'pink', title: 'Dashboards & reporting', description: 'Bring attendance, learner progress, and school information into clear role-based views.' },
   { icon: ShieldCheck, tone: 'blue', title: 'Role-based access', description: 'Give administrators, teachers, students, and families access suited to their responsibilities.' },
@@ -39,7 +40,7 @@ const questions = [
   },
   {
     question: 'Which roles can use Campus Connect?',
-    answer: 'The access model includes school administrators, teachers, students, and parents or guardians. The account-invitation and record-linking workflows needed to onboard those roles are still being developed.',
+    answer: 'The access model includes school administrators, teachers, students, parents or guardians, and accounting staff. School administrators can invite finance managers, accountants, bursars, and cashiers with role-specific access.',
   },
   {
     question: 'Is every feature already available?',

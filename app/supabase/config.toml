@@ -21,3 +21,6 @@ additional_redirect_urls = ["http://localhost:5173/login", "http://127.0.0.1:517
 
 [functions.login-alert]
 verify_jwt = false
+
+[functions.staff-invite]
+verify_jwt = true

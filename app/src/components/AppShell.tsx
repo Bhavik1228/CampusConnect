@@ -3,12 +3,14 @@ import { NavLink, Outlet, useLocation, useNavigate } from 'react-router-dom';
 import {
   BookMarked, BookOpenCheck, BookOpenText, CalendarDays, Check, ChevronDown,
   ChevronLeft, ClipboardCheck, GraduationCap, LayoutDashboard, LogOut, Menu,
-  Settings, Users, UsersRound, X, CalendarClock,
+  Settings, Users, UsersRound, X, CalendarClock, CircleDollarSign, UserRoundPlus,
+  type LucideIcon,
 } from 'lucide-react';
 import { useAuth } from '../contexts/AuthContext';
 import { ErrorState } from './Feedback';
+import type { AppRole } from '../types/database';
 
-const navigation = [
+const navigation: { title: string; items: { to: string; label: string; icon: LucideIcon; roles?: AppRole[] }[] }[] = [
   { title: 'Workspace', items: [
     { to: '/dashboard', label: 'Overview', icon: LayoutDashboard },
     { to: '/students', label: 'Students', icon: GraduationCap },
@@ -23,12 +25,17 @@ const navigation = [
     { to: '/learning', label: 'Learning', icon: BookOpenText },
     { to: '/calendar', label: 'Calendar', icon: CalendarDays },
   ] },
+  { title: 'Finance', items: [
+    { to: '/finance', label: 'Student fees', icon: CircleDollarSign, roles: ['school_admin', 'finance_manager', 'accountant', 'bursar', 'cashier'] },
+    { to: '/accounting-staff', label: 'Accounting staff', icon: UserRoundPlus, roles: ['school_admin'] },
+  ] },
 ];
 
 const pageNames: Record<string, string> = {
   '/dashboard': 'Overview', '/students': 'Students', '/teachers': 'Teachers',
   '/classes': 'Classes', '/subjects': 'Subjects', '/timetable': 'Timetable', '/attendance': 'Attendance',
   '/learning': 'Learning', '/calendar': 'Calendar', '/academic-calendar': 'Academic calendar', '/settings': 'Settings',
+  '/finance': 'Student fees', '/accounting-staff': 'Accounting staff',
 };
 
 export function AppShell() {
@@ -51,6 +58,7 @@ export function AppShell() {
   }
 
   function sidebarContent() {
+    const isAccountingRole = ['finance_manager', 'accountant', 'bursar', 'cashier'].includes(activeMembership?.role ?? '');
     return <>
       <div className="sidebar-top">
         <a className="brand" href="/"><span className="brand-mark"><BookOpenCheck size={20} /></span><span>Campus Connect</span></a>
@@ -65,10 +73,13 @@ export function AppShell() {
         {schoolMenuOpen && <div className="school-menu">{memberships.map((membership) => <button key={membership.school_id} onClick={() => { selectSchool(membership.school_id); setSchoolMenuOpen(false); setMobileOpen(false); }}><span>{membership.school.name}</span>{membership.school_id === activeMembership?.school_id && <Check size={15} />}</button>)}</div>}
       </div>
       <nav className="side-navigation" aria-label="Main navigation">
-        {navigation.map((group) => <div className="nav-group" key={group.title}><span className="nav-label">{group.title}</span>{group.items.map(({ to, label, icon: Icon }) => <NavLink key={to} to={to} onClick={() => setMobileOpen(false)} className={({ isActive }) => `nav-item${isActive ? ' active' : ''}`}><Icon size={18} strokeWidth={1.8} /><span>{label}</span></NavLink>)}</div>)}
+        {navigation.map((group) => {
+          const items = group.items.filter((item) => !item.roles || item.roles.includes(activeMembership?.role ?? 'student'));
+          return items.length ? <div className="nav-group" key={group.title}><span className="nav-label">{group.title}</span>{items.map(({ to, label, icon: Icon }) => <NavLink key={to} to={to} onClick={() => setMobileOpen(false)} className={({ isActive }) => `nav-item${isActive ? ' active' : ''}`}><Icon size={18} strokeWidth={1.8} /><span>{label}</span></NavLink>)}</div> : null;
+        })}
       </nav>
       <div className="sidebar-bottom">
-        <NavLink to="/settings" onClick={() => setMobileOpen(false)} className={({ isActive }) => `nav-item${isActive ? ' active' : ''}`}><Settings size={18} strokeWidth={1.8} /><span>Settings</span></NavLink>
+        {!isAccountingRole && <NavLink to="/settings" onClick={() => setMobileOpen(false)} className={({ isActive }) => `nav-item${isActive ? ' active' : ''}`}><Settings size={18} strokeWidth={1.8} /><span>Settings</span></NavLink>}
         <div className="profile-row"><span className="avatar">{(user?.user_metadata.full_name as string | undefined)?.slice(0, 1).toUpperCase() ?? user?.email?.slice(0, 1).toUpperCase()}</span><span className="profile-copy"><strong>{(user?.user_metadata.full_name as string | undefined) ?? user?.email}</strong><small>{user?.email}</small></span><button className="icon-button" onClick={() => void logout()} aria-label="Sign out"><LogOut size={17} /></button></div>
       </div>
     </>;
