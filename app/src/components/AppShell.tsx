@@ -16,7 +16,7 @@ const navigation: { title: string; items: { to: string; label: string; icon: Luc
   { title: 'Workspace', items: [
     { to: '/dashboard', label: 'Overview', icon: LayoutDashboard },
     { to: '/students', label: 'Students', icon: GraduationCap },
-    { to: '/admissions', label: 'Admissions & enrolment', icon: UserRoundPlus },
+    { to: '/admissions', label: 'Admissions & enrolment', icon: UserRoundPlus, roles: ['school_admin'] },
     { to: '/staff', label: 'Staff & teachers', icon: BriefcaseBusiness, roles: ['school_admin', 'academic_coordinator', 'teacher'] },
     { to: '/classes', label: 'Classes', icon: UsersRound },
     { to: '/subjects', label: 'Subjects', icon: BookMarked },

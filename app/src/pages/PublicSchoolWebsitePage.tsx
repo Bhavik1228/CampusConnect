@@ -1,5 +1,5 @@
 import { useEffect, useState, type FormEvent } from 'react';
-import { ArrowDown, ArrowRight, BookOpenCheck, CalendarDays, CheckCircle2, GraduationCap, MapPin, Search, ShieldCheck } from 'lucide-react';
+import { ArrowDown, ArrowRight, BookOpenCheck, CalendarDays, CheckCircle2, FileText, GraduationCap, MapPin, Search, ShieldCheck } from 'lucide-react';
 import { useParams } from 'react-router-dom';
 import { ErrorState, LoadingState } from '../components/Feedback';
 import { requireSupabase } from '../lib/supabase';
@@ -13,6 +13,7 @@ type PublicWebsite = {
   about_title: string;
   about_text: string;
   admissions_open: boolean;
+  admissions_applications_enabled: boolean;
   admissions_title: string;
   admissions_text: string;
   admission_requirements: string;
@@ -43,6 +44,31 @@ type PublicResult = {
   teacher_comment: string;
 };
 
+interface PublicAdmissionStatus {
+  application_reference: string;
+  student_name: string;
+  school_name: string;
+  application_status: string;
+  applying_for: string;
+  decision_note: string | null;
+  submitted_at: string;
+  updated_at: string;
+}
+
+const allowedAdmissionTypes = new Set([
+  'application/pdf',
+  'image/jpeg',
+  'image/png',
+  'application/msword',
+  'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
+]);
+const maxAdmissionFileSize = 10 * 1024 * 1024;
+
+function safeFileName(value: string) {
+  const extension = value.split('.').pop()?.toLowerCase().replace(/[^a-z0-9]/g, '').slice(0, 10) || 'bin';
+  return `${crypto.randomUUID()}.${extension}`;
+}
+
 function displayDate(date: string) {
   return new Date(`${date}T00:00:00`).toLocaleDateString(undefined, {
     day: 'numeric', month: 'long', year: 'numeric',
@@ -67,6 +93,14 @@ export function PublicSchoolWebsitePage() {
   const [searched, setSearched] = useState(false);
   const [loading, setLoading] = useState(true);
   const [searching, setSearching] = useState(false);
+  const [submittingApplication, setSubmittingApplication] = useState(false);
+  const [applicationReference, setApplicationReference] = useState('');
+  const [applicationError, setApplicationError] = useState('');
+  const [applicationSuccess, setApplicationSuccess] = useState('');
+  const [statusReference, setStatusReference] = useState('');
+  const [statusEmail, setStatusEmail] = useState('');
+  const [statusResult, setStatusResult] = useState<PublicAdmissionStatus | null>(null);
+  const [checkingApplicationStatus, setCheckingApplicationStatus] = useState(false);
   const [error, setError] = useState('');
   const [searchError, setSearchError] = useState('');
 
@@ -119,6 +153,105 @@ export function PublicSchoolWebsitePage() {
     }
   }
 
+  async function submitAdmission(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    if (!website) return;
+    const formElement = event.currentTarget;
+    const form = new FormData(formElement);
+    const uploadedFiles = form.getAll('admission_documents').filter((value): value is File => value instanceof File && value.size > 0);
+    setSubmittingApplication(true);
+    setApplicationError('');
+    setApplicationSuccess('');
+    setApplicationReference('');
+    try {
+      if (uploadedFiles.length > 5) throw new Error('You can attach up to five supporting documents per application.');
+      for (const file of uploadedFiles) {
+        if (!allowedAdmissionTypes.has(file.type)) throw new Error(`${file.name} is not a supported file type.`);
+        if (file.size > maxAdmissionFileSize) throw new Error(`${file.name} exceeds the 10 MB per-file limit.`);
+        if (file.name.length > 200) throw new Error('Document file names must be 200 characters or fewer.');
+      }
+      const { data, error: submitError } = await requireSupabase().rpc('submit_public_admission_application', {
+        target_slug: website.slug,
+        applicant_first_name: String(form.get('student_first_name') ?? '').trim(),
+        applicant_last_name: String(form.get('student_last_name') ?? '').trim(),
+        applicant_date_of_birth: String(form.get('date_of_birth') ?? '') || null,
+        applicant_gender: String(form.get('gender') ?? '') || null,
+        requested_grade: String(form.get('applying_for') ?? '').trim(),
+        requested_academic_year: String(form.get('academic_year') ?? '').trim() || null,
+        applicant_previous_school: String(form.get('previous_school') ?? '').trim() || null,
+        applicant_email: String(form.get('student_email') ?? '').trim() || null,
+        applicant_phone: String(form.get('student_phone') ?? '').trim() || null,
+        applicant_address: String(form.get('address') ?? '').trim() || null,
+        guardian_full_name: String(form.get('guardian_name') ?? '').trim(),
+        guardian_relationship: String(form.get('guardian_relationship') ?? '').trim(),
+        guardian_contact_email: String(form.get('guardian_email') ?? '').trim(),
+        guardian_contact_phone: String(form.get('guardian_phone') ?? '').trim(),
+        applicant_notes: String(form.get('notes') ?? '').trim() || null,
+      });
+      if (submitError) throw submitError;
+      const submitted = data as { id?: string; reference?: string } | null;
+      if (!submitted?.id || !submitted.reference) throw new Error('The application was received but its confirmation number could not be generated. Contact the school before submitting again.');
+      setApplicationReference(submitted.reference);
+
+      const failedFiles: string[] = [];
+      for (const file of uploadedFiles) {
+        const path = `${website.school_id}/${submitted.id}/${safeFileName(file.name)}`;
+        try {
+          const { error: uploadError } = await requireSupabase().storage.from('admission-documents').upload(path, file, {
+            contentType: file.type,
+            upsert: false,
+          });
+          if (uploadError) throw uploadError;
+          const { error: metadataError } = await requireSupabase().rpc('add_public_admission_document', {
+            target_application: submitted.id,
+            target_file_name: file.name,
+            target_storage_path: path,
+            target_content_type: file.type,
+            target_file_size: file.size,
+          });
+          if (metadataError) throw metadataError;
+        } catch (documentError) {
+          const { error: removeError } = await requireSupabase().storage.from('admission-documents').remove([path]);
+          if (removeError) console.error('Could not remove an unregistered application document.', removeError);
+          failedFiles.push(file.name);
+          if (documentError instanceof Error) console.error(`Could not attach application document ${file.name}.`, documentError);
+        }
+      }
+
+      formElement.reset();
+      if (failedFiles.length) {
+        setApplicationError(`Your application was received as ${submitted.reference}, but these files could not be attached: ${failedFiles.join(', ')}. Please contact admissions and quote your reference.`);
+      } else {
+        setApplicationSuccess('Your application has been submitted. Keep this reference number to check its status with your guardian email.');
+      }
+    } catch (submitError) {
+      setApplicationError(submitError instanceof Error ? submitError.message : 'Could not submit the application. Please try again.');
+    } finally {
+      setSubmittingApplication(false);
+    }
+  }
+
+  async function checkAdmissionStatus(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    setCheckingApplicationStatus(true);
+    setApplicationError('');
+    setStatusResult(null);
+    try {
+      const { data, error: statusError } = await requireSupabase().rpc('get_public_admission_status', {
+        target_reference: statusReference.trim(),
+        target_guardian_email: statusEmail.trim(),
+      });
+      if (statusError) throw statusError;
+      const record = (data as PublicAdmissionStatus[] | null)?.[0] ?? null;
+      setStatusResult(record);
+      if (!record) setApplicationError('No application matched that reference and guardian email. Check both details and try again.');
+    } catch (statusError) {
+      setApplicationError(statusError instanceof Error ? statusError.message : 'Could not check application status.');
+    } finally {
+      setCheckingApplicationStatus(false);
+    }
+  }
+
   if (loading) return <main className="public-school-loading"><LoadingState label="Loading school website..." /></main>;
   if (error) return <main className="public-school-unavailable"><ErrorState message={error} /></main>;
   if (!website) return <main className="public-school-unavailable"><BookOpenCheck size={28} /><h1>School website unavailable</h1><p>This website is not published or the address is incorrect.</p><a href="/">Return to Campus Connect</a></main>;
@@ -145,7 +278,7 @@ export function PublicSchoolWebsitePage() {
           {website.fees.length > 0 && <a href="#fees">Fees</a>}
           {website.public_results_enabled && <a href="#results">Student results</a>}
         </nav>
-        {website.admissions_open && website.admissions_email && <a className="public-school-header-cta" href={`mailto:${website.admissions_email}`}>Apply now <ArrowRight size={14} /></a>}
+        {website.admissions_open && website.admissions_applications_enabled && <a className="public-school-header-cta" href="#admission-application">Apply now <ArrowRight size={14} /></a>}
       </header>
 
       <section id="home" className="public-school-hero">
@@ -155,7 +288,7 @@ export function PublicSchoolWebsitePage() {
           {website.hero_message && <p>{website.hero_message}</p>}
           <div className="public-school-hero-actions">
             <a className="public-school-primary-action" href="#about">Discover our school <ArrowDown size={15} /></a>
-            {website.admissions_open && website.admissions_email && <a className="public-school-secondary-action" href={`mailto:${website.admissions_email}`}>Admissions are open <ArrowRight size={14} /></a>}
+            {website.admissions_open && website.admissions_applications_enabled && <a className="public-school-secondary-action" href="#admission-application">Apply online <ArrowRight size={14} /></a>}
           </div>
           <div className="public-school-hero-location"><MapPin size={14} />{website.address || 'A welcoming community for every learner'}</div>
         </div>
@@ -181,9 +314,52 @@ export function PublicSchoolWebsitePage() {
           <span className={`public-school-admissions-status${website.admissions_open ? ' open' : ''}`}>{website.admissions_open ? 'Applications open' : 'Enquiries welcome'}</span>
           {website.admissions_deadline && <p className="public-school-deadline"><CalendarDays size={15} />Application deadline: {displayDate(website.admissions_deadline)}</p>}
           {website.admission_requirements && <div className="public-school-requirements"><strong>What to prepare</strong><p>{website.admission_requirements}</p></div>}
-          {website.admissions_email && <a className="public-school-primary-action" href={`mailto:${website.admissions_email}?subject=${encodeURIComponent(`Admissions enquiry - ${website.name}`)}`}>{website.admissions_open ? 'Contact admissions' : 'Make an enquiry'} <ArrowRight size={15} /></a>}
+          {website.admissions_open && website.admissions_applications_enabled
+            ? <a className="public-school-primary-action" href="#admission-application">Apply online <ArrowRight size={15} /></a>
+            : website.admissions_email && <a className="public-school-primary-action" href={`mailto:${website.admissions_email}?subject=${encodeURIComponent(`Admissions enquiry - ${website.name}`)}`}>{website.admissions_open ? 'Contact admissions' : 'Make an enquiry'} <ArrowRight size={15} /></a>}
         </div>
       </section>
+
+      {website.admissions_open && website.admissions_applications_enabled && <section id="admission-application" className="public-school-admission-application public-school-section">
+        <div className="public-school-section-heading"><span className="public-school-section-kicker">Start your application</span><h2>Apply to {website.name}</h2><p>Complete the student and parent/guardian details below. The school’s admissions team will review the application.</p></div>
+        <form className="public-admission-form" onSubmit={(event) => void submitAdmission(event)}>
+          {applicationError && <div className="public-school-lookup-error" role="alert">{applicationError}</div>}
+          {applicationSuccess && <div className="public-admission-success" role="status"><CheckCircle2 size={20} /><div><strong>Application received · {applicationReference}</strong><p>{applicationSuccess}</p></div></div>}
+          <div className="public-admission-form-section"><h3>Student information</h3><div className="public-admission-fields">
+            <label><span>First name *</span><input name="student_first_name" required maxLength={80} autoComplete="given-name" disabled={submittingApplication} /></label>
+            <label><span>Last name *</span><input name="student_last_name" required maxLength={80} autoComplete="family-name" disabled={submittingApplication} /></label>
+            <label><span>Date of birth</span><input name="date_of_birth" type="date" max={new Date().toISOString().slice(0, 10)} disabled={submittingApplication} /></label>
+            <label><span>Gender</span><select name="gender" defaultValue="" disabled={submittingApplication}><option value="">Prefer not to say</option><option>Female</option><option>Male</option><option>Non-binary</option><option>Other</option></select></label>
+            <label><span>Applying for grade / level *</span><input name="applying_for" required maxLength={100} placeholder="For example, Grade 4" disabled={submittingApplication} /></label>
+            <label><span>Academic year / intake</span><input name="academic_year" maxLength={100} placeholder="For example, 2027" disabled={submittingApplication} /></label>
+            <label><span>Previous school</span><input name="previous_school" maxLength={160} disabled={submittingApplication} /></label>
+            <label><span>Student email</span><input name="student_email" type="email" maxLength={254} autoComplete="email" disabled={submittingApplication} /></label>
+            <label><span>Student phone</span><input name="student_phone" type="tel" maxLength={40} autoComplete="tel" disabled={submittingApplication} /></label>
+            <label className="public-admission-wide"><span>Home address</span><input name="address" maxLength={500} autoComplete="street-address" disabled={submittingApplication} /></label>
+          </div></div>
+          <div className="public-admission-form-section"><h3>Parent or guardian</h3><div className="public-admission-fields">
+            <label><span>Full name *</span><input name="guardian_name" required minLength={2} maxLength={160} autoComplete="name" disabled={submittingApplication} /></label>
+            <label><span>Relationship *</span><input name="guardian_relationship" required maxLength={60} placeholder="Parent, guardian..." disabled={submittingApplication} /></label>
+            <label><span>Email *</span><input name="guardian_email" required type="email" maxLength={254} autoComplete="email" disabled={submittingApplication} /></label>
+            <label><span>Phone *</span><input name="guardian_phone" required type="tel" minLength={5} maxLength={40} autoComplete="tel" disabled={submittingApplication} /></label>
+          </div></div>
+          <div className="public-admission-form-section"><h3>Supporting information</h3>
+            <label className="public-admission-wide"><span>Notes for the admissions team</span><textarea name="notes" rows={4} maxLength={3000} disabled={submittingApplication} placeholder="Share anything the admissions team should know." /></label>
+            <label className="public-admission-upload"><FileText size={18} /><span><strong>Supporting documents</strong><small>PDF, JPG, PNG, DOC or DOCX · up to five files, 10 MB each</small></span><input name="admission_documents" type="file" multiple accept=".pdf,.jpg,.jpeg,.png,.doc,.docx" disabled={submittingApplication} /></label>
+            <p className="public-admission-privacy">Application details and uploaded documents are only available to this school’s authorized admissions administrator.</p>
+          </div>
+          <button className="public-school-primary-action public-admission-submit" type="submit" disabled={submittingApplication}>{submittingApplication ? 'Submitting application…' : 'Submit application'}<ArrowRight size={16} /></button>
+        </form>
+        <section className="public-admission-status">
+          <div><span className="public-school-section-kicker">Already applied?</span><h3>Check application status</h3><p>Enter the reference number and guardian email used in the application.</p></div>
+          <form onSubmit={(event) => void checkAdmissionStatus(event)}>
+            <label><span>Application reference</span><input value={statusReference} onChange={(event) => setStatusReference(event.target.value)} required maxLength={30} placeholder="ADM-1234567890" /></label>
+            <label><span>Guardian email</span><input value={statusEmail} onChange={(event) => setStatusEmail(event.target.value)} required type="email" maxLength={254} /></label>
+            <button type="submit" disabled={checkingApplicationStatus}>{checkingApplicationStatus ? 'Checking…' : 'Check status'}</button>
+          </form>
+          {statusResult && <div className="public-admission-status-result"><strong>{statusResult.student_name} · {statusResult.application_status.replace(/_/g, ' ')}</strong><span>{statusResult.application_reference} · {statusResult.applying_for}</span>{statusResult.decision_note && <p>{statusResult.decision_note}</p>}<small>Last updated {displayDate(statusResult.updated_at)}</small></div>}
+        </section>
+      </section>}
 
       {website.fees.length > 0 && <section id="fees" className="public-school-fees public-school-section">
         <div className="public-school-section-heading"><span className="public-school-section-kicker">Planning ahead</span><h2>Fee structure</h2><p>Published tuition information. Please contact the school to confirm the latest fees and payment options.</p></div>

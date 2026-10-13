@@ -65,6 +65,7 @@ interface WebsiteSettings {
   about_title: string;
   about_text: string;
   admissions_open: boolean;
+  admissions_applications_enabled: boolean;
   admissions_title: string;
   admissions_text: string;
   admission_requirements: string;
@@ -112,6 +113,7 @@ function emptyWebsite(schoolId: string, schoolName: string, contactEmail: string
     about_title: 'Learning, belonging, growing',
     about_text: '',
     admissions_open: false,
+    admissions_applications_enabled: false,
     admissions_title: 'Admissions',
     admissions_text: '',
     admission_requirements: '',
@@ -276,6 +278,11 @@ export function SchoolSettingsPage() {
       }
       if (website.public_results_enabled && !website.enabled) {
         setError('Publish the school website before enabling its public student results lookup.');
+        setSuccess('');
+        return;
+      }
+      if (website.admissions_applications_enabled && (!website.enabled || !website.admissions_open)) {
+        setError('Publish the website and open admissions before accepting online applications.');
         setSuccess('');
         return;
       }
@@ -606,7 +613,10 @@ export function SchoolSettingsPage() {
             <Section title="Website visibility & address" detail="The school website is private until you choose to publish it. You can switch it off at any time.">
               <Toggle label="Publish school website" detail="Make the school's public page available to anyone with its web address." checked={website.enabled} disabled={!canEdit} onChange={(checked) => {
                 updateWebsite('enabled', checked);
-                if (!checked) updateWebsite('public_results_enabled', false);
+                if (!checked) {
+                  updateWebsite('public_results_enabled', false);
+                  updateWebsite('admissions_applications_enabled', false);
+                }
               }} />
               <div className="settings-fields">
                 <TextField label="Website address" value={website.slug} disabled={!canEdit} maxLength={80} placeholder="north-campus" onChange={(value) => updateWebsite('slug', value.toLowerCase())} />
@@ -625,7 +635,11 @@ export function SchoolSettingsPage() {
               </div>
             </Section>
             <Section title="Admissions" detail="Share whether applications are open and tell families how to apply.">
-              <Toggle label="Accepting applications" detail="Show an admissions-open notice and application contact on the public website." checked={website.admissions_open} disabled={!canEdit} onChange={(checked) => updateWebsite('admissions_open', checked)} />
+              <Toggle label="Accepting applications" detail="Show an admissions-open notice and application contact on the public website." checked={website.admissions_open} disabled={!canEdit} onChange={(checked) => {
+                updateWebsite('admissions_open', checked);
+                if (!checked) updateWebsite('admissions_applications_enabled', false);
+              }} />
+              <Toggle label="Accept online applications" detail="Let parents submit student applications and supporting documents directly from the published school website." checked={website.admissions_applications_enabled} disabled={!canEdit || !website.enabled || !website.admissions_open} onChange={(checked) => updateWebsite('admissions_applications_enabled', checked)} />
               <div className="settings-fields">
                 <TextField label="Admissions section title" value={website.admissions_title} disabled={!canEdit} maxLength={100} onChange={(value) => updateWebsite('admissions_title', value)} />
                 <TextField label="Application deadline" type="date" value={website.admissions_deadline ?? ''} disabled={!canEdit} onChange={(value) => updateWebsite('admissions_deadline', value || null)} />

@@ -1552,6 +1552,37 @@ td strong { color: #3e435a; font-weight: 600; }
 .public-school-requirements strong { color: #464c62; font-size: 10px; }
 .public-school-requirements p { margin: 7px 0 0; color: #81879a; font-size: 10px; line-height: 1.7; white-space: pre-line; }
 .public-school-admissions-card > .public-school-primary-action { margin-top: 17px; }
+.public-school-admission-application { display: grid; grid-template-columns: minmax(0, 1.3fr) minmax(280px, .7fr); align-items: start; gap: 30px; }
+.public-school-admission-application > .public-school-section-heading { grid-column: 1 / -1; }
+.public-admission-form { display: grid; gap: 18px; padding: 24px; border: 1px solid #e9eaf1; border-radius: 16px; background: white; box-shadow: 0 14px 38px rgba(37,40,75,.06); }
+.public-admission-form-section { display: grid; gap: 13px; padding-bottom: 17px; border-bottom: 1px solid #eff0f4; }
+.public-admission-form-section h3, .public-admission-status h3 { margin: 0; color: #343a54; font-family: 'Plus Jakarta Sans', sans-serif; font-size: 15px; }
+.public-admission-fields { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 12px; }
+.public-admission-fields label, .public-admission-form-section > label:not(.public-admission-upload) { display: grid; gap: 6px; min-width: 0; color: #555c70; font-size: 10px; font-weight: 600; }
+.public-admission-fields input, .public-admission-fields select, .public-admission-form-section textarea { width: 100%; min-width: 0; min-height: 39px; padding: 9px 10px; border: 1px solid #e4e6ee; border-radius: 8px; background: white; color: #30364a; font: inherit; font-size: 11px; }
+.public-admission-form-section textarea { resize: vertical; }
+.public-admission-wide { grid-column: 1 / -1; }
+.public-admission-upload { display: flex; align-items: center; gap: 11px; flex-wrap: wrap; padding: 12px; border: 1px dashed #d8d6ed; border-radius: 10px; background: #fafaff; color: var(--school-accent); }
+.public-admission-upload > span { display: grid; flex: 1; gap: 4px; }
+.public-admission-upload strong { color: #454b62; font-size: 10px; }
+.public-admission-upload small { color: #84899b; font-size: 9px; }
+.public-admission-upload input { max-width: 100%; color: #686f84; font-size: 9px; }
+.public-admission-privacy { margin: 0; color: #83899b; font-size: 9px; line-height: 1.6; }
+.public-admission-submit { justify-self: start; border: 0; font: inherit; cursor: pointer; }
+.public-admission-submit:disabled { opacity: .65; cursor: progress; }
+.public-admission-success { display: flex; gap: 10px; padding: 13px; border: 1px solid #cbe8d8; border-radius: 10px; background: #f0faf4; color: #28714f; }
+.public-admission-success svg { flex: none; }
+.public-admission-success strong { font-size: 11px; }
+.public-admission-success p { margin: 5px 0 0; font-size: 10px; line-height: 1.5; }
+.public-admission-status { display: grid; gap: 14px; padding: 20px; border: 1px solid #e9eaf1; border-radius: 14px; background: #fff; }
+.public-admission-status > div:first-child p { margin: 7px 0 0; color: #7c8295; font-size: 10px; line-height: 1.6; }
+.public-admission-status form { display: grid; gap: 10px; }
+.public-admission-status label { display: grid; gap: 6px; color: #555c70; font-size: 9px; font-weight: 600; }
+.public-admission-status input { min-height: 37px; padding: 8px 9px; border: 1px solid #e4e6ee; border-radius: 8px; font: inherit; font-size: 10px; }
+.public-admission-status form button { min-height: 37px; border: 0; border-radius: 8px; background: #eef0f8; color: #414861; font: inherit; font-size: 10px; font-weight: 700; }
+.public-admission-status-result { display: grid; gap: 5px; padding: 12px; border-radius: 9px; background: #f5f4ff; color: #444a60; font-size: 10px; }
+.public-admission-status-result > span, .public-admission-status-result small { color: #777e93; font-size: 9px; }
+.public-admission-status-result p { margin: 4px 0 0; white-space: pre-line; }
 .public-school-fees { padding-top: 66px; }
 .public-school-fees-table-wrap { overflow-x: auto; margin-top: 25px; border: 1px solid #e9eaf1; border-radius: 11px; }
 .public-school-fees-table { min-width: 650px; }
@@ -1596,6 +1627,87 @@ td strong { color: #3e435a; font-weight: 600; }
 .public-school-unavailable h1 { margin: 4px 0 0; color: #34394f; font-size: 23px; }
 .public-school-unavailable p { margin: 0; color: #858b9e; font-size: 11px; }
 .public-school-unavailable > a { margin-top: 5px; color: #6555d9; font-size: 10px; font-weight: 700; }
+
+.admissions-page { gap: 17px; }
+.admissions-summary { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 12px; }
+.admission-stat { display: grid; gap: 5px; min-width: 0; padding: 15px 17px; border-left: 3px solid #c5c8d5; color: #767d91; text-align: left; }
+.admission-stat:hover { border-color: #aaa3eb; background: #fcfbff; }
+.admission-stat strong { color: #2f354d; font-family: 'Plus Jakarta Sans', sans-serif; font-size: 25px; }
+.admission-stat > span { font-size: 10px; font-weight: 700; text-transform: uppercase; }
+.admission-stat > small { color: #989eaf; font-size: 8px; }
+.admission-stat-submitted { border-left-color: #e6a844; }
+.admission-stat-under_review { border-left-color: #5896db; }
+.admission-stat-accepted { border-left-color: #39a77a; }
+.admission-stat-registered { border-left-color: #806fd8; }
+.admissions-workspace { display: grid; grid-template-columns: minmax(290px, .78fr) minmax(0, 1.22fr); align-items: start; gap: 14px; }
+.admissions-inbox, .admissions-detail { min-width: 0; }
+.admissions-inbox .section-heading h2 { display: flex; align-items: center; gap: 7px; }
+.admissions-inbox .section-heading h2 small { display: inline-grid; min-width: 22px; height: 22px; place-items: center; padding: 0 5px; border-radius: 12px; background: #f1f0fb; color: #6555d9; font-size: 9px; }
+.admissions-live { display: inline-flex; align-items: center; gap: 6px; color: #31805e; font-size: 9px; font-weight: 700; }
+.admissions-live i { width: 7px; height: 7px; border-radius: 50%; background: #3bab78; box-shadow: 0 0 0 3px #e6f5ed; }
+.admissions-live-connecting { color: #987531; }
+.admissions-live-connecting i { background: #d8a941; box-shadow: 0 0 0 3px #faf2df; }
+.admissions-live-offline { color: #a24e58; }
+.admissions-live-offline i { background: #c45c66; box-shadow: 0 0 0 3px #fae9eb; }
+.admissions-toolbar { display: flex; gap: 8px; margin-bottom: 11px; }
+.admissions-search { min-width: 0; height: 37px; display: flex; flex: 1; align-items: center; gap: 7px; padding: 0 9px; border: 1px solid #e7e8ef; border-radius: 8px; color: #9297a7; }
+.admissions-search input { width: 100%; min-width: 0; border: 0; outline: none; color: #484e64; font-size: 9px; }
+.admissions-toolbar > select { max-width: 140px; min-width: 105px; padding: 0 8px; border: 1px solid #e7e8ef; border-radius: 8px; background: white; color: #62697d; font-size: 9px; }
+.admissions-list { display: grid; gap: 5px; max-height: 640px; overflow-y: auto; }
+.admissions-list-item { display: grid; gap: 6px; width: 100%; padding: 11px 10px; border: 1px solid transparent; border-radius: 9px; background: white; color: #444a61; text-align: left; }
+.admissions-list-item:hover { background: #fafaff; }
+.admissions-list-item.selected { border-color: #e3e0f8; background: #f8f7ff; }
+.admissions-list-top { display: flex; align-items: flex-start; justify-content: space-between; gap: 7px; }
+.admissions-list-top > strong { color: #383e55; font-size: 10px; }
+.admissions-list-ref, .admissions-list-date { color: #858b9e; font-size: 8px; }
+.admission-status { display: inline-flex; width: max-content; align-items: center; padding: 5px 8px; border-radius: 15px; background: #f1f2f5; color: #707789; font-size: 8px; font-weight: 700; white-space: nowrap; }
+.status-submitted { background: #fff5e7; color: #a2752e; }
+.status-under_review { background: #edf5ff; color: #3472b4; }
+.status-accepted, .status-registered { background: #eaf7f0; color: #2c805b; }
+.status-rejected, .status-withdrawn { background: #fff0f1; color: #aa4d59; }
+.status-waitlisted { background: #f2efff; color: #6858b8; }
+.admissions-pagination { display: flex; align-items: center; justify-content: space-between; gap: 6px; margin-top: 13px; padding-top: 12px; border-top: 1px solid #eff0f4; color: #9095a6; font-size: 8px; }
+.admissions-pagination > div { display: flex; gap: 4px; }
+.admissions-pagination .button { min-height: 30px; padding: 0 7px; font-size: 8px; }
+.admissions-detail { display: grid; gap: 16px; }
+.admissions-detail-heading { display: flex; align-items: flex-start; justify-content: space-between; gap: 10px; padding-bottom: 13px; border-bottom: 1px solid #eff0f4; }
+.admissions-detail-heading .eyebrow { margin-bottom: 5px; }
+.admissions-detail-heading h2 { margin: 0; color: #343a54; font-size: 18px; }
+.admissions-detail-heading p { margin: 6px 0 0; color: #858b9e; font-size: 8px; }
+.admissions-detail-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 12px; }
+.admissions-detail-grid > section, .admissions-notes, .admissions-documents, .admissions-history, .admissions-decision, .admissions-registration { min-width: 0; padding: 13px; border: 1px solid #eceef3; border-radius: 10px; background: #fff; }
+.admissions-detail h3 { display: flex; align-items: center; gap: 7px; margin: 0 0 10px; color: #454b62; font-size: 10px; }
+.admissions-detail h3 svg { color: #6555d9; }
+.admissions-detail-grid dl { display: grid; grid-template-columns: minmax(72px, .6fr) minmax(0, 1fr); gap: 7px 9px; margin: 0; font-size: 8px; }
+.admissions-detail-grid dt { color: #9499a9; }
+.admissions-detail-grid dd { min-width: 0; margin: 0; color: #4b5167; overflow-wrap: anywhere; }
+.admissions-detail-grid dd a { color: #5b50bf; }
+.admissions-notes p { margin: 0; color: #737a8e; font-size: 9px; line-height: 1.65; white-space: pre-line; overflow-wrap: anywhere; }
+.admissions-documents h3 span { display: inline-grid; min-width: 19px; height: 19px; place-items: center; border-radius: 50%; background: #f1f0fb; color: #6555d9; font-size: 8px; }
+.admissions-document-list { display: grid; gap: 6px; }
+.admissions-document-list button { display: flex; align-items: center; justify-content: space-between; gap: 10px; padding: 9px; border: 1px solid #eceef3; border-radius: 8px; background: #fafaff; color: #6555d9; text-align: left; }
+.admissions-document-list button > span { display: grid; gap: 4px; min-width: 0; }
+.admissions-document-list strong { overflow: hidden; color: #4a5067; font-size: 9px; text-overflow: ellipsis; white-space: nowrap; }
+.admissions-document-list small, .admissions-muted { color: #9095a6; font-size: 8px; }
+.admissions-decision, .admissions-registration { display: grid; gap: 10px; }
+.admissions-decision-fields { display: grid; grid-template-columns: minmax(120px, .7fr) minmax(0, 1.3fr); gap: 10px; }
+.admissions-decision .field, .admissions-registration .field { min-width: 0; margin: 0; }
+.admissions-decision textarea { resize: vertical; }
+.admissions-detail .button { justify-self: start; }
+.admissions-registration { border-color: #d9eade; background: #fbfefc; }
+.admissions-registration > p { margin: -4px 0 2px; color: #7f8797; font-size: 8px; line-height: 1.6; }
+.admissions-registered { display: flex; align-items: center; gap: 10px; padding: 12px; border: 1px solid #cfe8d9; border-radius: 9px; background: #f0faf4; color: #2f805a; }
+.admissions-registered > div { display: grid; gap: 4px; }
+.admissions-registered strong { font-size: 10px; }
+.admissions-registered span { color: #698875; font-size: 8px; }
+.admissions-history ol { display: grid; gap: 0; margin: 0; padding: 0; list-style: none; }
+.admissions-history li { position: relative; display: grid; grid-template-columns: 10px minmax(0, 1fr); gap: 8px; padding-bottom: 13px; }
+.admissions-history li:not(:last-child)::before { position: absolute; top: 9px; bottom: -1px; left: 3px; width: 1px; background: #e6e7ef; content: ''; }
+.admissions-history-dot { z-index: 1; width: 7px; height: 7px; margin-top: 3px; border-radius: 50%; background: #796bd3; }
+.admissions-history li > div { display: grid; gap: 4px; }
+.admissions-history li strong { color: #4d5369; font-size: 8px; text-transform: capitalize; }
+.admissions-history li small, .admissions-history li span { color: #8d93a4; font-size: 8px; }
+.admissions-history li p { margin: 2px 0 0; color: #687086; font-size: 8px; line-height: 1.5; white-space: pre-line; }
 @media (max-width: 800px) {
   .website-fee-row { grid-template-columns: repeat(2, minmax(0, 1fr)); }
   .website-fee-remove { justify-self: end; }
@@ -1607,6 +1719,8 @@ td strong { color: #3e435a; font-weight: 600; }
   .public-school-art-card { right: 28px; width: 175px; }
   .public-school-about { gap: 35px; }
   .public-school-results { gap: 23px; }
+  .public-school-admission-application { grid-template-columns: minmax(0, 1.3fr) minmax(220px, .7fr); gap: 18px; }
+  .public-school-admission-application > .public-school-section-heading { grid-column: 1 / -1; }
 }
 @media (max-width: 620px) {
   .public-school-header { min-height: 66px; padding: 0 15px; }
@@ -1624,11 +1738,16 @@ td strong { color: #3e435a; font-weight: 600; }
   .public-school-art-card span { font-size: 14px; }
   .public-school-art-star { right: calc(50% - 110px); bottom: 10px; }
   .public-school-section { padding: 49px 23px; }
-  .public-school-about, .public-school-admissions, .public-school-results { grid-template-columns: 1fr; gap: 22px; }
+  .public-school-about, .public-school-admissions, .public-school-results, .public-school-admission-application { grid-template-columns: 1fr; gap: 22px; }
+  .public-school-admission-application > .public-school-section-heading { grid-column: 1; }
   .public-school-about { gap: 15px; }
   .public-school-section h2 { font-size: 27px; }
   .public-school-admissions-card { padding: 17px; }
   .public-school-results-card { padding: 15px; }
+  .public-admission-form { padding: 16px; }
+  .public-admission-fields { grid-template-columns: 1fr; }
+  .public-admission-wide { grid-column: 1; }
+  .public-admission-status { padding: 16px; }
   .public-school-search-field { flex-direction: column; }
   .public-school-search-field button { min-height: 39px; }
   .public-school-result-overview { gap: 5px; }
