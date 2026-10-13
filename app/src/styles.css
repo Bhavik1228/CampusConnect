@@ -1533,3 +1533,90 @@ td strong { color: #3e435a; font-weight: 600; }
   .public-school-footer-contact { align-items: flex-start; }
   .public-school-footer-credit { grid-column: 1; }
 }
+
+.staff-management-page { gap: 18px; }
+.staff-management-layout { display: grid; grid-template-columns: minmax(280px, .78fr) minmax(0, 1.22fr); align-items: start; gap: 15px; }
+.staff-directory-card, .staff-profile-card { min-width: 0; }
+.staff-search { width: 100%; margin-bottom: 11px; }
+.staff-directory-list { display: flex; flex-direction: column; gap: 4px; max-height: 590px; overflow: auto; }
+.staff-directory-item { width: 100%; display: flex; align-items: center; gap: 10px; padding: 10px 8px; border: 1px solid transparent; border-radius: 9px; background: white; text-align: left; }
+.staff-directory-item:hover { background: #fafaff; }
+.staff-directory-item.selected { border-color: #e4e1fb; background: #f8f7ff; }
+.staff-avatar { width: 36px; height: 36px; display: grid; flex: none; place-items: center; border-radius: 11px; background: #efedff; color: #5d50cb; font-size: 10px; font-weight: 800; }
+.staff-directory-copy { min-width: 0; flex: 1; display: flex; flex-direction: column; gap: 3px; }
+.staff-directory-copy strong { overflow: hidden; color: #444a61; font-size: 10px; text-overflow: ellipsis; white-space: nowrap; }
+.staff-directory-copy small { overflow: hidden; color: #9297a8; font-size: 8px; text-overflow: ellipsis; white-space: nowrap; }
+.staff-status { display: inline-flex; align-items: center; padding: 5px 8px; border-radius: 20px; font-size: 8px; font-weight: 700; white-space: nowrap; }
+.staff-status-active { background: #eaf7f0; color: #32815e; }
+.staff-status-on_leave { background: #fff5e7; color: #a77b35; }
+.staff-status-inactive { background: #f0f1f5; color: #7f8495; }
+.staff-status-terminated { background: #fff0f1; color: #ad4c58; }
+.staff-department-manager { margin-top: 16px; padding-top: 13px; border-top: 1px solid #eff0f5; }
+.staff-department-manager > div:first-child { display: flex; align-items: center; gap: 7px; color: #53596f; font-size: 9px; }
+.staff-department-manager > div:first-child svg { color: #7468d5; }
+.staff-department-manager > form { display: flex; gap: 7px; margin-top: 9px; }
+.staff-department-manager > form input { min-width: 0; min-height: 34px; flex: 1; padding: 0 9px; border: 1px solid #e7e8ef; border-radius: 7px; font-size: 9px; }
+.staff-department-manager > form .button { min-height: 34px; }
+.staff-department-tags { display: flex; flex-wrap: wrap; gap: 5px; margin-top: 9px; }
+.staff-department-tags span { padding: 5px 7px; border-radius: 6px; background: #f3f2fc; color: #6f678f; font-size: 8px; }
+.staff-empty, .staff-profile-empty { min-height: 190px; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 8px; color: #999eaf; text-align: center; }
+.staff-empty strong, .staff-profile-empty strong { color: #50566d; font-size: 11px; }
+.staff-empty span, .staff-profile-empty span { max-width: 270px; color: #9196a8; font-size: 9px; line-height: 1.6; }
+.staff-profile-empty svg { color: #8278d5; }
+.staff-profile-card > form { display: flex; flex-direction: column; gap: 8px; }
+.staff-form-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 0 11px; }
+.staff-profile-card .field { min-width: 0; margin-bottom: 10px; }
+.staff-profile-card .field > span:first-child { color: #51566a; font-size: 9px; font-weight: 700; }
+.staff-profile-card .field input, .staff-profile-card .field select, .staff-profile-card .field textarea { width: 100%; min-height: 36px; padding: 0 9px; border: 1px solid #e7e8ef; border-radius: 7px; background: white; color: #444a61; font-size: 9px; }
+.staff-profile-card .field textarea { min-height: 68px; padding: 8px 9px; resize: vertical; }
+.staff-checkbox { display: flex; align-items: center; gap: 9px; margin: 1px 0 8px; padding: 10px; border: 1px solid #ecebf6; border-radius: 8px; background: #fafaff; cursor: pointer; }
+.staff-checkbox > input { accent-color: var(--purple); }
+.staff-checkbox > span { flex: 1; display: flex; flex-direction: column; gap: 3px; }
+.staff-checkbox strong { color: #4d5369; font-size: 9px; }
+.staff-checkbox small { color: #969bad; font-size: 8px; line-height: 1.5; }
+.staff-checkbox > svg { color: #776bd6; }
+.staff-assignment-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 9px; }
+.staff-assignment-grid fieldset { min-width: 0; max-height: 175px; display: flex; flex-direction: column; gap: 7px; overflow: auto; margin: 0; padding: 10px; border: 1px solid #e9eaf1; border-radius: 8px; }
+.staff-assignment-grid legend { padding: 0 5px; color: #51566d; font-size: 9px; font-weight: 700; }
+.staff-assignment-grid label { display: flex; align-items: center; gap: 6px; color: #767c90; font-size: 9px; }
+.staff-assignment-grid input { accent-color: var(--purple); }
+.staff-assignment-grid fieldset > small { color: #9297a8; font-size: 8px; }
+.staff-form-actions { display: flex; justify-content: flex-end; gap: 7px; margin-top: 6px; }
+.staff-profile-facts { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 9px; }
+.staff-profile-facts > div { min-width: 0; display: flex; flex-direction: column; gap: 5px; padding: 10px; border: 1px solid #eff0f5; border-radius: 8px; }
+.staff-profile-facts > div > span { color: #969bad; font-size: 8px; }
+.staff-profile-facts > div > strong { overflow: hidden; color: #50566c; font-size: 9px; text-overflow: ellipsis; }
+.staff-profile-facts select { min-width: 0; min-height: 30px; padding: 0 7px; border: 1px solid #e7e8ef; border-radius: 6px; background: white; color: #50566c; font-size: 9px; }
+.staff-teacher-detail { margin-top: 15px; padding-top: 13px; border-top: 1px solid #eff0f5; }
+.staff-teacher-detail h3 { display: flex; align-items: center; gap: 6px; margin: 0 0 8px; color: #4b5268; font-size: 10px; }
+.staff-teacher-detail h3 svg { color: #6f62d5; }
+.staff-teacher-detail > p { margin: 0; color: #777e92; font-size: 9px; line-height: 1.6; white-space: pre-line; }
+.staff-teacher-detail > div { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; margin-top: 11px; }
+.staff-teacher-detail > div > span { display: flex; flex-direction: column; gap: 5px; color: #7d8396; font-size: 9px; line-height: 1.5; }
+.staff-teacher-detail > div strong { color: #53596f; font-size: 8px; }
+.staff-document-section { margin-top: 17px; padding-top: 13px; border-top: 1px solid #eff0f5; }
+.staff-document-heading, .staff-document-heading > div { display: flex; align-items: center; gap: 7px; }
+.staff-document-heading { justify-content: space-between; }
+.staff-document-heading > div { color: #53596f; font-size: 9px; }
+.staff-document-heading > div svg { color: #7569d5; }
+.staff-document-heading > span { color: #999eae; font-size: 8px; }
+.staff-document-upload { display: flex; flex-wrap: wrap; align-items: center; gap: 7px; margin: 10px 0; }
+.staff-document-upload input { min-width: 0; flex: 1; color: #858b9e; font-size: 8px; }
+.staff-document-upload .button { min-height: 33px; }
+.staff-document-list { display: flex; flex-direction: column; }
+.staff-document-list article { display: flex; align-items: center; gap: 4px; padding: 8px 3px; border-top: 1px solid #f0f0f5; }
+.staff-document-list article > span { min-width: 0; flex: 1; display: grid; grid-template-columns: 18px minmax(0, 1fr); align-items: center; gap: 2px 6px; color: #766bd1; }
+.staff-document-list article > span strong { overflow: hidden; color: #575d72; font-size: 8px; text-overflow: ellipsis; white-space: nowrap; }
+.staff-document-list article > span small { grid-column: 2; color: #999eae; font-size: 7px; }
+.staff-delete-document { color: #b5515d; }
+@media (max-width: 850px) {
+  .staff-management-layout { grid-template-columns: 1fr; }
+  .staff-directory-list { max-height: 350px; }
+}
+@media (max-width: 500px) {
+  .staff-form-grid, .staff-assignment-grid, .staff-profile-facts { grid-template-columns: 1fr; }
+  .staff-directory-item { flex-wrap: wrap; }
+  .staff-directory-item > .staff-status { margin-left: 46px; }
+  .staff-document-heading { align-items: flex-start; flex-direction: column; }
+  .website-fee-row { grid-template-columns: 1fr; }
+}

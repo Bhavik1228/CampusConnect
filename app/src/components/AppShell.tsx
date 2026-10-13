@@ -3,8 +3,8 @@ import { NavLink, Outlet, useLocation, useNavigate } from 'react-router-dom';
 import {
   BookMarked, BookOpenCheck, BookOpenText, CalendarDays, Check, ChevronDown,
   ChevronLeft, ClipboardCheck, GraduationCap, LayoutDashboard, LogOut, Menu,
-  Settings, Users, UsersRound, X, CalendarClock, CircleDollarSign, UserRoundPlus,
-  Award,
+  Settings, UsersRound, X, CalendarClock, CircleDollarSign, UserRoundPlus,
+  Award, BriefcaseBusiness,
   type LucideIcon,
 } from 'lucide-react';
 import { useAuth } from '../contexts/AuthContext';
@@ -15,7 +15,7 @@ const navigation: { title: string; items: { to: string; label: string; icon: Luc
   { title: 'Workspace', items: [
     { to: '/dashboard', label: 'Overview', icon: LayoutDashboard },
     { to: '/students', label: 'Students', icon: GraduationCap },
-    { to: '/teachers', label: 'Teachers', icon: Users },
+    { to: '/staff', label: 'Staff & teachers', icon: BriefcaseBusiness, roles: ['school_admin', 'academic_coordinator', 'teacher'] },
     { to: '/classes', label: 'Classes', icon: UsersRound },
     { to: '/subjects', label: 'Subjects', icon: BookMarked },
   ] },
@@ -34,7 +34,7 @@ const navigation: { title: string; items: { to: string; label: string; icon: Luc
 ];
 
 const pageNames: Record<string, string> = {
-  '/dashboard': 'Overview', '/students': 'Students', '/teachers': 'Teachers',
+  '/dashboard': 'Overview', '/students': 'Students', '/teachers': 'Teachers', '/staff': 'Staff & teachers',
   '/classes': 'Classes', '/subjects': 'Subjects', '/timetable': 'Timetable', '/attendance': 'Attendance',
   '/learning': 'Learning', '/grades-results': 'Grades & results', '/calendar': 'Calendar', '/academic-calendar': 'Academic calendar', '/settings': 'Settings',
   '/finance': 'Student fees', '/accounting-staff': 'Accounting staff',
