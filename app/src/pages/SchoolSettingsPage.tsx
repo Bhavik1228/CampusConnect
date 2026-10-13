@@ -1,5 +1,5 @@
 import { useEffect, useState, type FormEvent, type ReactNode } from 'react';
-import { BookOpen, Check, ClipboardCheck, LockKeyhole, MessageSquare, Puzzle, Save, School, ShieldCheck } from 'lucide-react';
+import { BookOpen, Check, ClipboardCheck, Globe, LockKeyhole, MessageSquare, Plus, Puzzle, Save, School, ShieldCheck, Trash2 } from 'lucide-react';
 import { useAuth } from '../contexts/AuthContext';
 import { ErrorState, LoadingState, SuccessMessage } from '../components/Feedback';
 import { requireSupabase } from '../lib/supabase';
@@ -47,6 +47,35 @@ interface AttendanceSettings {
   excused_counts_as_present: boolean;
 }
 
+interface WebsiteFee {
+  level: string;
+  tuition: number;
+  currency: string;
+  frequency: string;
+  additional: string;
+}
+
+interface WebsiteSettings {
+  school_id: string;
+  slug: string;
+  enabled: boolean;
+  public_results_enabled: boolean;
+  hero_title: string;
+  hero_message: string;
+  about_title: string;
+  about_text: string;
+  admissions_open: boolean;
+  admissions_title: string;
+  admissions_text: string;
+  admission_requirements: string;
+  admissions_deadline: string | null;
+  admissions_email: string | null;
+  fees: WebsiteFee[];
+  created_by: string;
+  updated_by: string;
+  updated_at: string;
+}
+
 interface AttendanceStatus {
   status: string;
   label: string;
@@ -55,7 +84,7 @@ interface AttendanceStatus {
   sort_order: number;
 }
 
-type SettingsTab = 'profile' | 'academics' | 'attendance' | 'portals' | 'modules' | 'security';
+type SettingsTab = 'profile' | 'academics' | 'attendance' | 'portals' | 'modules' | 'security' | 'website';
 const tabs: { id: SettingsTab; label: string; icon: typeof School; description: string }[] = [
   { id: 'profile', label: 'School profile', icon: School, description: 'Identity, branding, contact details, and student records.' },
   { id: 'academics', label: 'Academics', icon: BookOpen, description: 'Grading scales, assessment, terms, reporting, and timetables.' },
@@ -63,7 +92,37 @@ const tabs: { id: SettingsTab; label: string; icon: typeof School; description: 
   { id: 'portals', label: 'Portals & communication', icon: MessageSquare, description: 'Family and student portal access, email, and notifications.' },
   { id: 'modules', label: 'Modules & features', icon: Puzzle, description: 'Choose the tools and capabilities enabled for your school.' },
   { id: 'security', label: 'Security & privacy', icon: ShieldCheck, description: 'Account protection, password rules, retention, and exports.' },
+  { id: 'website', label: 'School website', icon: Globe, description: 'Publish your public school website, admissions details, fees, and results lookup.' },
 ];
+
+function makeWebsiteSlug(name: string) {
+  return name.toLowerCase().trim().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '') || 'my-school';
+}
+
+function emptyWebsite(schoolId: string, schoolName: string, contactEmail: string | null, userId: string): WebsiteSettings {
+  const schoolPrefix = schoolId.replace(/-/g, '').slice(0, 8);
+  const slug = `${makeWebsiteSlug(schoolName).slice(0, 65).replace(/-$/g, '')}-${schoolPrefix}`;
+  return {
+    school_id: schoolId,
+    slug,
+    enabled: false,
+    public_results_enabled: false,
+    hero_title: `Welcome to ${schoolName}`,
+    hero_message: 'Discover a community where every learner can thrive.',
+    about_title: 'Learning, belonging, growing',
+    about_text: '',
+    admissions_open: false,
+    admissions_title: 'Admissions',
+    admissions_text: '',
+    admission_requirements: '',
+    admissions_deadline: null,
+    admissions_email: contactEmail,
+    fees: [],
+    created_by: userId,
+    updated_by: userId,
+    updated_at: new Date().toISOString(),
+  };
+}
 
 const moduleGroups: { title: string; description: string; options: [keyof SchoolModuleSettings, string][] }[] = [
   { title: 'Workspace modules', description: 'Turn major areas of the school workspace on or off.', options: [
@@ -146,6 +205,7 @@ export function SchoolSettingsPage() {
   const [communication, setCommunication] = useState<SchoolCommunicationSettings | null>(null);
   const [modules, setModules] = useState<SchoolModuleSettings | null>(null);
   const [security, setSecurity] = useState<SchoolSecuritySettings | null>(null);
+  const [website, setWebsite] = useState<WebsiteSettings | null>(null);
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState<SettingsTab | null>(null);
   const [error, setError] = useState('');
@@ -153,31 +213,37 @@ export function SchoolSettingsPage() {
 
   useEffect(() => {
     if (!schoolId) return;
+    const activeSchoolId = schoolId;
     let active = true;
     async function loadSettings() {
       setLoading(true);
       setError('');
       try {
         const client = requireSupabase();
-        const [schoolResult, academicResult, attendanceResult, statusResult, communicationResult, moduleResult, securityResult] = await Promise.all([
-          client.from('schools').select('name, timezone, contact_email, contact_phone, address, website, logo_path, primary_color, secondary_color, motto, established_year, school_type, accreditation, student_id_prefix, student_id_format, default_language').eq('id', schoolId).single(),
-          client.from('school_academic_policies').select('*').eq('school_id', schoolId).single(),
-          client.from('attendance_settings').select('school_id, default_session_type, late_after, require_complete_register, allow_parent_explanations, notify_on_absence, notify_on_late, attendance_target_percent, attendance_warning_percent, repeated_absence_threshold, consecutive_absence_threshold, auto_lock_after_days, late_to_absence_after_minutes, attendance_calculation_basis, excused_counts_as_present').eq('school_id', schoolId).single(),
-          client.from('attendance_status_settings').select('status, label, enabled, counts_as_present, sort_order').eq('school_id', schoolId).order('sort_order'),
-          client.from('school_communication_settings').select('school_id, email_from_name, email_from_address, email_reply_to, email_footer, sms_enabled, sms_provider, sms_from_number, push_enabled, notification_retention_days, notification_categories, parent_portal_enabled, parent_portal_features, student_portal_enabled, student_portal_features').eq('school_id', schoolId).single(),
-          client.from('school_module_settings').select('*').eq('school_id', schoolId).single(),
-          client.from('school_security_settings').select('*').eq('school_id', schoolId).single(),
+        const [schoolResult, academicResult, attendanceResult, statusResult, communicationResult, moduleResult, securityResult, websiteResult] = await Promise.all([
+          client.from('schools').select('name, timezone, contact_email, contact_phone, address, website, logo_path, primary_color, secondary_color, motto, established_year, school_type, accreditation, student_id_prefix, student_id_format, default_language').eq('id', activeSchoolId).single(),
+          client.from('school_academic_policies').select('*').eq('school_id', activeSchoolId).single(),
+          client.from('attendance_settings').select('school_id, default_session_type, late_after, require_complete_register, allow_parent_explanations, notify_on_absence, notify_on_late, attendance_target_percent, attendance_warning_percent, repeated_absence_threshold, consecutive_absence_threshold, auto_lock_after_days, late_to_absence_after_minutes, attendance_calculation_basis, excused_counts_as_present').eq('school_id', activeSchoolId).single(),
+          client.from('attendance_status_settings').select('status, label, enabled, counts_as_present, sort_order').eq('school_id', activeSchoolId).order('sort_order'),
+          client.from('school_communication_settings').select('school_id, email_from_name, email_from_address, email_reply_to, email_footer, sms_enabled, sms_provider, sms_from_number, push_enabled, notification_retention_days, notification_categories, parent_portal_enabled, parent_portal_features, student_portal_enabled, student_portal_features').eq('school_id', activeSchoolId).single(),
+          client.from('school_module_settings').select('*').eq('school_id', activeSchoolId).single(),
+          client.from('school_security_settings').select('*').eq('school_id', activeSchoolId).single(),
+          client.from('school_websites').select('*').eq('school_id', activeSchoolId).maybeSingle(),
         ]);
-        const resultError = [schoolResult, academicResult, attendanceResult, statusResult, communicationResult, moduleResult, securityResult].find((result) => result.error)?.error;
+        const resultError = [schoolResult, academicResult, attendanceResult, statusResult, communicationResult, moduleResult, securityResult, websiteResult].find((result) => result.error)?.error;
         if (resultError) throw resultError;
-        if (active) {
-          setProfile(schoolResult.data as SchoolProfile);
+        const school = schoolResult.data;
+        if (active && school) {
+          setProfile(school as SchoolProfile);
           setAcademics(academicResult.data as SchoolAcademicPolicies);
           setAttendance(attendanceResult.data as AttendanceSettings);
           setAttendanceStatuses((statusResult.data ?? []) as AttendanceStatus[]);
           setCommunication(communicationResult.data as SchoolCommunicationSettings);
           setModules(moduleResult.data as SchoolModuleSettings);
           setSecurity(securityResult.data as SchoolSecuritySettings);
+          setWebsite(websiteResult.data
+            ? websiteResult.data as WebsiteSettings
+            : emptyWebsite(activeSchoolId, school.name, school.contact_email, user?.id ?? ''));
         }
       } catch (loadError) {
         if (active) setError(loadError instanceof Error ? loadError.message : 'Could not load school settings.');
@@ -201,6 +267,24 @@ export function SchoolSettingsPage() {
 
   async function saveSection(event: FormEvent<HTMLFormElement>, section: SettingsTab) {
     event.preventDefault();
+    if (section === 'website' && website) {
+      const normalizedSlug = makeWebsiteSlug(website.slug);
+      if (normalizedSlug !== website.slug || !/^[a-z0-9]+(-[a-z0-9]+)*$/.test(website.slug)) {
+        setError('Use a website address made of lowercase letters, numbers, and single hyphens (for example, north-campus).');
+        setSuccess('');
+        return;
+      }
+      if (website.public_results_enabled && !website.enabled) {
+        setError('Publish the school website before enabling its public student results lookup.');
+        setSuccess('');
+        return;
+      }
+      if (website.fees.some((fee) => !fee.level.trim() || !fee.currency.trim() || !fee.frequency.trim() || !Number.isFinite(Number(fee.tuition)) || fee.tuition < 0)) {
+        setError('Each fee row needs a level, a valid non-negative amount, a currency, and a payment frequency.');
+        setSuccess('');
+        return;
+      }
+    }
     if (section === 'security' && security?.require_mfa && security.mfa_methods.length === 0) {
       setError('Select at least one multi-factor authentication method or disable the MFA requirement.');
       setSuccess('');
@@ -251,6 +335,16 @@ export function SchoolSettingsPage() {
         await persist('school_module_settings', modules);
       } else if (section === 'security' && security) {
         await persist('school_security_settings', security);
+      } else if (section === 'website' && website && user) {
+        const { error: websiteError } = await requireSupabase().from('school_websites').upsert({
+          ...website,
+          slug: website.slug.trim(),
+          admissions_email: website.admissions_email?.trim() || null,
+          created_by: website.created_by || user.id,
+          updated_by: user.id,
+          updated_at: new Date().toISOString(),
+        }, { onConflict: 'school_id' });
+        if (websiteError) throw websiteError;
       }
       setSuccess(`${tabs.find((item) => item.id === section)?.label ?? 'Settings'} saved.`);
     } catch (saveError) {
@@ -262,6 +356,11 @@ export function SchoolSettingsPage() {
 
   function updateProfile(field: keyof SchoolProfile, value: string | number | null) {
     setProfile((current) => current ? { ...current, [field]: value } : current);
+    setSuccess('');
+  }
+
+  function updateWebsite<K extends keyof WebsiteSettings>(field: K, value: WebsiteSettings[K]) {
+    setWebsite((current) => current ? { ...current, [field]: value } : current);
     setSuccess('');
   }
 
@@ -286,7 +385,7 @@ export function SchoolSettingsPage() {
       {success && <SuccessMessage message={success} />}
       <div className="settings-layout">
         <nav className="settings-nav" aria-label="School settings categories">
-          {tabs.map(({ id, label, icon: Icon }) => <button key={id} type="button" className={`settings-nav-item${tab === id ? ' active' : ''}`} aria-current={tab === id ? 'page' : undefined} onClick={() => changeTab(id)}><Icon size={17} /><span>{label}</span>{tab === id && <Check size={14} className="settings-nav-check" />}</button>)}
+          {tabs.filter((item) => item.id !== 'website' || canEdit).map(({ id, label, icon: Icon }) => <button key={id} type="button" className={`settings-nav-item${tab === id ? ' active' : ''}`} aria-current={tab === id ? 'page' : undefined} onClick={() => changeTab(id)}><Icon size={17} /><span>{label}</span>{tab === id && <Check size={14} className="settings-nav-check" />}</button>)}
           <p className="settings-nav-description">{tabs.find((item) => item.id === tab)?.description}</p>
         </nav>
         <div className="settings-main">
@@ -500,6 +599,58 @@ export function SchoolSettingsPage() {
               <label className="field settings-array-field"><span>Allowed IP ranges (one per line; optional)</span><textarea rows={3} disabled={!canEdit} value={security.allowed_ip_ranges.join('\n')} placeholder="203.0.113.0/24" onChange={(event) => setSecurity({ ...security, allowed_ip_ranges: event.target.value.split('\n').map((value) => value.trim()).filter(Boolean) })} /><small>Restricting IP ranges can lock out staff. Review entries carefully before saving.</small></label>
             </Section>
             {saveButton('security')}
+          </form>}
+
+          {tab === 'website' && website && canEdit && <form className="content-card settings-form website-settings-form" onSubmit={(event) => void saveSection(event, 'website')}>
+            <div className="settings-section-heading"><span className="eyebrow">Public presence</span><h2>Your school website</h2><p>Create a welcoming public page for families, prospective students, and your school community.</p></div>
+            <Section title="Website visibility & address" detail="The school website is private until you choose to publish it. You can switch it off at any time.">
+              <Toggle label="Publish school website" detail="Make the school's public page available to anyone with its web address." checked={website.enabled} disabled={!canEdit} onChange={(checked) => {
+                updateWebsite('enabled', checked);
+                if (!checked) updateWebsite('public_results_enabled', false);
+              }} />
+              <div className="settings-fields">
+                <TextField label="Website address" value={website.slug} disabled={!canEdit} maxLength={80} placeholder="north-campus" onChange={(value) => updateWebsite('slug', value.toLowerCase())} />
+                <label className="field website-url-field"><span>Public URL preview</span><a href={`/school/${website.slug}`} target="_blank" rel="noreferrer">{window.location.origin}/school/{website.slug}</a></label>
+              </div>
+            </Section>
+            <Section title="Homepage" detail="Introduce your school with a concise headline and welcome message.">
+              <div className="settings-fields">
+                <TextField label="Homepage headline" value={website.hero_title} disabled={!canEdit} maxLength={140} placeholder="Welcome to our school" onChange={(value) => updateWebsite('hero_title', value)} />
+                <TextField label="School email for admissions" type="email" value={website.admissions_email ?? ''} disabled={!canEdit} maxLength={254} placeholder="admissions@school.org" onChange={(value) => updateWebsite('admissions_email', value || null)} />
+              </div>
+              <label className="field"><span>Welcome message</span><textarea rows={3} maxLength={1000} disabled={!canEdit} value={website.hero_message} placeholder="Share what makes your school special." onChange={(event) => updateWebsite('hero_message', event.target.value)} /></label>
+              <div className="settings-fields">
+                <TextField label="About section title" value={website.about_title} disabled={!canEdit} maxLength={100} onChange={(value) => updateWebsite('about_title', value)} />
+                <label className="field"><span>About your school</span><textarea rows={4} maxLength={3000} disabled={!canEdit} value={website.about_text} placeholder="Tell families about your school, its values, and its community." onChange={(event) => updateWebsite('about_text', event.target.value)} /></label>
+              </div>
+            </Section>
+            <Section title="Admissions" detail="Share whether applications are open and tell families how to apply.">
+              <Toggle label="Accepting applications" detail="Show an admissions-open notice and application contact on the public website." checked={website.admissions_open} disabled={!canEdit} onChange={(checked) => updateWebsite('admissions_open', checked)} />
+              <div className="settings-fields">
+                <TextField label="Admissions section title" value={website.admissions_title} disabled={!canEdit} maxLength={100} onChange={(value) => updateWebsite('admissions_title', value)} />
+                <TextField label="Application deadline" type="date" value={website.admissions_deadline ?? ''} disabled={!canEdit} onChange={(value) => updateWebsite('admissions_deadline', value || null)} />
+              </div>
+              <label className="field"><span>Admissions information</span><textarea rows={4} maxLength={3000} disabled={!canEdit} value={website.admissions_text} placeholder="Explain the application process and important dates." onChange={(event) => updateWebsite('admissions_text', event.target.value)} /></label>
+              <label className="field"><span>Admission requirements</span><textarea rows={3} maxLength={3000} disabled={!canEdit} value={website.admission_requirements} placeholder="List documents or requirements for applicants." onChange={(event) => updateWebsite('admission_requirements', event.target.value)} /></label>
+            </Section>
+            <Section title="Fee structure" detail="Publish fee information for families. Only the details entered here are public; internal finance records remain private.">
+              <div className="website-fees-list">
+                {website.fees.map((fee, index) => <div className="website-fee-row" key={`fee-${index}`}>
+                  <TextField label="Class / level" value={fee.level} disabled={!canEdit} maxLength={80} placeholder="e.g. Grade 1" onChange={(value) => updateWebsite('fees', website.fees.map((item, itemIndex) => itemIndex === index ? { ...item, level: value } : item))} />
+                  <NumberField label="Tuition amount" value={fee.tuition} disabled={!canEdit} min={0} step={0.01} onChange={(value) => updateWebsite('fees', website.fees.map((item, itemIndex) => itemIndex === index ? { ...item, tuition: value ?? 0 } : item))} />
+                  <TextField label="Currency" value={fee.currency} disabled={!canEdit} maxLength={3} placeholder="USD" onChange={(value) => updateWebsite('fees', website.fees.map((item, itemIndex) => itemIndex === index ? { ...item, currency: value.toUpperCase() } : item))} />
+                  <TextField label="Payment frequency" value={fee.frequency} disabled={!canEdit} maxLength={40} placeholder="Per term" onChange={(value) => updateWebsite('fees', website.fees.map((item, itemIndex) => itemIndex === index ? { ...item, frequency: value } : item))} />
+                  <TextField label="Other fees / notes" value={fee.additional} disabled={!canEdit} maxLength={200} placeholder="Uniforms, meals, one-time fees" onChange={(value) => updateWebsite('fees', website.fees.map((item, itemIndex) => itemIndex === index ? { ...item, additional: value } : item))} />
+                  <button className="icon-button website-fee-remove" type="button" title="Remove fee row" aria-label={`Remove fee row ${index + 1}`} disabled={!canEdit} onClick={() => updateWebsite('fees', website.fees.filter((_, itemIndex) => itemIndex !== index))}><Trash2 size={15} /></button>
+                </div>)}
+              </div>
+              <button className="button button-quiet" type="button" disabled={!canEdit} onClick={() => updateWebsite('fees', [...website.fees, { level: '', tuition: 0, currency: 'USD', frequency: 'Per term', additional: '' }])}><Plus size={14} />Add fee row</button>
+            </Section>
+            <Section title="Student results lookup" detail="Let parents without a Campus Connect account check published results using the school website and student number.">
+              <Toggle label="Allow public results lookup" detail="Anyone who knows a student's number can view that student's published results on this public website." checked={website.public_results_enabled} disabled={!canEdit || !website.enabled} onChange={(checked) => updateWebsite('public_results_enabled', checked)} />
+              <p className="website-privacy-warning"><LockKeyhole size={15} /> Only published results are returned. Student numbers are not a password; enable this option only if your school accepts that anyone who knows a student's number can view their published marks and teacher comments.</p>
+            </Section>
+            {saveButton('website')}
           </form>}
 
         </div>

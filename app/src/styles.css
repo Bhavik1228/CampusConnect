@@ -1391,3 +1391,145 @@ td strong { color: #3e435a; font-weight: 600; }
   .grades-comment-field, .correction-field { grid-column: 1; }
   .grade-boundaries-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
 }
+
+.website-settings-form .website-url-field a { min-height: 39px; display: flex; align-items: center; overflow-wrap: anywhere; padding: 0 10px; border: 1px solid #e7e8ef; border-radius: 8px; background: #f8f8fc; color: #6555d9; font-size: 10px; }
+.website-settings-form .website-fees-list { display: flex; flex-direction: column; gap: 10px; margin-bottom: 13px; }
+.website-fee-row { display: grid; grid-template-columns: 1fr .85fr .55fr .8fr 1.2fr 34px; align-items: end; gap: 8px; padding: 12px 9px 0; border: 1px solid #ececf3; border-radius: 10px; background: #fcfcfe; }
+.website-fee-row .field { min-width: 0; }
+.website-fee-row .field input { min-width: 0; }
+.website-fee-remove { margin-bottom: 16px; color: #b35460; }
+.website-privacy-warning { display: flex; align-items: flex-start; gap: 8px; margin: 8px 0 0; padding: 11px 12px; border: 1px solid #f0dfc3; border-radius: 9px; background: #fffaf2; color: #896d3d; font-size: 9px; line-height: 1.6; }
+.website-privacy-warning svg { flex: none; }
+.public-school-site { --school-accent: #5147c7; --school-secondary: #20243a; min-height: 100vh; background: #fff; color: #283047; font-family: 'DM Sans', sans-serif; }
+.public-school-header { position: sticky; top: 0; z-index: 20; display: flex; min-height: 76px; align-items: center; justify-content: space-between; gap: 26px; padding: 0 max(30px, calc((100% - 1160px) / 2)); border-bottom: 1px solid #eceef2; background: rgba(255,255,255,.95); backdrop-filter: blur(12px); }
+.public-school-brand { min-width: 0; display: inline-flex; align-items: center; gap: 10px; color: #283047; }
+.public-school-brand > img, .public-school-monogram { width: 39px; height: 39px; display: grid; flex: none; place-items: center; border-radius: 12px; object-fit: cover; background: var(--school-accent); color: white; font-family: 'Plus Jakarta Sans', sans-serif; font-size: 17px; font-weight: 800; }
+.public-school-brand > span:last-child { min-width: 0; display: flex; flex-direction: column; gap: 3px; }
+.public-school-brand strong { max-width: 260px; overflow: hidden; color: #2a3046; font-family: 'Plus Jakarta Sans', sans-serif; font-size: 13px; font-weight: 800; text-overflow: ellipsis; white-space: nowrap; }
+.public-school-brand small { max-width: 260px; overflow: hidden; color: #969bae; font-size: 9px; text-overflow: ellipsis; white-space: nowrap; }
+.public-school-header nav { display: flex; align-items: center; gap: 25px; }
+.public-school-header nav a { color: #737a8e; font-size: 10px; font-weight: 600; }
+.public-school-header nav a:hover { color: var(--school-accent); }
+.public-school-header-cta, .public-school-primary-action, .public-school-secondary-action { min-height: 40px; display: inline-flex; align-items: center; justify-content: center; gap: 9px; padding: 0 15px; border-radius: 8px; font-size: 10px; font-weight: 700; }
+.public-school-header-cta, .public-school-primary-action { background: var(--school-accent); color: white; }
+.public-school-header-cta:hover, .public-school-primary-action:hover { filter: brightness(.94); }
+.public-school-header-cta { min-height: 36px; }
+.public-school-hero { position: relative; min-height: 430px; display: grid; grid-template-columns: minmax(0, 1.25fr) minmax(280px, .75fr); align-items: center; overflow: hidden; padding: 52px max(40px, calc((100% - 1160px) / 2)); background: linear-gradient(118deg, #f6f5ff 0%, #fbfbff 56%, #f0f4fb 100%); }
+.public-school-hero-content { position: relative; z-index: 1; max-width: 690px; }
+.public-school-kicker, .public-school-section-kicker { display: inline-flex; align-items: center; gap: 8px; color: var(--school-accent); font-size: 9px; font-weight: 800; letter-spacing: 1.4px; text-transform: uppercase; }
+.public-school-kicker > span { width: 7px; height: 7px; border-radius: 50%; background: var(--school-accent); }
+.public-school-hero h1 { max-width: 700px; margin: 18px 0 15px; color: var(--school-secondary); font-family: 'Plus Jakarta Sans', sans-serif; font-size: clamp(37px, 5.2vw, 64px); font-weight: 800; letter-spacing: -3px; line-height: 1.06; }
+.public-school-hero-content > p { max-width: 560px; margin: 0; color: #767d91; font-size: 14px; line-height: 1.8; }
+.public-school-hero-actions { display: flex; flex-wrap: wrap; gap: 10px; margin-top: 23px; }
+.public-school-secondary-action { border: 1px solid #e2e1f0; background: white; color: #575d72; }
+.public-school-hero-location { display: flex; align-items: center; gap: 6px; margin-top: 26px; color: #9298a9; font-size: 9px; }
+.public-school-hero-location svg { color: var(--school-accent); }
+.public-school-hero-art { position: relative; min-height: 310px; }
+.public-school-art-circle { position: absolute; border-radius: 50%; }
+.public-school-art-circle-one { top: 30px; right: 15px; width: 255px; height: 255px; background: color-mix(in srgb, var(--school-accent) 11%, white); }
+.public-school-art-circle-two { top: 1px; right: 0; width: 128px; height: 128px; border: 1px solid color-mix(in srgb, var(--school-accent) 30%, white); }
+.public-school-art-card { position: absolute; top: 82px; right: 48px; width: 204px; min-height: 151px; display: flex; flex-direction: column; justify-content: space-between; padding: 20px; transform: rotate(5deg); border: 1px solid rgba(255,255,255,.8); border-radius: 17px; background: white; box-shadow: 0 22px 60px rgba(36,39,75,.14); color: var(--school-accent); }
+.public-school-art-card span { color: #343a54; font-family: 'Plus Jakarta Sans', sans-serif; font-size: 17px; font-weight: 800; line-height: 1.35; }
+.public-school-art-star { position: absolute; right: 28px; bottom: 36px; color: var(--school-accent); font-size: 41px; }
+.public-school-section { padding: 74px max(40px, calc((100% - 1080px) / 2)); }
+.public-school-about { display: grid; grid-template-columns: minmax(220px, .8fr) minmax(0, 1.2fr); gap: 65px; align-items: start; }
+.public-school-section h2 { margin: 12px 0 0; color: #2c3249; font-family: 'Plus Jakarta Sans', sans-serif; font-size: clamp(25px, 3vw, 34px); font-weight: 800; letter-spacing: -1.2px; line-height: 1.2; }
+.public-school-about-copy > p, .public-school-section-heading > p { margin: 0; color: #7c8295; font-size: 12px; line-height: 1.9; white-space: pre-line; }
+.public-school-about-copy > a { display: inline-flex; align-items: center; gap: 7px; margin-top: 18px; color: var(--school-accent); font-size: 10px; font-weight: 700; }
+.public-school-admissions { display: grid; grid-template-columns: minmax(0, 1fr) minmax(280px, .7fr); align-items: center; gap: 55px; background: #f8f8fc; }
+.public-school-section-heading > p { max-width: 540px; margin-top: 13px; }
+.public-school-admissions-card { padding: 22px; border: 1px solid #ececf2; border-radius: 14px; background: white; box-shadow: 0 12px 32px rgba(37,40,75,.045); }
+.public-school-admissions-status { display: inline-flex; padding: 6px 9px; border-radius: 20px; background: #f1f2f5; color: #787e8e; font-size: 8px; font-weight: 700; }
+.public-school-admissions-status.open { background: #eaf7f0; color: #27825e; }
+.public-school-deadline { display: flex; align-items: center; gap: 7px; margin: 16px 0 0; color: #666d83; font-size: 10px; }
+.public-school-deadline svg { color: var(--school-accent); }
+.public-school-requirements { margin: 17px 0; padding-top: 15px; border-top: 1px solid #eff0f4; }
+.public-school-requirements strong { color: #464c62; font-size: 10px; }
+.public-school-requirements p { margin: 7px 0 0; color: #81879a; font-size: 10px; line-height: 1.7; white-space: pre-line; }
+.public-school-admissions-card > .public-school-primary-action { margin-top: 17px; }
+.public-school-fees { padding-top: 66px; }
+.public-school-fees-table-wrap { overflow-x: auto; margin-top: 25px; border: 1px solid #e9eaf1; border-radius: 11px; }
+.public-school-fees-table { min-width: 650px; }
+.public-school-fees-table th { background: #fafaff; }
+.public-school-fees-table td { white-space: normal; }
+.public-school-results { display: grid; grid-template-columns: minmax(240px, .72fr) minmax(0, 1.28fr); gap: 38px; align-items: start; background: #f8f8fc; }
+.public-school-results-intro > p { margin: 13px 0 0; color: #7c8295; font-size: 11px; line-height: 1.8; }
+.public-school-results-privacy { display: flex; align-items: flex-start; gap: 8px; margin-top: 17px; color: #7b8193; font-size: 9px; line-height: 1.6; }
+.public-school-results-privacy svg { flex: none; color: var(--school-accent); }
+.public-school-results-card { min-width: 0; padding: 20px; border: 1px solid #e9eaf1; border-radius: 13px; background: white; box-shadow: 0 12px 32px rgba(37,40,75,.04); }
+.public-school-results-card form > label { display: block; margin-bottom: 7px; color: #50566c; font-size: 10px; font-weight: 700; }
+.public-school-search-field { display: flex; gap: 8px; }
+.public-school-search-field input { min-width: 0; min-height: 41px; flex: 1; padding: 0 11px; border: 1px solid #e4e6ee; border-radius: 8px; color: #41475d; font-size: 10px; }
+.public-school-search-field button { min-height: 41px; display: inline-flex; align-items: center; justify-content: center; gap: 7px; padding: 0 13px; border: 0; border-radius: 8px; background: var(--school-accent); color: white; font-size: 9px; font-weight: 700; white-space: nowrap; }
+.public-school-search-field button:disabled { cursor: wait; opacity: .65; }
+.public-school-lookup-disclaimer { margin: 8px 0 0; color: #999eae; font-size: 8px; line-height: 1.5; }
+.public-school-lookup-error { margin-top: 12px; padding: 10px; border: 1px solid #f0d9dc; border-radius: 8px; background: #fff8f8; color: #a54754; font-size: 9px; line-height: 1.6; }
+.public-school-result-summary { margin-top: 16px; padding-top: 15px; border-top: 1px solid #eff0f4; }
+.public-school-result-student { display: flex; flex-direction: column; gap: 4px; }
+.public-school-result-student > span { display: flex; align-items: center; gap: 5px; color: #38825f; font-size: 8px; font-weight: 700; }
+.public-school-result-student strong { color: #33394f; font-size: 13px; }
+.public-school-result-student small { color: #9398a8; font-size: 8px; }
+.public-school-result-overview { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 7px; margin: 13px 0; }
+.public-school-result-overview > span { display: flex; flex-direction: column; gap: 5px; padding: 9px; border-radius: 7px; background: #f7f7fb; color: #888ea0; font-size: 8px; }
+.public-school-result-overview strong { color: var(--school-accent); font-size: 10px; }
+.public-school-result-list { max-height: 430px; overflow-y: auto; }
+.public-school-result-list article { display: flex; align-items: flex-start; justify-content: space-between; gap: 13px; padding: 12px 0; border-top: 1px solid #f0f0f4; }
+.public-school-result-list article > div { min-width: 0; display: flex; flex-direction: column; gap: 4px; }
+.public-school-result-list article > div > span { color: #999eae; font-size: 8px; }
+.public-school-result-list article > div > strong { color: #4b5167; font-size: 10px; }
+.public-school-result-list article p { margin: 2px 0 0; color: #80869a; font-size: 9px; line-height: 1.6; white-space: pre-line; }
+.public-school-result-list article > strong { flex: none; color: #434a60; font-size: 9px; text-align: right; }
+.public-school-result-list article > strong small { display: block; margin-top: 4px; color: var(--school-accent); font-size: 8px; }
+.public-school-footer { display: grid; grid-template-columns: 1fr auto; align-items: center; gap: 25px; padding: 35px max(40px, calc((100% - 1080px) / 2)); border-top: 1px solid #eceef2; background: #fafbfc; }
+.public-school-footer > div:first-child > p { margin: 10px 0 0 49px; color: #9499aa; font-size: 9px; }
+.public-school-footer-contact { display: flex; flex-direction: column; align-items: flex-end; gap: 7px; color: #7e8497; font-size: 9px; }
+.public-school-footer-contact > span { display: flex; align-items: center; gap: 5px; }
+.public-school-footer-contact svg { color: var(--school-accent); }
+.public-school-footer-contact a:hover { color: var(--school-accent); }
+.public-school-footer-credit { grid-column: 1 / -1; padding-top: 13px; border-top: 1px solid #eceef2; color: #a4a8b5; font-size: 8px; text-align: center; }
+.public-school-loading, .public-school-unavailable { min-height: 100vh; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 10px; padding: 25px; background: #fafaff; color: #72788c; text-align: center; }
+.public-school-unavailable h1 { margin: 4px 0 0; color: #34394f; font-size: 23px; }
+.public-school-unavailable p { margin: 0; color: #858b9e; font-size: 11px; }
+.public-school-unavailable > a { margin-top: 5px; color: #6555d9; font-size: 10px; font-weight: 700; }
+@media (max-width: 800px) {
+  .website-fee-row { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .website-fee-remove { justify-self: end; }
+  .public-school-header { gap: 12px; padding: 0 22px; }
+  .public-school-header nav { gap: 13px; }
+  .public-school-header nav a { font-size: 9px; }
+  .public-school-hero { grid-template-columns: minmax(0, 1fr) minmax(210px, .7fr); padding-right: 25px; padding-left: 35px; }
+  .public-school-art-circle-one { right: 0; width: 210px; height: 210px; }
+  .public-school-art-card { right: 28px; width: 175px; }
+  .public-school-about { gap: 35px; }
+  .public-school-results { gap: 23px; }
+}
+@media (max-width: 620px) {
+  .public-school-header { min-height: 66px; padding: 0 15px; }
+  .public-school-brand > img, .public-school-monogram { width: 34px; height: 34px; }
+  .public-school-brand strong { max-width: 150px; font-size: 11px; }
+  .public-school-header nav { display: none; }
+  .public-school-header-cta { min-height: 33px; padding: 0 10px; font-size: 9px; }
+  .public-school-hero { min-height: 0; grid-template-columns: 1fr; padding: 50px 24px 34px; }
+  .public-school-hero h1 { font-size: clamp(38px, 11vw, 55px); letter-spacing: -2px; }
+  .public-school-hero-content > p { font-size: 12px; }
+  .public-school-hero-art { min-height: 200px; margin-top: 8px; }
+  .public-school-art-circle-one { top: 15px; right: calc(50% - 105px); width: 190px; height: 190px; }
+  .public-school-art-circle-two { top: 0; right: calc(50% - 107px); width: 110px; height: 110px; }
+  .public-school-art-card { top: 43px; right: calc(50% - 85px); width: 165px; min-height: 129px; padding: 15px; }
+  .public-school-art-card span { font-size: 14px; }
+  .public-school-art-star { right: calc(50% - 110px); bottom: 10px; }
+  .public-school-section { padding: 49px 23px; }
+  .public-school-about, .public-school-admissions, .public-school-results { grid-template-columns: 1fr; gap: 22px; }
+  .public-school-about { gap: 15px; }
+  .public-school-section h2 { font-size: 27px; }
+  .public-school-admissions-card { padding: 17px; }
+  .public-school-results-card { padding: 15px; }
+  .public-school-search-field { flex-direction: column; }
+  .public-school-search-field button { min-height: 39px; }
+  .public-school-result-overview { gap: 5px; }
+  .public-school-result-overview > span { padding: 7px 6px; font-size: 7px; }
+  .public-school-result-overview strong { font-size: 9px; }
+  .public-school-footer { grid-template-columns: 1fr; gap: 18px; padding: 27px 23px; }
+  .public-school-footer-contact { align-items: flex-start; }
+  .public-school-footer-credit { grid-column: 1; }
+}

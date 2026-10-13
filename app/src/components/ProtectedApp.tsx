@@ -17,6 +17,7 @@ import { TestMakerPage } from '../pages/TestMakerPage';
 import { FinancePage } from '../pages/FinancePage';
 import { AccountingStaffPage } from '../pages/AccountingStaffPage';
 import { GradesResultsPage } from '../pages/GradesResultsPage';
+import { PublicSchoolWebsitePage } from '../pages/PublicSchoolWebsitePage';
 
 function RouteGate({ authOnly = true }: { authOnly?: boolean }) {
   const { user, loading, memberships } = useAuth();
@@ -40,6 +41,7 @@ export function ProtectedApp() {
     <Routes>
       <Route path="/" element={<LandingPage />} />
       <Route path="/login" element={<LoginRoute />} />
+      <Route path="/school/:slug" element={<PublicSchoolWebsitePage />} />
       <Route element={<RouteGate />}>
         <Route element={<AppShell />}>
           <Route path="/dashboard" element={<DashboardPage />} />
