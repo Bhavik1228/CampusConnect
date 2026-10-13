@@ -564,6 +564,22 @@ export function FinancePage() {
     if (!schoolId || !user) return;
     const formElement = event.currentTarget;
     const form = new FormData(formElement);
+    const adjustmentType = String(form.get('adjustment_type'));
+    const amount = Number(form.get('amount'));
+    const reason = String(form.get('reason')).trim();
+    const outstanding = outstandingByInvoice.get(invoice.id) ?? 0;
+    if (!Number.isFinite(amount) || amount <= 0) {
+      setFormError('Enter an adjustment amount greater than zero.');
+      return;
+    }
+    if (adjustmentType === 'credit' && amount > outstanding) {
+      setFormError(`A credit cannot exceed this invoice's outstanding balance of ${money(outstanding, invoice.currency_code)}.`);
+      return;
+    }
+    if (reason.length < 2 || reason.length > 240) {
+      setFormError('Enter an adjustment reason between 2 and 240 characters.');
+      return;
+    }
     setSaving(true);
     setFormError('');
     setSuccess('');
@@ -571,9 +587,9 @@ export function FinancePage() {
       const { error: insertError } = await requireSupabase().rpc('record_student_fee_adjustment', {
         target_school: schoolId,
         target_invoice: invoice.id,
-        p_adjustment_type: String(form.get('adjustment_type')),
-        p_adjustment_amount: Number(form.get('amount')),
-        p_adjustment_reason: String(form.get('reason')).trim(),
+        p_adjustment_type: adjustmentType,
+        p_adjustment_amount: amount,
+        p_adjustment_reason: reason,
       });
       if (insertError) throw insertError;
       formElement.reset();
@@ -678,7 +694,10 @@ export function FinancePage() {
             <label className="field"><span>Discount reason</span><input name="discount_reason" maxLength={240} placeholder="Required when discount is greater than zero" disabled={saving} /></label>
             <button className="button button-primary accounting-field-wide" type="submit" disabled={saving || students.length === 0}>{saving ? 'Issuing…' : 'Issue student invoice'}</button>
           </form>}
-          <div className="accounting-table-wrap"><table className="accounting-table"><thead><tr><th>Invoice</th><th>Student</th><th>Due</th><th>Original</th><th>Discount</th><th>Outstanding</th><th>Adjustment</th><th>PDF</th></tr></thead><tbody>{invoices.map((invoice) => <tr key={invoice.id}><td><strong>{invoice.invoice_number}</strong><small>{invoice.description}{invoice.discount_reason ? ` · ${invoice.discount_reason}` : ''}</small></td><td>{displayStudent(invoice.student_id)}</td><td>{invoice.due_on}</td><td>{money(invoice.amount, invoice.currency_code)}</td><td>{invoice.discount_amount > 0 ? money(invoice.discount_amount, invoice.currency_code) : '—'}</td><td>{money(outstandingByInvoice.get(invoice.id) ?? 0, invoice.currency_code)}</td><td>{canManage && invoice.status === 'issued' ? <details className="accounting-adjustment"><summary>Adjust</summary><form onSubmit={(event) => void addAdjustment(event, invoice)}><select name="adjustment_type" aria-label="Adjustment type"><option value="credit">Credit / refund</option><option value="charge">Additional charge</option></select><input name="amount" type="number" aria-label="Adjustment amount" placeholder="Amount" min="0.01" step="0.01" required disabled={saving} /><input name="reason" aria-label="Adjustment reason" placeholder="Reason" minLength={2} maxLength={240} required disabled={saving} /><button className="button button-primary" type="submit" disabled={saving}>Save</button></form></details> : invoice.status === 'void' ? 'Voided' : '—'}</td><td><button type="button" className="button button-quiet accounting-row-download" onClick={() => downloadInvoice(invoice)} aria-label={`Download invoice ${invoice.invoice_number} PDF`} title="Download invoice PDF"><Download size={15} /></button></td></tr>)}</tbody></table></div>
+          <div className="accounting-table-wrap"><table className="accounting-table"><thead><tr><th>Invoice</th><th>Student</th><th>Due</th><th>Original</th><th>Discount</th><th>Outstanding</th><th>Adjustment</th><th>PDF</th></tr></thead><tbody>{invoices.map((invoice) => {
+            const outstanding = outstandingByInvoice.get(invoice.id) ?? 0;
+            return <tr key={invoice.id}><td><strong>{invoice.invoice_number}</strong><small>{invoice.description}{invoice.discount_reason ? ` · ${invoice.discount_reason}` : ''}</small></td><td>{displayStudent(invoice.student_id)}</td><td>{invoice.due_on}</td><td>{money(invoice.amount, invoice.currency_code)}</td><td>{invoice.discount_amount > 0 ? money(invoice.discount_amount, invoice.currency_code) : '—'}</td><td>{money(outstanding, invoice.currency_code)}</td><td>{canManage && invoice.status === 'issued' ? <details className="accounting-adjustment"><summary>Adjust</summary><form onSubmit={(event) => void addAdjustment(event, invoice)}><select name="adjustment_type" aria-label="Adjustment type" defaultValue={outstanding > 0 ? 'credit' : 'charge'}><option value="credit" disabled={outstanding <= 0}>Credit adjustment{outstanding <= 0 ? ' (no outstanding balance)' : ''}</option><option value="charge">Additional charge</option></select><input name="amount" type="number" aria-label="Adjustment amount" placeholder="Amount" min="0.01" step="0.01" required disabled={saving} /><input name="reason" aria-label="Adjustment reason" placeholder="Reason" minLength={2} maxLength={240} required disabled={saving} /><button className="button button-primary" type="submit" disabled={saving}>Save</button></form></details> : invoice.status === 'void' ? 'Voided' : '—'}</td><td><button type="button" className="button button-quiet accounting-row-download" onClick={() => downloadInvoice(invoice)} aria-label={`Download invoice ${invoice.invoice_number} PDF`} title="Download invoice PDF"><Download size={15} /></button></td></tr>;
+          })}</tbody></table></div>
           {invoices.length === 0 && <EmptyState title="No invoices yet" detail="Choose a student and issue an invoice for their school fees." />}
         </section>}
         {tab === 'payments' && <section className="content-card accounting-content-card">

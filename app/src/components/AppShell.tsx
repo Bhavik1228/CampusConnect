@@ -4,6 +4,7 @@ import {
   BookMarked, BookOpenCheck, BookOpenText, CalendarDays, Check, ChevronDown,
   ChevronLeft, ClipboardCheck, GraduationCap, LayoutDashboard, LogOut, Menu,
   Settings, Users, UsersRound, X, CalendarClock, CircleDollarSign, UserRoundPlus,
+  Award,
   type LucideIcon,
 } from 'lucide-react';
 import { useAuth } from '../contexts/AuthContext';
@@ -23,6 +24,7 @@ const navigation: { title: string; items: { to: string; label: string; icon: Luc
     { to: '/academic-calendar', label: 'Academic calendar', icon: CalendarDays },
     { to: '/attendance', label: 'Attendance', icon: ClipboardCheck },
     { to: '/learning', label: 'Learning', icon: BookOpenText },
+    { to: '/grades-results', label: 'Grades & results', icon: Award, roles: ['school_admin', 'academic_coordinator', 'teacher', 'student', 'parent'] },
     { to: '/calendar', label: 'Calendar', icon: CalendarDays },
   ] },
   { title: 'Finance', items: [
@@ -34,7 +36,7 @@ const navigation: { title: string; items: { to: string; label: string; icon: Luc
 const pageNames: Record<string, string> = {
   '/dashboard': 'Overview', '/students': 'Students', '/teachers': 'Teachers',
   '/classes': 'Classes', '/subjects': 'Subjects', '/timetable': 'Timetable', '/attendance': 'Attendance',
-  '/learning': 'Learning', '/calendar': 'Calendar', '/academic-calendar': 'Academic calendar', '/settings': 'Settings',
+  '/learning': 'Learning', '/grades-results': 'Grades & results', '/calendar': 'Calendar', '/academic-calendar': 'Academic calendar', '/settings': 'Settings',
   '/finance': 'Student fees', '/accounting-staff': 'Accounting staff',
 };
 
