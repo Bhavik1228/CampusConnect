@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useState } from 'react';
-import { ChevronLeft, ChevronRight, ShieldCheck } from 'lucide-react';
+import { ChevronLeft, ChevronRight, Printer, ShieldCheck } from 'lucide-react';
 import { useAuth } from '../contexts/AuthContext';
 import { EmptyState, ErrorState, LoadingState } from '../components/Feedback';
 import { requireSupabase } from '../lib/supabase';
@@ -31,6 +31,7 @@ export function AuditLogPage() {
   const [total, setTotal] = useState(0);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
+  const [printedAt, setPrintedAt] = useState('');
   const canView = activeMembership?.role === 'school_admin';
 
   const loadLogs = useCallback(async () => {
@@ -79,8 +80,13 @@ export function AuditLogPage() {
 
   useEffect(() => { void loadLogs(); }, [loadLogs]);
 
+  function printLogs() {
+    setPrintedAt(formatDate(new Date().toISOString()));
+    window.setTimeout(() => window.print(), 0);
+  }
+
   return (
-    <div className="page-stack">
+    <div className="page-stack audit-page">
       <div className="page-heading">
         <div><span className="eyebrow">School administration</span><h1>Audit log</h1><p>Review recorded changes made in this school, including its public website and messaging.</p></div>
         <ShieldCheck size={22} className="muted-icon" />
@@ -88,12 +94,19 @@ export function AuditLogPage() {
       {!canView && <ErrorState message="Only this school’s administrator can view its audit history." />}
       {error && <ErrorState message={error} />}
       {canView && <section className="content-card">
+        <header className="audit-print-heading">
+          <span>School activity report</span>
+          <h1>{activeMembership.school.name}</h1>
+          <p>Audit log{action ? ` · ${action.replace(/_/g, ' ')}` : ''}{targetTable ? ` · ${targetTable.replace(/_/g, ' ')}` : ''}</p>
+          <small>Generated {printedAt || formatDate(new Date().toISOString())} · Page {page + 1} · Showing {logs.length} of {total.toLocaleString()} matching actions</small>
+        </header>
         <div className="audit-filters">
           <label className="field"><span>Action</span><select value={action} onChange={(event) => { setAction(event.target.value); setPage(0); }}>
             <option value="">All actions</option><option value="insert">Created</option><option value="update">Updated</option><option value="delete">Deleted</option><option value="public_result_lookup">Public result lookup</option>
           </select></label>
           <label className="field"><span>Record type</span><input value={targetTable} onChange={(event) => { setTargetTable(event.target.value.trim()); setPage(0); }} placeholder="Filter by table name" maxLength={80} /></label>
           <span className="audit-count">{total.toLocaleString()} recorded actions</span>
+          <button className="button button-quiet audit-print-button" type="button" onClick={printLogs} disabled={loading || logs.length === 0}><Printer size={16} />Print page</button>
         </div>
         {loading ? <LoadingState label="Loading the school audit history…" /> : logs.length === 0
           ? <EmptyState title="No matching activity" detail="Changes made in this school will appear here when recorded." />
