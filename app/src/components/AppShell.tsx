@@ -16,6 +16,7 @@ const navigation: { title: string; items: { to: string; label: string; icon: Luc
   { title: 'Workspace', items: [
     { to: '/dashboard', label: 'Overview', icon: LayoutDashboard },
     { to: '/students', label: 'Students', icon: GraduationCap },
+    { to: '/admissions', label: 'Admissions & enrolment', icon: UserRoundPlus },
     { to: '/staff', label: 'Staff & teachers', icon: BriefcaseBusiness, roles: ['school_admin', 'academic_coordinator', 'teacher'] },
     { to: '/classes', label: 'Classes', icon: UsersRound },
     { to: '/subjects', label: 'Subjects', icon: BookMarked },
@@ -39,7 +40,7 @@ const navigation: { title: string; items: { to: string; label: string; icon: Luc
 ];
 
 const pageNames: Record<string, string> = {
-  '/dashboard': 'Overview', '/students': 'Students', '/teachers': 'Teachers', '/staff': 'Staff & teachers',
+  '/dashboard': 'Overview', '/students': 'Students', '/admissions': 'Admissions & enrolment', '/teachers': 'Teachers', '/staff': 'Staff & teachers',
   '/classes': 'Classes', '/subjects': 'Subjects', '/timetable': 'Timetable', '/attendance': 'Attendance',
   '/learning': 'Learning', '/grades-results': 'Grades & results', '/calendar': 'Calendar', '/academic-calendar': 'Academic calendar', '/settings': 'Settings',
   '/finance': 'Student fees', '/accounting-staff': 'Accounting staff',

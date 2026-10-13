@@ -19,7 +19,7 @@ const features = [
 ];
 
 const modules = [
-  ['01', 'Admissions', 'Application and enrollment records.'],
+  ['01', 'Admissions & enrolment', 'Student applications, documents, decisions, registration, class placement, and admission history.'],
   ['02', 'Academic records', 'Classes, subjects, terms, and progress.'],
   ['03', 'Attendance', 'Daily attendance and absence tracking.'],
   ['04', 'Assignments', 'Set work, due dates, and submissions.'],
