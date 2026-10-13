@@ -5,6 +5,7 @@ import {
   ChevronLeft, ClipboardCheck, GraduationCap, LayoutDashboard, LogOut, Menu,
   Settings, UsersRound, X, CalendarClock, CircleDollarSign, UserRoundPlus,
   Award, BriefcaseBusiness,
+  MessageCircle, ShieldCheck,
   type LucideIcon,
 } from 'lucide-react';
 import { useAuth } from '../contexts/AuthContext';
@@ -31,6 +32,10 @@ const navigation: { title: string; items: { to: string; label: string; icon: Luc
     { to: '/finance', label: 'Student fees', icon: CircleDollarSign, roles: ['school_admin', 'finance_manager', 'accountant', 'bursar', 'cashier'] },
     { to: '/accounting-staff', label: 'Accounting staff', icon: UserRoundPlus, roles: ['school_admin'] },
   ] },
+  { title: 'Communication', items: [
+    { to: '/messaging', label: 'Messages', icon: MessageCircle },
+    { to: '/audit-log', label: 'Audit log', icon: ShieldCheck, roles: ['school_admin'] },
+  ] },
 ];
 
 const pageNames: Record<string, string> = {
@@ -38,6 +43,7 @@ const pageNames: Record<string, string> = {
   '/classes': 'Classes', '/subjects': 'Subjects', '/timetable': 'Timetable', '/attendance': 'Attendance',
   '/learning': 'Learning', '/grades-results': 'Grades & results', '/calendar': 'Calendar', '/academic-calendar': 'Academic calendar', '/settings': 'Settings',
   '/finance': 'Student fees', '/accounting-staff': 'Accounting staff',
+  '/messaging': 'Messages', '/audit-log': 'Audit log',
 };
 
 export function AppShell() {

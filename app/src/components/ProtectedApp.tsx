@@ -19,6 +19,8 @@ import { AccountingStaffPage } from '../pages/AccountingStaffPage';
 import { GradesResultsPage } from '../pages/GradesResultsPage';
 import { PublicSchoolWebsitePage } from '../pages/PublicSchoolWebsitePage';
 import { StaffManagementPage } from '../pages/StaffManagementPage';
+import { MessagingPage } from '../pages/MessagingPage';
+import { AuditLogPage } from '../pages/AuditLogPage';
 
 function RouteGate({ authOnly = true }: { authOnly?: boolean }) {
   const { user, loading, memberships } = useAuth();
@@ -60,6 +62,8 @@ export function ProtectedApp() {
           <Route path="/settings" element={<SchoolSettingsPage />} />
           <Route path="/finance" element={<FinancePage />} />
           <Route path="/accounting-staff" element={<AccountingStaffPage />} />
+          <Route path="/messaging" element={<MessagingPage />} />
+          <Route path="/audit-log" element={<AuditLogPage />} />
         </Route>
       </Route>
       <Route path="*" element={<Navigate to="/" replace />} />
