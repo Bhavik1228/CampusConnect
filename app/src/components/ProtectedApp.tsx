@@ -22,6 +22,7 @@ import { StaffManagementPage } from '../pages/StaffManagementPage';
 import { MessagingPage } from '../pages/MessagingPage';
 import { AuditLogPage } from '../pages/AuditLogPage';
 import { AdmissionsPage } from '../pages/AdmissionsPage';
+import { StudentsPage } from '../pages/StudentsPage';
 
 function RouteGate({ authOnly = true }: { authOnly?: boolean }) {
   const { user, loading, memberships } = useAuth();
@@ -49,7 +50,7 @@ export function ProtectedApp() {
       <Route element={<RouteGate />}>
         <Route element={<AppShell />}>
           <Route path="/dashboard" element={<DashboardPage />} />
-          <Route path="/students" element={<DirectoryPage kind="students" />} />
+          <Route path="/students" element={<StudentsPage />} />
           <Route path="/admissions" element={<AdmissionsPage />} />
           <Route path="/teachers" element={<DirectoryPage kind="teachers" />} />
           <Route path="/staff" element={<StaffManagementPage />} />
