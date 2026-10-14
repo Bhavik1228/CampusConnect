@@ -1,7 +1,7 @@
 import { useEffect, useState } from 'react';
 import { NavLink, Outlet, useLocation, useNavigate } from 'react-router-dom';
 import {
-  BookMarked, BookOpenCheck, BookOpenText, CalendarDays, Check, ChevronDown, ClipboardList, Library,
+  BookCopy, BookMarked, BookOpenCheck, BookOpenText, CalendarDays, Check, ChevronDown, ClipboardList, Library,
   ChevronLeft, ClipboardCheck, GraduationCap, LayoutDashboard, LogOut, Menu,
   Settings, UsersRound, X, CalendarClock, CircleDollarSign, UserRoundPlus,
   Award, BriefcaseBusiness, FileStack,
@@ -30,6 +30,7 @@ const navigation: { title: string; items: { to: string; label: string; icon: Luc
     { to: '/learning', label: 'Learning', icon: BookOpenText, module: 'module_learning' },
     { to: '/courses-lessons', label: 'Courses & lessons', icon: Library, module: 'module_learning' },
     { to: '/learning-materials', label: 'Learning materials', icon: FileStack, module: 'module_learning' },
+    { to: '/library', label: 'Library', icon: BookCopy, module: 'module_library' },
     { to: '/assignments', label: 'Assignments & homework', icon: ClipboardList, roles: ['school_admin', 'academic_coordinator', 'teacher', 'student', 'parent'], module: 'module_assignments' },
     { to: '/grades-results', label: 'Grades & results', icon: Award, roles: ['school_admin', 'academic_coordinator', 'teacher', 'student', 'parent'], module: 'module_assessment_results' },
     { to: '/calendar', label: 'Calendar', icon: CalendarDays },
@@ -50,6 +51,7 @@ const pageNames: Record<string, string> = {
   '/learning': 'Learning', '/courses-lessons': 'Courses & lessons', '/learning-materials': 'Learning materials', '/assignments': 'Assignments & homework', '/grades-results': 'Grades & results', '/calendar': 'Calendar', '/academic-calendar': 'Academic calendar', '/settings': 'Settings',
   '/finance': 'Student fees', '/accounting-staff': 'Accounting staff',
   '/messaging': 'Messages', '/audit-log': 'Audit log',
+  '/library': 'Library',
 };
 
 export function AppShell() {
@@ -76,6 +78,7 @@ export function AppShell() {
     '/finance': 'module_finance',
     '/accounting-staff': 'module_finance',
     '/messaging': 'module_messaging',
+    '/library': 'module_library',
   };
   const maintenanceModuleForPath: Record<string, string> = {
     '/admissions': 'admissions',
@@ -89,6 +92,7 @@ export function AppShell() {
     '/finance': 'finance',
     '/accounting-staff': 'finance',
     '/messaging': 'messaging',
+    '/library': 'library',
     '/students': 'students',
     '/teachers': 'staff',
     '/staff': 'staff',
@@ -108,7 +112,7 @@ export function AppShell() {
       try {
         const [moduleResult, maintenanceResult] = await Promise.all([
           requireSupabase().from('school_module_settings')
-            .select('module_admissions,module_attendance,module_timetable,module_learning,module_assignments,module_assessment_results,module_finance,module_messaging')
+            .select('module_admissions,module_attendance,module_timetable,module_learning,module_assignments,module_assessment_results,module_finance,module_messaging,module_library')
             .eq('school_id', activeMembership.school_id)
             .maybeSingle(),
           requireSupabase().rpc('platform_maintenance_status', {

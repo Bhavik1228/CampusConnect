@@ -61,6 +61,7 @@ interface WebsiteSettings {
   slug: string;
   enabled: boolean;
   public_results_enabled: boolean;
+  public_library_enabled: boolean;
   hero_title: string;
   hero_message: string;
   about_title: string;
@@ -110,6 +111,7 @@ function emptyWebsite(schoolId: string, schoolName: string, contactEmail: string
     slug,
     enabled: false,
     public_results_enabled: false,
+    public_library_enabled: false,
     hero_title: `Welcome to ${schoolName}`,
     hero_message: 'Discover a community where every learner can thrive.',
     about_title: 'Learning, belonging, growing',
@@ -281,6 +283,16 @@ export function SchoolSettingsPage() {
       }
       if (website.public_results_enabled && !website.enabled) {
         setError('Publish the school website before enabling its public student results lookup.');
+        setSuccess('');
+        return;
+      }
+      if (website.public_library_enabled && !website.enabled) {
+        setError('Publish the school website before enabling its public library catalogue.');
+        setSuccess('');
+        return;
+      }
+      if (website.public_library_enabled && modules?.module_library === false) {
+        setError('Enable the Library module before publishing its catalogue on the school website.');
         setSuccess('');
         return;
       }
@@ -618,6 +630,7 @@ export function SchoolSettingsPage() {
                 updateWebsite('enabled', checked);
                 if (!checked) {
                   updateWebsite('public_results_enabled', false);
+                  updateWebsite('public_library_enabled', false);
                   updateWebsite('admissions_applications_enabled', false);
                 }
               }} />
@@ -666,6 +679,10 @@ export function SchoolSettingsPage() {
             <Section title="Student results lookup" detail="Let parents without a Campus Connect account check published results using the school website and student number.">
               <Toggle label="Allow public results lookup" detail="Anyone who knows a student's number can view that student's published results on this public website." checked={website.public_results_enabled} disabled={!canEdit || !website.enabled} onChange={(checked) => updateWebsite('public_results_enabled', checked)} />
               <p className="website-privacy-warning"><LockKeyhole size={15} /> Only published results are returned. Student numbers are not a password; enable this option only if your school accepts that anyone who knows a student's number can view their published marks and teacher comments.</p>
+            </Section>
+            <Section title="Public library catalogue" detail="Let anyone scanning a book sticker view its public details on the school website. Requests and preorders still require a signed-in account connected to this school.">
+              <Toggle label="Publish the library catalogue" detail="Enable individual public book pages at your school website's Library address. When disabled, a scan shows a Campus Connect sign-in prompt without exposing book details." checked={website.public_library_enabled} disabled={!canEdit || !website.enabled || modules?.module_library === false} onChange={(checked) => updateWebsite('public_library_enabled', checked)} />
+              <p className="website-privacy-warning"><LockKeyhole size={15} /> Barcode links reveal only book catalogue information. They never provide access to student or library account data.</p>
             </Section>
             {saveButton('website')}
           </form>}

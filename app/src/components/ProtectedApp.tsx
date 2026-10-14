@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react';
-import { Navigate, Outlet, Route, Routes } from 'react-router-dom';
+import { Navigate, Outlet, Route, Routes, useLocation } from 'react-router-dom';
 import { useAuth } from '../contexts/AuthContext';
 import { PlatformBrandingProvider } from '../contexts/PlatformBrandingContext';
 import { isSupabaseConfigured } from '../lib/supabase';
@@ -34,6 +34,7 @@ import { SystemOwnerSchoolsPage } from '../pages/SystemOwnerSchoolsPage';
 import { SystemOwnerSettingsPage } from '../pages/SystemOwnerSettingsPage';
 import { SystemOwnerMaintenancePage } from '../pages/SystemOwnerMaintenancePage';
 import { SystemOwnerShell } from './SystemOwnerShell';
+import { LibraryPage, PublicLibraryBookPage } from '../pages/LibraryPage';
 
 function RouteGate({ authOnly = true, requireMembership = true }: { authOnly?: boolean; requireMembership?: boolean }) {
   const { user, loading, memberships } = useAuth();
@@ -121,6 +122,8 @@ export function ProtectedApp() {
       <Routes>
       <Route path="/" element={<LandingPage />} />
       <Route path="/login" element={<LoginRoute />} />
+      <Route path="/book/:slug/:barcode" element={<PublicLibraryBookPage />} />
+      <Route path="/school/:slug/library/:barcode" element={<PublicLibraryBookPage websitePath />} />
       <Route path="/school/:slug" element={<PublicSchoolWebsitePage />} />
       <Route element={<RouteGate requireMembership={false} />}>
         <Route path="/system-owner" element={<SystemOwnerGate />}>
@@ -146,6 +149,7 @@ export function ProtectedApp() {
           <Route path="/learning" element={<TestMakerPage />} />
           <Route path="/courses-lessons" element={<CoursesLessonsPage />} />
           <Route path="/learning-materials" element={<LearningMaterialsPage />} />
+          <Route path="/library" element={<LibraryPage />} />
           <Route path="/assignments" element={<AssignmentsPage />} />
           <Route path="/grades-results" element={<GradesResultsPage />} />
           <Route path="/calendar" element={<AcademicPages kind="calendar" />} />
@@ -165,7 +169,14 @@ export function ProtectedApp() {
 
 function LoginRoute() {
   const { user, loading, memberships, recoveryMode } = useAuth();
+  const location = useLocation();
   const [ownerStatus, setOwnerStatus] = useState<'checking' | 'owner' | 'school' | 'error'>('checking');
+  const requestedDestination = new URLSearchParams(location.search).get('redirect');
+  const publicBookPath = requestedDestination
+    && (/^\/book\/[^/]+\/[^/]+$/.test(requestedDestination)
+      || /^\/school\/[^/]+\/library\/[^/]+$/.test(requestedDestination))
+    ? requestedDestination
+    : null;
 
   useEffect(() => {
     let active = true;
@@ -189,6 +200,7 @@ function LoginRoute() {
   if (user && ownerStatus === 'checking') return <div className="full-screen-loading"><LoadingState label="Verifying account…" /></div>;
   if (user && ownerStatus === 'error') return <main className="config-page"><div className="config-card"><ErrorState message="Could not verify your account's platform access. Please reload and try again." /></div></main>;
   if (user && ownerStatus === 'owner') return <Navigate to="/system-owner" replace />;
+  if (user && publicBookPath) return <Navigate to={publicBookPath} replace />;
   if (user && memberships.length === 0) return <SchoolSetup />;
   if (user) return <Navigate to="/dashboard" replace />;
   return <AuthScreen />;

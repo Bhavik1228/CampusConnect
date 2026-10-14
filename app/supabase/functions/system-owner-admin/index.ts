@@ -40,7 +40,7 @@ const subscriptionStatuses = ['free', 'trial', 'active', 'past_due', 'cancelled'
 const maintenanceModules = [
   'academics', 'admissions', 'assignments', 'attendance', 'calendar',
   'communication', 'finance', 'grades', 'learning', 'messaging',
-  'staff', 'students', 'timetable',
+  'library', 'staff', 'students', 'timetable',
 ];
 
 function respond(status: number, body: Record<string, unknown>) {

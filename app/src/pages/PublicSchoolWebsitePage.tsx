@@ -8,6 +8,7 @@ type PublicWebsite = {
   school_id: string;
   slug: string;
   public_results_enabled: boolean;
+  public_library_enabled: boolean;
   hero_title: string;
   hero_message: string;
   about_title: string;
