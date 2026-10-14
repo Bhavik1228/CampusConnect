@@ -1,11 +1,13 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import {
   Activity, AlertTriangle, Building2, Check, CircleDollarSign, GraduationCap,
-  RefreshCw, ShieldAlert, UserRound, UsersRound, X,
+  LayoutDashboard, LogOut, RefreshCw, School, Settings, ShieldAlert, UserRound, UsersRound, X,
 } from 'lucide-react';
 import { ErrorState, LoadingState } from '../components/Feedback';
 import { requireSupabase } from '../lib/supabase';
 import { useAuth } from '../contexts/AuthContext';
+import { SystemOwnerSchoolsPanel } from './SystemOwnerSchoolsPanel';
+import { SystemOwnerPlatformSettingsPanel } from './SystemOwnerPlatformSettingsPanel';
 
 type Dashboard = {
   stats: {
@@ -34,12 +36,14 @@ function formatDate(value: string) {
 }
 
 export function SystemOwnerPage() {
-  const { user } = useAuth();
+  const { user, signOut } = useAuth();
+  const [tab, setTab] = useState<'overview' | 'schools' | 'settings'>('overview');
   const [dashboard, setDashboard] = useState<Dashboard | null>(null);
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
   const [error, setError] = useState('');
   const [notice, setNotice] = useState('');
+  const [logoutError, setLogoutError] = useState('');
   const [query, setQuery] = useState('');
   const [pendingAction, setPendingAction] = useState('');
 
@@ -111,18 +115,38 @@ export function SystemOwnerPage() {
     }
   }
 
+  async function logout() {
+    setLogoutError('');
+    try {
+      await signOut();
+    } catch (logoutFailure) {
+      setLogoutError(logoutFailure instanceof Error ? logoutFailure.message : 'Could not sign out.');
+    }
+  }
+
   if (loading) return <main className="system-owner-page"><LoadingState label="Verifying owner access and loading platform data…" /></main>;
 
   return (
     <main className="system-owner-page">
       <header className="system-owner-header">
         <div><span className="eyebrow">Platform control</span><h1>System owner dashboard</h1><p>Private Campus Connect operations · {user?.email}</p></div>
-        <button className="button button-quiet" onClick={() => void loadDashboard(true)} disabled={refreshing}><RefreshCw size={15} className={refreshing ? 'system-owner-spinning' : ''} /> Refresh</button>
+        <div className="system-owner-header-actions">
+          <button className="button button-quiet" onClick={() => void loadDashboard(true)} disabled={refreshing}><RefreshCw size={15} className={refreshing ? 'system-owner-spinning' : ''} /> Refresh</button>
+          <button className="button button-quiet" onClick={() => void logout()}><LogOut size={15} /> Sign out</button>
+        </div>
       </header>
+      {logoutError && <ErrorState message={logoutError} />}
       {error && <ErrorState message={error} />}
       {notice && <p className="inline-success" role="status">{notice}</p>}
       {!dashboard && !error && <ErrorState message="Platform dashboard data is not available." />}
-      {dashboard && <>
+      <nav className="system-owner-tabs" aria-label="System owner sections">
+        <button className={tab === 'overview' ? 'active' : ''} onClick={() => setTab('overview')}><LayoutDashboard size={15} /> Overview</button>
+        <button className={tab === 'schools' ? 'active' : ''} onClick={() => setTab('schools')}><School size={15} /> School management</button>
+        <button className={tab === 'settings' ? 'active' : ''} onClick={() => setTab('settings')}><Settings size={15} /> Platform settings</button>
+      </nav>
+      {tab === 'schools' && <SystemOwnerSchoolsPanel />}
+      {tab === 'settings' && <SystemOwnerPlatformSettingsPanel />}
+      {tab === 'overview' && dashboard && <>
         <section className="system-owner-stat-grid" aria-label="Platform statistics">
           <article className="system-owner-stat"><span><Building2 size={17} /></span><small>Registered schools</small><strong>{dashboard.stats.schools.toLocaleString()}</strong><p>{dashboard.stats.activeSchools} active · {dashboard.stats.suspendedSchools} suspended</p></article>
           <article className="system-owner-stat"><span><UserRound size={17} /></span><small>Registered users</small><strong>{dashboard.stats.users.toLocaleString()}</strong><p>Unique Campus Connect accounts</p></article>

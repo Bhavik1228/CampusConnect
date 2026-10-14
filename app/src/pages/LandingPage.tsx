@@ -7,6 +7,7 @@ import {
 import { Link } from 'react-router-dom';
 import type { CSSProperties } from 'react';
 import { useAuth } from '../contexts/AuthContext';
+import { usePlatformBranding } from '../contexts/PlatformBrandingContext';
 
 const features = [
   { icon: GraduationCap, tone: 'violet', title: 'Student information', description: 'Keep enrollment, profiles, class placement, and academic records together across the student journey.' },
@@ -93,6 +94,7 @@ function DashboardPreview() {
 
 export function LandingPage() {
   const { user } = useAuth();
+  const { platformName, logoUrl, maintenanceNotice } = usePlatformBranding();
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
   const [activeQuestion, setActiveQuestion] = useState<number | null>(0);
 
@@ -126,8 +128,8 @@ export function LandingPage() {
       <header className="landing-header">
         <div className="landing-header-inner">
           <a className="landing-brand" href="#home" onClick={closeMobileMenu}>
-            <span className="landing-brand-mark"><BookOpenCheck size={20} /></span>
-            <span>Campus Connect</span>
+            <span className="landing-brand-mark">{logoUrl ? <img src={logoUrl} alt="" /> : <BookOpenCheck size={20} />}</span>
+            <span>{platformName}</span>
           </a>
           <button className="landing-menu-toggle" type="button" onClick={() => setMobileMenuOpen((open) => !open)} aria-label={mobileMenuOpen ? 'Close navigation' : 'Open navigation'} aria-expanded={mobileMenuOpen}>
             {mobileMenuOpen ? <X size={21} /> : <Menu size={21} />}
@@ -148,6 +150,7 @@ export function LandingPage() {
           </div>
         </div>
       </header>
+      {maintenanceNotice && <aside className="platform-maintenance-notice" role="status">{maintenanceNotice}</aside>}
 
       <section className="landing-hero" id="home">
         <div className="landing-grid-pattern" aria-hidden="true" />
@@ -272,7 +275,7 @@ export function LandingPage() {
         <div className="landing-container">
           <div className="landing-cta-card landing-reveal">
             <div className="cta-glow" aria-hidden="true" />
-            <span className="landing-section-kicker">Campus Connect</span>
+            <span className="landing-section-kicker">{platformName}</span>
             <h2>Bring your school information and learning into one workspace.</h2>
             <p>Start by setting up an account and creating your school workspace.</p>
             <Link className="landing-button landing-button-primary landing-button-large" to="/login">Get started <ArrowRight size={18} /></Link>
@@ -282,11 +285,11 @@ export function LandingPage() {
 
       <footer className="landing-footer">
         <div className="landing-container landing-footer-inner">
-          <a className="landing-brand" href="#home"><span className="landing-brand-mark"><BookOpenCheck size={18} /></span><span>Campus Connect</span></a>
+          <a className="landing-brand" href="#home"><span className="landing-brand-mark">{logoUrl ? <img src={logoUrl} alt="" /> : <BookOpenCheck size={18} />}</span><span>{platformName}</span></a>
           <p>School information, operations, and learning in one connected system.</p>
           <a href="#home" className="landing-back-top">Back to top ↑</a>
         </div>
-        <div className="landing-container landing-footer-bottom"><span>Campus Connect</span><Link to="/login">Sign in to your workspace</Link></div>
+        <div className="landing-container landing-footer-bottom"><span>{platformName}</span><Link to="/login">Sign in to your workspace</Link></div>
       </footer>
     </main>
   );

@@ -14,7 +14,20 @@ type OwnerRequest = {
   status?: unknown;
   requestId?: unknown;
   decision?: unknown;
+  search?: unknown;
+  statusFilter?: unknown;
+  typeFilter?: unknown;
+  sortField?: unknown;
+  sortAscending?: unknown;
+  page?: unknown;
+  pageSize?: unknown;
+  school?: unknown;
+  adminEmail?: unknown;
+  settings?: unknown;
 };
+
+const schoolTypes = ['primary', 'secondary', 'k12', 'university', 'other'];
+const subscriptionStatuses = ['free', 'trial', 'active', 'past_due', 'cancelled'];
 
 function respond(status: number, body: Record<string, unknown>) {
   return new Response(JSON.stringify(body), {
@@ -26,6 +39,14 @@ function respond(status: number, body: Record<string, unknown>) {
 function isUuid(value: unknown): value is string {
   return typeof value === 'string'
     && /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(value);
+}
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === 'object' && value !== null && !Array.isArray(value);
+}
+
+function isShortText(value: unknown, max: number): value is string {
+  return typeof value === 'string' && value.length <= max;
 }
 
 Deno.serve(async (request: Request) => {
@@ -45,11 +66,10 @@ Deno.serve(async (request: Request) => {
 
     const userClient = createClient(supabaseUrl, anonKey, {
       auth: { persistSession: false, autoRefreshToken: false },
-      global: { headers: { Authorization: `Bearer ${accessToken}` } },
     });
     const { data: { user }, error: authError } = await userClient.auth.getUser(accessToken);
     if (authError || !user) return respond(401, { error: 'Your session is invalid. Sign in again.' });
-    if (user.id !== ownerId) return respond(403, { error: 'This panel is restricted to the Campus Connect system owner.' });
+    if (user.id !== ownerId) return respond(200, { authorized: false });
 
     const serviceClient = createClient(supabaseUrl, serviceRoleKey, {
       auth: { persistSession: false, autoRefreshToken: false },
@@ -68,6 +88,207 @@ Deno.serve(async (request: Request) => {
         && Deno.env.get('R2_SECRET_ACCESS_KEY'),
       );
       return respond(200, { dashboard: { ...data, managedStorageConfigured } });
+    }
+
+    if (payload.action === 'list-schools') {
+      const sortFields = ['created_at', 'name', 'status', 'subscription'];
+      const statusFilter = payload.statusFilter === 'active' || payload.statusFilter === 'suspended' ? payload.statusFilter : '';
+      const typeFilter = typeof payload.typeFilter === 'string' && schoolTypes.includes(payload.typeFilter) ? payload.typeFilter : '';
+      const { data, error } = await serviceClient.rpc('platform_owner_school_list', {
+        search_text: typeof payload.search === 'string' ? payload.search.trim().slice(0, 120) : '',
+        status_filter: statusFilter,
+        type_filter: typeFilter,
+        sort_field: typeof payload.sortField === 'string' && sortFields.includes(payload.sortField) ? payload.sortField : 'created_at',
+        sort_ascending: payload.sortAscending === true,
+        page_number: typeof payload.page === 'number' ? Math.max(1, Math.floor(payload.page)) : 1,
+        page_size: typeof payload.pageSize === 'number' ? Math.min(50, Math.max(1, Math.floor(payload.pageSize))) : 20,
+      });
+      if (error) throw error;
+      const { data: platformSettings, error: settingsError } = await serviceClient
+        .from('platform_settings')
+        .select('supported_school_types')
+        .eq('id', 1)
+        .single();
+      if (settingsError) throw settingsError;
+      return respond(200, {
+        result: data,
+        supportedSchoolTypes: platformSettings.supported_school_types,
+      });
+    }
+
+    if (payload.action === 'get-platform-settings') {
+      const { data, error } = await serviceClient.from('platform_settings')
+        .select('platform_name,logo_url,favicon_url,contact_email,contact_phone,default_language,default_timezone,default_date_format,supported_school_types,default_academic_configuration,global_feature_availability,maintenance_notice,default_notification_settings')
+        .eq('id', 1)
+        .single();
+      if (error) throw error;
+      return respond(200, { settings: data });
+    }
+
+    if (payload.action === 'save-platform-settings') {
+      if (!isRecord(payload.settings)) return respond(400, { error: 'Platform settings are required.' });
+      const settings = payload.settings;
+      const textLimits: Record<string, number> = {
+        platform_name: 120, logo_url: 2000, favicon_url: 2000, contact_email: 320,
+        contact_phone: 40, default_language: 20, default_timezone: 100,
+        default_date_format: 40, maintenance_notice: 2000,
+      };
+      for (const [key, limit] of Object.entries(textLimits)) {
+        if (!isShortText(settings[key], limit)) return respond(400, { error: `Invalid platform setting: ${key}.` });
+      }
+      if (!Array.isArray(settings.supported_school_types)
+        || settings.supported_school_types.length === 0
+        || new Set(settings.supported_school_types).size !== settings.supported_school_types.length
+        || !settings.supported_school_types.every((value) => typeof value === 'string' && schoolTypes.includes(value))) {
+        return respond(400, { error: 'Choose valid supported school types.' });
+      }
+      if (!['YYYY-MM-DD', 'DD/MM/YYYY', 'MM/DD/YYYY', 'DD.MM.YYYY'].includes(String(settings.default_date_format))) {
+        return respond(400, { error: 'Choose a supported date format.' });
+      }
+      for (const key of ['default_academic_configuration', 'global_feature_availability', 'default_notification_settings']) {
+        if (!isRecord(settings[key])) return respond(400, { error: `Invalid platform setting: ${key}.` });
+      }
+      const academic = settings.default_academic_configuration as Record<string, unknown>;
+      if (!Number.isInteger(academic.academicYearStartMonth) || Number(academic.academicYearStartMonth) < 1 || Number(academic.academicYearStartMonth) > 12
+        || !Number.isInteger(academic.academicYearStartDay) || Number(academic.academicYearStartDay) < 1 || Number(academic.academicYearStartDay) > 28
+        || !Number.isInteger(academic.termCount) || Number(academic.termCount) < 1 || Number(academic.termCount) > 6) {
+        return respond(400, { error: 'Academic year and term defaults are invalid.' });
+      }
+      const features = settings.global_feature_availability as Record<string, unknown>;
+      if (Object.values(features).some((value) => typeof value !== 'boolean')) {
+        return respond(400, { error: 'Global feature availability values must be enabled or disabled.' });
+      }
+      const notifications = settings.default_notification_settings as Record<string, unknown>;
+      if (['email', 'inApp', 'maintenanceNotices'].some((key) => typeof notifications[key] !== 'boolean')) {
+        return respond(400, { error: 'Default notification settings are invalid.' });
+      }
+      const { error } = await serviceClient.rpc('platform_owner_save_settings', {
+        settings_value: settings,
+        actor: user.id,
+      });
+      if (error) throw error;
+      const { error: activityError } = await serviceClient.from('platform_activity').insert({
+        actor_id: user.id,
+        action: 'platform_settings_updated',
+        target_type: 'platform_settings',
+        details: {},
+      });
+      if (activityError) throw activityError;
+      return respond(200, { saved: true });
+    }
+
+    if (payload.action === 'register-school' || payload.action === 'update-school') {
+      if (!isRecord(payload.school)) return respond(400, { error: 'School information is required.' });
+      const school = payload.school;
+      if (typeof school.name !== 'string' || school.name.trim().length < 2 || school.name.trim().length > 120) {
+        return respond(400, { error: 'School name must be between 2 and 120 characters.' });
+      }
+      const optionalTextLimits: Record<string, number> = {
+        contact_email: 320, contact_phone: 40, address: 500, website: 2000,
+        timezone: 100, default_language: 20, logo_path: 2000, favicon_path: 2000,
+        subscription_plan: 100,
+      };
+      for (const [key, limit] of Object.entries(optionalTextLimits)) {
+        if (school[key] !== undefined && school[key] !== null && !isShortText(school[key], limit)) {
+          return respond(400, { error: `Invalid school field: ${key}.` });
+        }
+      }
+      if (school.school_type !== null && school.school_type !== '' && !schoolTypes.includes(String(school.school_type))) {
+        return respond(400, { error: 'Choose a supported school type.' });
+      }
+      if (school.subscription_status !== undefined && !subscriptionStatuses.includes(String(school.subscription_status))) {
+        return respond(400, { error: 'Choose a valid school subscription status.' });
+      }
+      if (school.subscription_ends_at !== null && school.subscription_ends_at !== undefined
+        && (typeof school.subscription_ends_at !== 'string' || !Number.isFinite(Date.parse(school.subscription_ends_at)))) {
+        return respond(400, { error: 'Enter a valid subscription end date.' });
+      }
+      if (school.date_format !== undefined && !['YYYY-MM-DD', 'DD/MM/YYYY', 'MM/DD/YYYY', 'DD.MM.YYYY'].includes(String(school.date_format))) {
+        return respond(400, { error: 'Choose a supported school date format.' });
+      }
+      let schoolDefaults: { default_timezone: string; default_language: string; default_date_format: string; supported_school_types: string[] } | null = null;
+      if (payload.action === 'register-school') {
+        const { data, error } = await serviceClient.from('platform_settings')
+          .select('default_timezone,default_language,default_date_format,supported_school_types')
+          .eq('id', 1)
+          .single();
+        if (error) throw error;
+        schoolDefaults = data;
+        if (school.school_type && !data.supported_school_types.includes(school.school_type)) {
+          return respond(400, { error: 'This school type is not currently supported by the platform.' });
+        }
+      }
+      const schoolFields = {
+        name: school.name.trim(),
+        school_type: school.school_type || null,
+        contact_email: isShortText(school.contact_email, 320) ? school.contact_email.trim() || null : null,
+        contact_phone: isShortText(school.contact_phone, 40) ? school.contact_phone.trim() || null : null,
+        address: isShortText(school.address, 500) ? school.address.trim() || null : null,
+        website: isShortText(school.website, 2000) ? school.website.trim() || null : null,
+        timezone: isShortText(school.timezone, 100) ? school.timezone.trim() || schoolDefaults?.default_timezone || 'UTC' : schoolDefaults?.default_timezone || 'UTC',
+        default_language: isShortText(school.default_language, 20) ? school.default_language.trim() || schoolDefaults?.default_language || 'en' : schoolDefaults?.default_language || 'en',
+        date_format: typeof school.date_format === 'string' ? school.date_format : schoolDefaults?.default_date_format || 'YYYY-MM-DD',
+        logo_path: isShortText(school.logo_path, 2000) ? school.logo_path.trim() || null : null,
+        favicon_path: isShortText(school.favicon_path, 2000) ? school.favicon_path.trim() || null : null,
+        subscription_status: subscriptionStatuses.includes(String(school.subscription_status)) ? school.subscription_status : 'free',
+        subscription_plan: isShortText(school.subscription_plan, 100) ? school.subscription_plan.trim() || 'phase_1_free' : 'phase_1_free',
+        subscription_ends_at: typeof school.subscription_ends_at === 'string' && school.subscription_ends_at ? school.subscription_ends_at : null,
+      };
+      let schoolId: string;
+      if (payload.action === 'register-school') {
+        const { data, error } = await serviceClient.from('schools')
+          .insert({ ...schoolFields, created_by: user.id })
+          .select('id,name')
+          .single();
+        if (error) throw error;
+        schoolId = data.id;
+      } else {
+        if (!isUuid(payload.schoolId)) return respond(400, { error: 'Choose a valid school.' });
+        const { data, error } = await serviceClient.from('schools')
+          .update(schoolFields)
+          .eq('id', payload.schoolId)
+          .select('id,name')
+          .maybeSingle();
+        if (error) throw error;
+        if (!data) return respond(404, { error: 'The school was not found.' });
+        schoolId = data.id;
+      }
+      const { error: activityError } = await serviceClient.from('platform_activity').insert({
+        actor_id: user.id,
+        action: payload.action === 'register-school' ? 'school_registered_by_platform' : 'school_information_updated',
+        target_type: 'school',
+        target_id: schoolId,
+        details: { school_name: schoolFields.name },
+      });
+      if (activityError) throw activityError;
+      return respond(200, { schoolId });
+    }
+
+    if (payload.action === 'assign-school-admin') {
+      if (!isUuid(payload.schoolId) || typeof payload.adminEmail !== 'string' || !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(payload.adminEmail)) {
+        return respond(400, { error: 'Enter the email address of an existing Campus Connect user.' });
+      }
+      const { data: school, error: schoolError } = await serviceClient.from('schools').select('id,name').eq('id', payload.schoolId).maybeSingle();
+      if (schoolError) throw schoolError;
+      if (!school) return respond(404, { error: 'The school was not found.' });
+      const { data: profile, error: profileError } = await serviceClient.from('profiles')
+        .select('id,email,full_name')
+        .eq('email', payload.adminEmail.trim().toLowerCase())
+        .maybeSingle();
+      if (profileError) throw profileError;
+      if (!profile) return respond(404, { error: 'No Campus Connect account was found for that email. The administrator must sign up first.' });
+      const { error: membershipError } = await serviceClient.from('school_memberships')
+        .upsert({ school_id: school.id, profile_id: profile.id, role: 'school_admin' }, { onConflict: 'school_id,profile_id' });
+      if (membershipError) throw membershipError;
+      const { error: activityError } = await serviceClient.from('platform_activity').insert({
+        actor_id: user.id,
+        action: 'school_administrator_assigned',
+        target_type: 'school',
+        target_id: school.id,
+        details: { school_name: school.name, administrator_email: profile.email },
+      });
+      if (activityError) throw activityError;
+      return respond(200, { administrator: { id: profile.id, name: profile.full_name, email: profile.email } });
     }
 
     if (payload.action === 'set-school-status') {

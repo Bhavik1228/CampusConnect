@@ -32,6 +32,7 @@ button:focus-visible, a:focus-visible, input:focus-visible, select:focus-visible
 .sidebar-top { display: flex; align-items: center; justify-content: space-between; padding: 0 8px; }
 .brand { display: inline-flex; align-items: center; gap: 10px; color: var(--ink); font-size: 15px; font-weight: 800; letter-spacing: -.5px; }
 .brand-mark { width: 34px; height: 34px; border-radius: 11px; display: grid; place-items: center; color: white; background: linear-gradient(140deg, #7868ec, #4f45c6); box-shadow: 0 5px 12px rgba(92, 76, 205, .2); }
+.brand-mark img, .landing-brand-mark img { width: 100%; height: 100%; padding: 3px; border-radius: inherit; background: white; object-fit: contain; }
 .school-picker-wrap { position: relative; margin: 27px 0 22px; }
 .school-picker { width: 100%; display: flex; align-items: center; gap: 10px; padding: 10px 9px; border: 1px solid #ececf4; border-radius: 12px; background: #fff; color: var(--ink); text-align: left; }
 .school-picker:hover { background: #fafaff; }
@@ -1986,6 +1987,11 @@ td strong { color: #3e435a; font-weight: 600; }
 .system-owner-header h1 { margin: 4px 0; color: #32374d; font-size: clamp(22px, 3vw, 30px); }
 .system-owner-header p { margin: 0; color: #80869a; font-size: 10px; }
 .system-owner-header > .button { display: inline-flex; align-items: center; gap: 7px; }
+.system-owner-header-actions { display: flex; flex: none; gap: 7px; }
+.system-owner-header-actions .button { display: inline-flex; align-items: center; gap: 7px; }
+.system-owner-tabs { display: flex; gap: 5px; overflow-x: auto; padding: 4px; border: 1px solid #e9eaf1; border-radius: 11px; background: #fff; }
+.system-owner-tabs button { display: inline-flex; min-height: 36px; align-items: center; gap: 7px; padding: 0 12px; border: 0; border-radius: 8px; background: transparent; color: #777d91; font-size: 10px; font-weight: 700; white-space: nowrap; }
+.system-owner-tabs button.active { background: #f0efff; color: #5141c0; }
 .system-owner-stat-grid { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 11px; }
 .system-owner-stat { display: grid; gap: 5px; padding: 15px; border: 1px solid #e9eaf1; border-radius: 11px; background: #fff; box-shadow: 0 5px 18px #34395008; }
 .system-owner-stat > span { display: grid; width: 31px; height: 31px; place-items: center; border-radius: 8px; background: #f2f0ff; color: #6258c8; }
@@ -2023,7 +2029,49 @@ td strong { color: #3e435a; font-weight: 600; }
 .system-owner-activity-list strong { color: #4b5064; font-size: 9px; }
 .system-owner-activity-list small { color: #898ea0; font-size: 8px; }
 .system-owner-activity-list time { color: #8b90a1; font-size: 8px; text-align: right; }
+.system-owner-school-filters { display: grid; grid-template-columns: minmax(180px, 1.5fr) repeat(3, minmax(115px, 1fr)) auto; align-items: end; gap: 9px; }
+.system-owner-school-filters .field { margin: 0; }
+.system-owner-school-filters .field > span { font-size: 9px; }
+.system-owner-search { display: flex; min-height: 40px; align-items: center; gap: 8px; padding: 0 10px; border: 1px solid #e7e8ef; border-radius: 8px; background: #fff; color: #8a8fa0; }
+.system-owner-search input { width: 100%; min-width: 0; border: 0; outline: 0; color: #34394f; font-size: 10px; }
+.system-owner-school-filters > .button { min-height: 40px; white-space: nowrap; }
+.system-owner-school-directory { display: grid; }
+.system-owner-school-record { border-bottom: 1px solid #eff0f4; }
+.system-owner-school-record.selected { background: #fbfaff; }
+.system-owner-school-record-main { display: flex; min-height: 61px; align-items: center; gap: 10px; padding: 9px 0; }
+.system-owner-school-record-main > div { min-width: 100px; flex: 1; display: grid; gap: 4px; }
+.system-owner-school-record-main strong { color: #44495e; font-size: 10px; }
+.system-owner-school-record-main small { color: #898ea0; font-size: 8px; text-transform: capitalize; }
+.system-owner-school-mark { display: grid; width: 32px; height: 32px; flex: none; place-items: center; overflow: hidden; border-radius: 9px; background: #f3f2fb; color: #7770bf; }
+.system-owner-school-mark img { width: 100%; height: 100%; object-fit: contain; }
+.system-owner-school-counts { color: #797e92; font-size: 8px; white-space: nowrap; }
+.system-owner-school-record-main .button { display: inline-flex; align-items: center; gap: 5px; padding: 0 8px; white-space: nowrap; }
+.system-owner-school-profile { display: grid; gap: 12px; padding: 13px 13px 14px 42px; border-top: 1px solid #efedf8; }
+.system-owner-school-profile-grid { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 12px; }
+.system-owner-school-profile-grid > div { min-width: 0; display: grid; gap: 4px; }
+.system-owner-school-profile-grid small { color: #969bad; font-size: 8px; }
+.system-owner-school-profile-grid strong { overflow-wrap: anywhere; color: #565b6e; font-size: 9px; font-weight: 600; }
+.system-owner-assign-admin { display: flex; align-items: end; gap: 9px; }
+.system-owner-assign-admin .field { width: min(100%, 330px); margin: 0; }
+.system-owner-assign-admin .button { display: inline-flex; align-items: center; gap: 6px; }
+.system-owner-school-profile-actions { display: flex; justify-content: flex-end; }
+.system-owner-pagination { display: flex; align-items: center; justify-content: space-between; gap: 12px; padding-top: 11px; color: #858a9d; font-size: 9px; }
+.system-owner-pagination > div { display: flex; gap: 5px; }
+.system-owner-pagination .button { display: grid; width: 32px; min-height: 32px; place-items: center; padding: 0; }
+.system-owner-school-modal { width: min(100%, 740px); }
+.system-owner-settings-form { gap: 0; }
+.system-owner-settings-section { display: grid; gap: 12px; padding: 17px 0; border-top: 1px solid #eff0f5; }
+.system-owner-settings-section h3 { margin: 0; color: #44495e; font-size: 11px; }
+.system-owner-settings-section .settings-fields { margin: 0; }
+.system-owner-settings-section .field { margin: 0; }
+.system-owner-settings-section textarea { width: 100%; padding: 10px 11px; border: 1px solid #e7e8ef; border-radius: 8px; color: #34394f; font: inherit; font-size: 10px; resize: vertical; }
+.system-owner-check-grid { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 9px; }
+.system-owner-check-grid label { display: flex; align-items: center; gap: 7px; color: #666b7f; font-size: 9px; }
+.system-owner-check-grid input { accent-color: #6258c8; }
+.system-owner-settings-form > .settings-actions { padding: 14px 0 0; }
 .system-owner-spinning { animation: system-owner-spin .9s linear infinite; }
+.platform-maintenance-notice { margin: 0 0 13px; padding: 11px 14px; border: 1px solid #f1e5cc; border-radius: 9px; background: #fffbf3; color: #795e28; font-size: 10px; line-height: 1.6; }
+.landing-page > .platform-maintenance-notice { width: min(100% - 36px, 1240px); margin: 16px auto 0; }
 @keyframes system-owner-spin { to { transform: rotate(360deg); } }
 @media (max-width: 760px) {
   .system-owner-stat-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
@@ -2036,6 +2084,13 @@ td strong { color: #3e435a; font-weight: 600; }
   .system-owner-actions { width: 100%; margin-left: 39px; }
   .system-owner-school .button { margin-left: auto; }
   .system-owner-activity-list time { max-width: 85px; }
+  .system-owner-school-filters { grid-template-columns: 1fr 1fr; }
+  .system-owner-school-filters .system-owner-search { grid-column: 1 / -1; }
+  .system-owner-school-record-main { flex-wrap: wrap; }
+  .system-owner-school-record-main > div { flex-basis: calc(100% - 52px); }
+  .system-owner-school-profile-grid { grid-template-columns: 1fr 1fr; }
+  .system-owner-school-profile { padding-left: 12px; }
+  .system-owner-check-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
   .staff-document-heading { align-items: flex-start; flex-direction: column; }
   .website-fee-row { grid-template-columns: 1fr; }
 }
