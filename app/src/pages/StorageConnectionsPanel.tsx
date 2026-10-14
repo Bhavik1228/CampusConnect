@@ -5,6 +5,7 @@ import { requireSupabase } from '../lib/supabase';
 import { useAuth } from '../contexts/AuthContext';
 
 type StorageConnection = { id: string; label: string; created_at: string };
+type ManagedRequest = { id: string; status: 'pending' | 'approved' | 'denied'; message: string; created_at: string } | null;
 type ConnectionForm = {
   label: string;
   accountId: string;
@@ -20,6 +21,8 @@ export function StorageConnectionsPanel() {
   const canManage = activeMembership?.role === 'school_admin';
   const [connections, setConnections] = useState<StorageConnection[]>([]);
   const [managedAvailable, setManagedAvailable] = useState(false);
+  const [managedRequest, setManagedRequest] = useState<ManagedRequest>(null);
+  const [managedMessage, setManagedMessage] = useState('');
   const [form, setForm] = useState<ConnectionForm>(emptyForm);
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
@@ -38,6 +41,7 @@ export function StorageConnectionsPanel() {
       if (!Array.isArray(data?.connections)) throw new Error('The storage service returned an invalid connection list.');
       setConnections(data.connections as StorageConnection[]);
       setManagedAvailable(data.managedStorageAvailable === true);
+      setManagedRequest((data.managedRequest ?? null) as ManagedRequest);
     } catch (loadError) {
       setError(loadError instanceof Error ? loadError.message : 'Could not load school storage connections.');
     } finally {
@@ -46,6 +50,27 @@ export function StorageConnectionsPanel() {
   }, [schoolId]);
 
   useEffect(() => { void loadConnections(); }, [loadConnections]);
+
+  async function requestManagedStorage(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    if (!schoolId) return;
+    setSaving(true);
+    setError('');
+    setNotice('');
+    try {
+      const { error: invokeError } = await requireSupabase().functions.invoke('learning-material-storage', {
+        body: { action: 'request-managed-storage', schoolId, message: managedMessage },
+      });
+      if (invokeError) throw invokeError;
+      setManagedMessage('');
+      setNotice('Your request was sent to Campus Connect for review.');
+      await loadConnections();
+    } catch (requestError) {
+      setError(requestError instanceof Error ? requestError.message : 'Could not submit the managed-storage request.');
+    } finally {
+      setSaving(false);
+    }
+  }
 
   async function addConnection(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
@@ -95,6 +120,16 @@ export function StorageConnectionsPanel() {
           <div><strong>Campus Connect managed storage</strong><p>{managedAvailable ? 'Available for this school. Select the managed option when uploading a resource.' : 'Not enabled for this school. Contact Campus Connect to request access; once enabled, it will appear as an upload option.'}</p></div>
           <span className={`status-pill ${managedAvailable ? 'status-active' : 'status-muted'}`}>{managedAvailable ? 'Available' : 'Not enabled'}</span>
         </section>
+        {!managedAvailable && canManage && <section className="storage-managed-request">
+          <div className="settings-subheading"><h3>Request Campus Connect storage</h3><p>Your request goes to the Campus Connect system owner. Approval enables the managed bucket for your school.</p></div>
+          {managedRequest?.status === 'pending'
+            ? <p className="storage-request-status"><span className="status-pill status-muted">Pending review</span> Request sent {new Date(managedRequest.created_at).toLocaleDateString()}.</p>
+            : <form className="storage-connection-form" onSubmit={(event) => void requestManagedStorage(event)}>
+              <label className="field"><span>Note <small>(optional)</small></span><textarea rows={2} maxLength={1000} value={managedMessage} onChange={(event) => setManagedMessage(event.target.value)} placeholder="Tell us about your expected storage needs." /></label>
+              {managedRequest?.status === 'denied' && <p className="quiet-note">Your previous request was not approved. You may submit a new request with more information.</p>}
+              <button className="button button-primary" type="submit" disabled={saving}>{saving ? 'Sending request…' : 'Request managed storage'}</button>
+            </form>}
+        </section>}
         <section className="settings-subsection">
           <div className="settings-subheading"><h3>Your R2 buckets</h3><p>Add multiple buckets. Each resource can select which connected bucket stores its file.</p></div>
           {connections.length === 0 ? <p className="storage-empty">No school-owned R2 buckets connected yet.</p> : <div className="storage-connection-list">{connections.map((connection) => <article key={connection.id} className="storage-connection">

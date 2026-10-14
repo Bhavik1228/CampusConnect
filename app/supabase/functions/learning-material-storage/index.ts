@@ -11,8 +11,10 @@ import { getSignedUrl } from 'npm:@aws-sdk/s3-request-presigner';
 
 const corsHeaders = {
   'Access-Control-Allow-Origin': '*',
-  'Access-Control-Allow-Headers': 'authorization, x-client-info, apikey, content-type',
+  'Access-Control-Allow-Headers': 'authorization, x-client-info, apikey, content-type, x-supabase-api-version, range',
   'Access-Control-Allow-Methods': 'POST, OPTIONS',
+  'Access-Control-Max-Age': '86400',
+  'Vary': 'Origin, Access-Control-Request-Headers',
 };
 const MAX_FILE_SIZE = 524288000;
 const SIGNED_URL_SECONDS = 300;
@@ -67,6 +69,7 @@ type StoredConnection = {
   credentials_ciphertext: string;
   credentials_nonce: string;
 };
+type SchoolStorageAccess = { managed_storage_enabled: boolean };
 
 function respond(status: number, body: Record<string, unknown>) {
   return new Response(JSON.stringify(body), {
@@ -153,7 +156,7 @@ function isUuid(value: unknown): value is string {
 }
 
 Deno.serve(async (request: Request) => {
-  if (request.method === 'OPTIONS') return new Response(null, { status: 204, headers: corsHeaders });
+  if (request.method === 'OPTIONS') return new Response(null, { status: 200, headers: corsHeaders });
   if (request.method !== 'POST') return respond(405, { error: 'Method not allowed.' });
 
   try {
@@ -179,7 +182,7 @@ Deno.serve(async (request: Request) => {
     const payload = await request.json() as StorageRequest;
     const action = typeof payload.action === 'string' ? payload.action : '';
 
-    if (action === 'list-connections' || action === 'add-connection' || action === 'delete-connection') {
+    if (action === 'list-connections' || action === 'add-connection' || action === 'delete-connection' || action === 'request-managed-storage') {
       if (!isUuid(payload.schoolId)) return respond(400, { error: 'Choose a valid school.' });
       const { data: memberships, error: membershipError } = await userClient
         .from('school_memberships')
@@ -189,6 +192,15 @@ Deno.serve(async (request: Request) => {
       if (membershipError) throw membershipError;
       const roles = memberships?.map((membership) => membership.role) ?? [];
       if (!roles.length) return respond(403, { error: 'You cannot configure storage for this school.' });
+      const { data: schoolAccess, error: schoolAccessError } = await serviceClient
+        .from('schools')
+        .select('platform_status')
+        .eq('id', payload.schoolId)
+        .maybeSingle();
+      if (schoolAccessError) throw schoolAccessError;
+      if (!schoolAccess || schoolAccess.platform_status !== 'active') {
+        return respond(403, { error: 'This school is suspended. Contact Campus Connect support for assistance.' });
+      }
 
       if (action === 'list-connections') {
         if (!roles.some((role) => ['school_admin', 'academic_coordinator', 'teacher'].includes(role))) {
@@ -200,10 +212,53 @@ Deno.serve(async (request: Request) => {
           .eq('school_id', payload.schoolId)
           .order('created_at');
         if (listError) throw listError;
+        const { data: managedRequest, error: requestError } = await serviceClient
+          .from('managed_storage_requests')
+          .select('id,status,message,created_at')
+          .eq('school_id', payload.schoolId)
+          .order('created_at', { ascending: false })
+          .limit(1)
+          .maybeSingle();
+        if (requestError) throw requestError;
+        const { data: school, error: schoolError } = await serviceClient
+          .from('schools')
+          .select('managed_storage_enabled')
+          .eq('id', payload.schoolId)
+          .single();
+        if (schoolError) throw schoolError;
         return respond(200, {
           connections: connections ?? [],
-          managedStorageAvailable: Boolean(getManagedCredentials()),
+          managedStorageAvailable: Boolean(school.managed_storage_enabled && getManagedCredentials()),
+          managedStorageEnabled: school.managed_storage_enabled,
+          managedRequest,
         });
+      }
+
+      if (action === 'request-managed-storage') {
+        if (!roles.includes('school_admin')) return respond(403, { error: 'Only a school administrator can request managed storage.' });
+        const { data: school, error: schoolError } = await serviceClient
+          .from('schools')
+          .select('managed_storage_enabled')
+          .eq('id', payload.schoolId)
+          .single();
+        if (schoolError) throw schoolError;
+        if (school.managed_storage_enabled) return respond(409, { error: 'Campus Connect managed storage is already enabled for this school.' });
+        const message = typeof payload.message === 'string' ? payload.message.trim().slice(0, 1000) : '';
+        const { data: existing, error: existingError } = await serviceClient
+          .from('managed_storage_requests')
+          .select('id,status')
+          .eq('school_id', payload.schoolId)
+          .eq('status', 'pending')
+          .maybeSingle();
+        if (existingError) throw existingError;
+        if (existing) return respond(409, { error: 'Your school already has a pending managed-storage request.' });
+        const { data: storageRequest, error: requestError } = await serviceClient
+          .from('managed_storage_requests')
+          .insert({ school_id: payload.schoolId, requested_by: user.id, message })
+          .select('id,status,created_at')
+          .single();
+        if (requestError) throw requestError;
+        return respond(201, { request: storageRequest });
       }
 
       if (!roles.includes('school_admin')) {
@@ -292,6 +347,17 @@ Deno.serve(async (request: Request) => {
       } else {
         r2Credentials = getManagedCredentials() ?? undefined;
         if (!r2Credentials) return respond(409, { error: 'No R2 storage is configured for this school. Ask the school administrator to add a bucket or contact Campus Connect to request managed storage.' });
+        if (action === 'create-upload-url') {
+          const { data: school, error: schoolError } = await serviceClient
+            .from('schools')
+            .select('managed_storage_enabled')
+            .eq('id', record.school_id)
+            .maybeSingle();
+          if (schoolError) throw schoolError;
+          if (!(school as SchoolStorageAccess | null)?.managed_storage_enabled) {
+            return respond(403, { error: 'Campus Connect managed storage is not enabled for this school. Request access in Settings → File storage.' });
+          }
+        }
       }
     }
 

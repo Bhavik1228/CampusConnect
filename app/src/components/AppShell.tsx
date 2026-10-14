@@ -1,16 +1,17 @@
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import { NavLink, Outlet, useLocation, useNavigate } from 'react-router-dom';
 import {
   BookMarked, BookOpenCheck, BookOpenText, CalendarDays, Check, ChevronDown, ClipboardList, Library,
   ChevronLeft, ClipboardCheck, GraduationCap, LayoutDashboard, LogOut, Menu,
   Settings, UsersRound, X, CalendarClock, CircleDollarSign, UserRoundPlus,
   Award, BriefcaseBusiness, FileStack,
-  MessageCircle, ShieldCheck,
+  MessageCircle, ShieldCheck, Building2,
   type LucideIcon,
 } from 'lucide-react';
 import { useAuth } from '../contexts/AuthContext';
 import { ErrorState } from './Feedback';
 import type { AppRole } from '../types/database';
+import { requireSupabase } from '../lib/supabase';
 
 const navigation: { title: string; items: { to: string; label: string; icon: LucideIcon; roles?: AppRole[] }[] }[] = [
   { title: 'Workspace', items: [
@@ -55,9 +56,27 @@ export function AppShell() {
   const [mobileOpen, setMobileOpen] = useState(false);
   const [schoolMenuOpen, setSchoolMenuOpen] = useState(false);
   const [logoutError, setLogoutError] = useState('');
+  const [isSystemOwner, setIsSystemOwner] = useState(false);
   const navigate = useNavigate();
   const location = useLocation();
   const title = pageNames[location.pathname] ?? 'Workspace';
+
+  useEffect(() => {
+    let active = true;
+    if (!user) {
+      setIsSystemOwner(false);
+      return () => { active = false; };
+    }
+    void requireSupabase().functions.invoke('system-owner-admin', { body: { action: 'check' } })
+      .then(({ data, error }) => {
+        if (active) setIsSystemOwner(!error && data?.authorized === true);
+      })
+      .catch((error: unknown) => {
+        console.error('Could not verify system owner navigation access.', error);
+        if (active) setIsSystemOwner(false);
+      });
+    return () => { active = false; };
+  }, [user]);
 
   async function logout() {
     setLogoutError('');
@@ -91,6 +110,7 @@ export function AppShell() {
         })}
       </nav>
       <div className="sidebar-bottom">
+        {isSystemOwner && <NavLink to="/system-owner" onClick={() => setMobileOpen(false)} className={({ isActive }) => `nav-item${isActive ? ' active' : ''}`}><Building2 size={18} strokeWidth={1.8} /><span>System owner</span></NavLink>}
         {!isAccountingRole && <NavLink to="/settings" onClick={() => setMobileOpen(false)} className={({ isActive }) => `nav-item${isActive ? ' active' : ''}`}><Settings size={18} strokeWidth={1.8} /><span>Settings</span></NavLink>}
         <div className="profile-row"><span className="avatar">{(user?.user_metadata.full_name as string | undefined)?.slice(0, 1).toUpperCase() ?? user?.email?.slice(0, 1).toUpperCase()}</span><span className="profile-copy"><strong>{(user?.user_metadata.full_name as string | undefined) ?? user?.email}</strong><small>{user?.email}</small></span><button className="icon-button" onClick={() => void logout()} aria-label="Sign out"><LogOut size={17} /></button></div>
       </div>

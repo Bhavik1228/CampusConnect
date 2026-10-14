@@ -26,13 +26,14 @@ import { StudentsPage } from '../pages/StudentsPage';
 import { CoursesLessonsPage } from '../pages/CoursesLessonsPage';
 import { LearningMaterialsPage } from '../pages/LearningMaterialsPage';
 import { AssignmentsPage } from '../pages/AssignmentsPage';
+import { SystemOwnerPage } from '../pages/SystemOwnerPage';
 
-function RouteGate({ authOnly = true }: { authOnly?: boolean }) {
+function RouteGate({ authOnly = true, requireMembership = true }: { authOnly?: boolean; requireMembership?: boolean }) {
   const { user, loading, memberships } = useAuth();
   if (!isSupabaseConfigured) return <SetupRequired />;
   if (loading) return <div className="full-screen-loading"><LoadingState /></div>;
   if (authOnly && !user) return <Navigate to="/login" replace />;
-  if (user && authOnly && memberships.length === 0) return <SchoolSetup />;
+  if (user && authOnly && requireMembership && memberships.length === 0) return <SchoolSetup />;
   return <Outlet />;
 }
 
@@ -50,6 +51,9 @@ export function ProtectedApp() {
       <Route path="/" element={<LandingPage />} />
       <Route path="/login" element={<LoginRoute />} />
       <Route path="/school/:slug" element={<PublicSchoolWebsitePage />} />
+      <Route element={<RouteGate requireMembership={false} />}>
+        <Route path="/system-owner" element={<SystemOwnerPage />} />
+      </Route>
       <Route element={<RouteGate />}>
         <Route element={<AppShell />}>
           <Route path="/dashboard" element={<DashboardPage />} />

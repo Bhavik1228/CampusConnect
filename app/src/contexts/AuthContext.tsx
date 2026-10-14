@@ -45,7 +45,8 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     const client = requireSupabase();
     const { data, error: queryError } = await client
       .from('school_memberships')
-      .select('school_id, role, school:schools(id, name, timezone, address, contact_email, contact_phone, website)')
+      .select('school_id, role, school:schools!inner(id, name, timezone, address, contact_email, contact_phone, website, platform_status)')
+      .eq('school.platform_status', 'active')
       .order('created_at');
     if (queryError) throw queryError;
     setMemberships((data ?? []) as unknown as SchoolMembership[]);

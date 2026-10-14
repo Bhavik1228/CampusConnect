@@ -27,3 +27,6 @@ verify_jwt = false
 
 [functions.learning-material-storage]
 verify_jwt = false
+
+[functions.system-owner-admin]
+verify_jwt = false
