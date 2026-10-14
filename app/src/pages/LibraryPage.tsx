@@ -1,6 +1,6 @@
-import { useCallback, useEffect, useMemo, useState, type FormEvent } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState, type FormEvent } from 'react';
 import {
-  Archive, BookCopy, Check, Download, Edit3, Plus, Search, Sparkles, Trash2, X,
+  Archive, BookCopy, Check, Download, Edit3, Plus, QrCode, Search, Sparkles, Trash2, Undo2, X,
 } from 'lucide-react';
 import { useParams } from 'react-router-dom';
 import { useAuth } from '../contexts/AuthContext';
@@ -49,6 +49,17 @@ type BookForm = {
   total_copies: string;
   available_copies: string;
 };
+type StudentOption = { id: string; student_number: string; first_name: string; last_name: string; school_class: { name: string } | null };
+type Checkout = {
+  id: string;
+  book_id: string;
+  student_id: string;
+  checked_out_at: string;
+  returned_at: string | null;
+  book: { title: string; barcode: string } | null;
+  student: { student_number: string; first_name: string; last_name: string; school_class: { name: string } | null } | null;
+};
+type CheckoutSlip = { code: string; book: Book; student: StudentOption; checkedOutAt: string };
 
 const emptyForm: BookForm = {
   title: '', isbn: '', authors: '', publisher: '', edition: '',
@@ -67,6 +78,35 @@ function validIsbn(value: string) {
   return /^(?:\d{9}[\dX]|\d{13})$/.test(normalizeIsbn(value));
 }
 
+function createAccessCode() {
+  const alphabet = '23456789ABCDEFGHJKLMNPQRSTUVWXYZ';
+  const bytes = crypto.getRandomValues(new Uint8Array(16));
+  return Array.from(bytes, (byte) => alphabet[byte % alphabet.length]).join('');
+}
+
+function formatAccessCode(value: string) {
+  return value.replace(/[^A-Z0-9]/gi, '').toUpperCase().match(/.{1,4}/g)?.join('-') ?? '';
+}
+
+function extractAccessCode(value: string) {
+  const payload = value.trim();
+  const qrCode = payload.match(/CCLIB-RETURN:([A-Z0-9-]+)/i)?.[1];
+  if (qrCode) return qrCode.replace(/[^A-Z0-9]/gi, '').toUpperCase();
+  try {
+    const url = new URL(payload);
+    const queryCode = url.searchParams.get('access_code');
+    if (queryCode) return queryCode.replace(/[^A-Z0-9]/gi, '').toUpperCase();
+  } catch {
+    // The scanned value is a code rather than a URL.
+  }
+  return payload.replace(/[^A-Z0-9]/gi, '').toUpperCase();
+}
+
+async function hashAccessCode(code: string) {
+  const digest = await crypto.subtle.digest('SHA-256', new TextEncoder().encode(code));
+  return Array.from(new Uint8Array(digest), (byte) => byte.toString(16).padStart(2, '0')).join('');
+}
+
 function publicBookUrl(slug: string, barcode: string, publicLibrary: boolean) {
   const path = publicLibrary
     ? `/school/${encodeURIComponent(slug)}/library/${encodeURIComponent(barcode)}`
@@ -81,6 +121,8 @@ export function LibraryPage() {
   const canManage = role === 'school_admin' || role === 'academic_coordinator';
   const [books, setBooks] = useState<Book[]>([]);
   const [requests, setRequests] = useState<LibraryRequest[]>([]);
+  const [students, setStudents] = useState<StudentOption[]>([]);
+  const [checkouts, setCheckouts] = useState<Checkout[]>([]);
   const [website, setWebsite] = useState<{ slug: string; enabled: boolean; public_library_enabled: boolean } | null>(null);
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
@@ -94,6 +136,13 @@ export function LibraryPage() {
   const [fetchingIsbn, setFetchingIsbn] = useState(false);
   const [selected, setSelected] = useState<string[]>([]);
   const [reviewNotes, setReviewNotes] = useState<Record<string, string>>({});
+  const [activeCheckoutBook, setActiveCheckoutBook] = useState<Book | null>(null);
+  const [checkoutStudentId, setCheckoutStudentId] = useState('');
+  const [checkoutSlip, setCheckoutSlip] = useState<CheckoutSlip | null>(null);
+  const [returnCode, setReturnCode] = useState('');
+  const [scanning, setScanning] = useState(false);
+  const [scannerError, setScannerError] = useState('');
+  const videoRef = useRef<HTMLVideoElement>(null);
 
   const load = useCallback(async () => {
     if (!schoolId) return;
@@ -117,6 +166,25 @@ export function LibraryPage() {
       setBooks((bookResult.data ?? []) as Book[]);
       setWebsite(websiteResult.data as typeof website);
       setRequests((requestResult.data ?? []) as unknown as LibraryRequest[]);
+      if (canManage) {
+        const [studentResult, checkoutResult] = await Promise.all([
+          client.from('students').select('id,student_number,first_name,last_name,school_class:school_classes(name)')
+            .eq('school_id', schoolId).eq('status', 'active')
+            .order('last_name').order('first_name'),
+          client.from('library_checkouts')
+            .select('id,book_id,student_id,checked_out_at,returned_at,book:school_books(title,barcode),student:students(student_number,first_name,last_name,school_class:school_classes(name))')
+            .eq('school_id', schoolId)
+            .order('checked_out_at', { ascending: false })
+            .limit(100),
+        ]);
+        if (studentResult.error) throw studentResult.error;
+        if (checkoutResult.error) throw checkoutResult.error;
+        setStudents((studentResult.data ?? []) as unknown as StudentOption[]);
+        setCheckouts((checkoutResult.data ?? []) as unknown as Checkout[]);
+      } else {
+        setStudents([]);
+        setCheckouts([]);
+      }
     } catch (loadError) {
       setError(errorMessage(loadError, 'Could not load the school library.'));
     } finally {
@@ -125,6 +193,60 @@ export function LibraryPage() {
   }, [schoolId, canManage, user?.id]);
 
   useEffect(() => { void load(); }, [load]);
+
+  useEffect(() => {
+    if (!scanning) return;
+    let active = true;
+    let stream: MediaStream | null = null;
+    let timeout = 0;
+    const Detector = (window as Window & {
+      BarcodeDetector?: new (options: { formats: string[] }) => { detect: (source: HTMLVideoElement) => Promise<{ rawValue: string }[]> };
+    }).BarcodeDetector;
+    async function startCamera() {
+      try {
+        if (!Detector) throw new Error('QR scanning is not supported by this browser. Enter the printed access code instead.');
+        if (!navigator.mediaDevices?.getUserMedia) throw new Error('Camera access requires a secure HTTPS connection. Enter the printed access code instead.');
+        stream = await navigator.mediaDevices.getUserMedia({ video: { facingMode: { ideal: 'environment' } }, audio: false });
+        if (!active) {
+          stream.getTracks().forEach((track) => track.stop());
+          return;
+        }
+        const video = videoRef.current;
+        if (!video) throw new Error('The QR scanner could not be initialized.');
+        video.srcObject = stream;
+        await video.play();
+        const detector = new Detector({ formats: ['qr_code'] });
+        const scan = async () => {
+          if (!active || !videoRef.current) return;
+          try {
+            const codes = await detector.detect(videoRef.current);
+            if (codes[0]?.rawValue) {
+              setReturnCode(formatAccessCode(extractAccessCode(codes[0].rawValue)));
+              setScanning(false);
+              setScannerError('');
+              return;
+            }
+          } catch (scanError) {
+            console.error('Library QR scan failed.', scanError);
+          }
+          timeout = window.setTimeout(() => { void scan(); }, 350);
+        };
+        void scan();
+      } catch (cameraError) {
+        if (active) {
+          setScannerError(errorMessage(cameraError, 'Could not start the QR scanner.'));
+          setScanning(false);
+        }
+      }
+    }
+    void startCamera();
+    return () => {
+      active = false;
+      window.clearTimeout(timeout);
+      stream?.getTracks().forEach((track) => track.stop());
+      if (videoRef.current) videoRef.current.srcObject = null;
+    };
+  }, [scanning]);
 
   const filteredBooks = useMemo(() => books.filter((book) => {
     if (!showArchived && book.archived_at) return false;
@@ -277,6 +399,123 @@ export function LibraryPage() {
     }
   }
 
+  async function downloadCheckoutSlip(slip: CheckoutSlip) {
+    try {
+      const [{ jsPDF }, { default: QRCode }] = await Promise.all([
+        import('jspdf'),
+        import('qrcode'),
+      ]);
+      const pdf = new jsPDF({ orientation: 'portrait', unit: 'mm', format: [105, 148] });
+      const formattedCode = formatAccessCode(slip.code);
+      const qr = await QRCode.toDataURL(`CCLIB-RETURN:${formattedCode}`, {
+        errorCorrectionLevel: 'H',
+        margin: 2,
+        width: 420,
+        color: { dark: '#20243a', light: '#ffffff' },
+      });
+      pdf.setFillColor(101, 85, 217);
+      pdf.rect(0, 0, 105, 25, 'F');
+      pdf.setTextColor(255, 255, 255);
+      pdf.setFont('helvetica', 'bold');
+      pdf.setFontSize(13);
+      pdf.text('CAMPUS CONNECT LIBRARY', 8, 11);
+      pdf.setFont('helvetica', 'normal');
+      pdf.setFontSize(8);
+      pdf.text('Book checkout return slip', 8, 18);
+      pdf.setTextColor(38, 42, 64);
+      pdf.setFont('helvetica', 'bold');
+      pdf.setFontSize(11);
+      pdf.text(pdf.splitTextToSize(slip.book.title, 88).slice(0, 2), 8, 34);
+      pdf.setFont('helvetica', 'normal');
+      pdf.setFontSize(8);
+      pdf.text(`${slip.student.first_name} ${slip.student.last_name}`, 8, 48);
+      pdf.text(`Student number: ${slip.student.student_number}`, 8, 54);
+      pdf.text(`Checked out: ${new Date(slip.checkedOutAt).toLocaleString()}`, 8, 60);
+      pdf.addImage(qr, 'PNG', 34, 66, 37, 37);
+      pdf.setFont('helvetica', 'bold');
+      pdf.setFontSize(11);
+      pdf.text(formattedCode, 52.5, 110, { align: 'center' });
+      pdf.setFont('helvetica', 'normal');
+      pdf.setFontSize(7);
+      pdf.text('Keep this slip safe. Return the book and present this QR code or access code.', 52.5, 119, { align: 'center', maxWidth: 89 });
+      pdf.text('Library staff scan the QR or enter the code to record your return.', 52.5, 130, { align: 'center', maxWidth: 89 });
+      pdf.save(`library-return-${slip.student.student_number}-${slip.book.barcode}.pdf`);
+    } catch (pdfError) {
+      throw new Error(`The book was checked out, but the return slip PDF could not be generated: ${errorMessage(pdfError, 'PDF generation failed.')}`);
+    }
+  }
+
+  async function submitCheckout(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    if (!activeCheckoutBook || !checkoutStudentId || !schoolId) return;
+    const student = students.find((item) => item.id === checkoutStudentId);
+    if (!student) {
+      setError('Choose an active student in this school.');
+      return;
+    }
+    setSaving(true);
+    setError('');
+    setSuccess('');
+    try {
+      const rawCode = createAccessCode();
+      const codeHash = await hashAccessCode(rawCode);
+      const { data, error: checkoutError } = await requireSupabase().rpc('checkout_library_book', {
+        target_book: activeCheckoutBook.id,
+        target_student: student.id,
+        requested_code_hash: codeHash,
+      });
+      if (checkoutError) throw checkoutError;
+      const response = data as { checkout_id?: string; checked_out_at?: string } | null;
+      if (!response?.checkout_id) throw new Error('The checkout was recorded, but no checkout reference was returned. Contact the library administrator.');
+      const slip = {
+        code: rawCode,
+        book: activeCheckoutBook,
+        student,
+        checkedOutAt: response.checked_out_at ?? new Date().toISOString(),
+      };
+      setActiveCheckoutBook(null);
+      setCheckoutSlip(slip);
+      setSuccess(`“${activeCheckoutBook.title}” checked out to ${student.first_name} ${student.last_name}. Download and print the return slip now; the access code cannot be retrieved later.`);
+      await load();
+      try {
+        await downloadCheckoutSlip(slip);
+      } catch (pdfError) {
+        setError(errorMessage(pdfError, 'The book was checked out, but the return slip could not be downloaded. Use the Download return slip button.'));
+      }
+    } catch (checkoutError) {
+      setError(errorMessage(checkoutError, 'Could not check out this book.'));
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  async function processReturn(inputCode = returnCode) {
+    const code = extractAccessCode(inputCode);
+    if (code.length !== 16) {
+      setError('Enter the 16-character access code shown under the return QR code.');
+      return;
+    }
+    setSaving(true);
+    setError('');
+    setSuccess('');
+    setScannerError('');
+    setScanning(false);
+    try {
+      const { data, error: returnError } = await requireSupabase().rpc('return_library_book', {
+        return_code: code,
+      });
+      if (returnError) throw returnError;
+      const result = data as { book_title?: string } | null;
+      setReturnCode('');
+      setSuccess(`Return processed${result?.book_title ? `: “${result.book_title}”` : ''}. The available-copy count has been updated.`);
+      await load();
+    } catch (returnError) {
+      setError(errorMessage(returnError, 'Could not process this return.'));
+    } finally {
+      setSaving(false);
+    }
+  }
+
   async function deleteBook(book: Book) {
     if (!window.confirm(`Permanently delete "${book.title}"? Use archive instead if you need to preserve request history.`)) return;
     setSaving(true);
@@ -397,6 +636,8 @@ export function LibraryPage() {
 
   const pendingRequests = requests.filter((request) => request.status === 'pending');
   const ownRequests = requests.filter((request) => request.requester_id === user?.id);
+  const activeCheckouts = checkouts.filter((checkout) => !checkout.returned_at);
+  const recentReturns = checkouts.filter((checkout) => checkout.returned_at).slice(0, 20);
 
   if (loading) return <div className="page-stack"><LoadingState label="Loading library…" /></div>;
 
@@ -413,6 +654,20 @@ export function LibraryPage() {
     {success && <p className="inline-success" role="status">{success}</p>}
     {canManage && !website?.enabled && <aside className="library-private-note">Public book scans will show a Campus Connect sign-in prompt until the school website is published.</aside>}
     {canManage && website?.enabled && !website.public_library_enabled && <aside className="library-private-note">The school website is published, but the public library catalogue is off. Scanned stickers will ask visitors to sign in to Campus Connect.</aside>}
+
+    {canManage && <section className="content-card library-return-desk">
+      <div className="library-section-heading"><div><span className="eyebrow">Circulation desk</span><h2>Process a book return</h2><p>Scan the student's printed QR slip, or enter the 16-character code printed under it.</p></div><span className="library-active-count">{activeCheckouts.length} currently checked out</span></div>
+      <div className="library-return-controls">
+        <label className="field"><span>Return access code</span><input autoComplete="off" value={returnCode} onChange={(event) => setReturnCode(event.target.value)} placeholder="ABCD-EFGH-JKLM-NPQR" maxLength={23} /></label>
+        <button className="button button-quiet" disabled={saving} onClick={() => { setScannerError(''); setScanning(true); }}><QrCode size={15} /> Scan QR</button>
+        <button className="button button-primary" disabled={saving || extractAccessCode(returnCode).length !== 16} onClick={() => void processReturn()}><Undo2 size={15} /> Process return</button>
+      </div>
+      {scannerError && <p className="library-scanner-error" role="alert">{scannerError}</p>}
+      {scanning && <div className="library-scanner"><video ref={videoRef} muted playsInline /><p>Point the camera at the return slip QR code.</p><button className="button button-quiet" onClick={() => setScanning(false)}>Cancel scan</button></div>}
+      {checkoutSlip && <aside className="library-slip-ready"><div><strong>New return slip ready</strong><span>{checkoutSlip.book.title} · {checkoutSlip.student.first_name} {checkoutSlip.student.last_name}</span><code>{formatAccessCode(checkoutSlip.code)}</code><small>This one-time code is shown only now. Download or print the slip before closing this page.</small></div><button className="button button-primary" disabled={saving} onClick={() => void downloadCheckoutSlip(checkoutSlip)}><Download size={15} /> Download return slip</button></aside>}
+      {activeCheckouts.length > 0 && <div className="library-active-checkouts"><h3>Active checkouts</h3>{activeCheckouts.map((checkout) => <article className="library-active-checkout" key={checkout.id}><div><strong>{checkout.book?.title ?? 'Book record unavailable'}</strong><span>{checkout.student ? `${checkout.student.first_name} ${checkout.student.last_name} · ${checkout.student.student_number}` : 'Student record unavailable'}</span><small>{checkout.student?.school_class?.name ?? 'Class not set'} · checked out {new Date(checkout.checked_out_at).toLocaleString()}</small></div><span className="library-request-status pending">Awaiting return</span></article>)}</div>}
+      {recentReturns.length > 0 && <div className="library-active-checkouts"><h3>Recent returns</h3>{recentReturns.map((checkout) => <article className="library-active-checkout" key={checkout.id}><div><strong>{checkout.book?.title ?? 'Book record unavailable'}</strong><span>{checkout.student ? `${checkout.student.first_name} ${checkout.student.last_name} · ${checkout.student.student_number}` : 'Student record unavailable'}</span><small>Returned {new Date(checkout.returned_at!).toLocaleString()}</small></div><span className="library-request-status approved">Returned</span></article>)}</div>}
+    </section>}
 
     <section className="content-card library-catalogue">
       <div className="library-toolbar">
@@ -439,6 +694,7 @@ export function LibraryPage() {
             <div className="library-book-actions">
               {canManage ? <>
                 {!book.archived_at && <button className="button button-quiet" disabled={saving} onClick={() => beginEdit(book)}><Edit3 size={14} /> Edit</button>}
+                {!book.archived_at && <button className="button button-primary" disabled={saving || book.available_copies < 1} onClick={() => { setActiveCheckoutBook(book); setCheckoutStudentId(''); setError(''); }}><BookCopy size={14} /> Check out</button>}
                 <button className="button button-quiet" disabled={saving} onClick={() => void archiveBook(book)}><Archive size={14} /> {book.archived_at ? 'Restore' : 'Archive'}</button>
                 <button className="icon-button" disabled={saving} onClick={() => void deleteBook(book)} aria-label={`Delete ${book.title}`} title="Delete book"><Trash2 size={15} /></button>
               </> : !book.archived_at && <button className="button button-primary" disabled={saving} onClick={() => void submitRequest(book)}>{book.available_copies > 0 ? 'Request book' : 'Preorder book'}</button>}
@@ -471,6 +727,18 @@ export function LibraryPage() {
           <label className="field"><span>Cover image URL</span><input type="url" maxLength={2000} value={form.cover_url} onChange={(event) => setForm((current) => ({ ...current, cover_url: event.target.value }))} placeholder="Automatically fetched from Open Library when available" /></label>
           <label className="field"><span>Description</span><textarea rows={3} maxLength={3000} value={form.description} onChange={(event) => setForm((current) => ({ ...current, description: event.target.value }))} /></label>
           <div className="library-form-actions"><button className="button button-quiet" type="button" disabled={saving} onClick={() => setFormOpen(false)}>Cancel</button><button className="button button-primary" disabled={saving}>{saving ? 'Saving…' : editing ? 'Save changes' : 'Add book'}</button></div>
+        </form>
+      </section>
+    </div>}
+
+    {activeCheckoutBook && <div className="library-modal-backdrop" role="presentation" onClick={(event) => { if (event.target === event.currentTarget && !saving) setActiveCheckoutBook(null); }}>
+      <section className="content-card library-book-dialog library-checkout-dialog" role="dialog" aria-modal="true" aria-labelledby="library-checkout-title">
+        <div className="library-section-heading"><div><span className="eyebrow">Library checkout</span><h2 id="library-checkout-title">Check out a copy</h2><p>{activeCheckoutBook.title} · {activeCheckoutBook.available_copies} available</p></div><button className="icon-button" type="button" disabled={saving} onClick={() => setActiveCheckoutBook(null)} aria-label="Close checkout"><X size={18} /></button></div>
+        <form className="library-book-form" onSubmit={(event) => void submitCheckout(event)}>
+          <label className="field"><span>Student *</span><select required value={checkoutStudentId} onChange={(event) => setCheckoutStudentId(event.target.value)}><option value="">Choose a student</option>{students.map((student) => <option key={student.id} value={student.id}>{student.first_name} {student.last_name} · {student.student_number}{student.school_class ? ` · ${student.school_class.name}` : ''}</option>)}</select></label>
+          {students.length === 0 && <p className="library-scanner-error">There are no active students available to check out this book to.</p>}
+          <p className="library-checkout-note">A unique one-time return QR and access code will be generated. Download and print the slip for the student. The code is saved only as a secure hash and cannot be downloaded again later.</p>
+          <div className="library-form-actions"><button className="button button-quiet" type="button" disabled={saving} onClick={() => setActiveCheckoutBook(null)}>Cancel</button><button className="button button-primary" disabled={saving || students.length === 0}>{saving ? 'Checking out…' : 'Check out & create return slip'}</button></div>
         </form>
       </section>
     </div>}
