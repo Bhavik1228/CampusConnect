@@ -307,7 +307,7 @@ export function SchoolSettingsPage() {
         return;
       }
     }
-    if (section === 'security' && security?.require_mfa && security.mfa_methods.length === 0) {
+    if (section === 'security' && security?.require_mfa && (security.mfa_methods ?? []).length === 0) {
       setError('Select at least one multi-factor authentication method or disable the MFA requirement.');
       setSuccess('');
       return;
