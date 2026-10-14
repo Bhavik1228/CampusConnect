@@ -18,6 +18,7 @@ type Material = {
   topic: string;
   storage_path: string;
   storage_provider: 'r2' | 'supabase';
+  storage_connection_id: string | null;
   mime_type: string | null;
   file_size: number | null;
   file_name: string | null;
@@ -39,7 +40,9 @@ type UploadForm = {
   subject_id: string;
   visibility: 'class' | 'school';
   is_published: boolean;
+  storage_connection_id: string;
 };
+type StorageConnection = { id: string; label: string };
 type Preview = { material: Material; url: string };
 
 const MAX_FILE_SIZE = 500 * 1024 * 1024;
@@ -64,6 +67,7 @@ const emptyForm: UploadForm = {
   subject_id: '',
   visibility: 'class',
   is_published: false,
+  storage_connection_id: '',
 };
 
 function fileType(file: File) {
@@ -89,6 +93,8 @@ export function LearningMaterialsPage() {
   const [materials, setMaterials] = useState<Material[]>([]);
   const [classes, setClasses] = useState<SchoolClass[]>([]);
   const [subjects, setSubjects] = useState<Subject[]>([]);
+  const [storageConnections, setStorageConnections] = useState<StorageConnection[]>([]);
+  const [managedStorageAvailable, setManagedStorageAvailable] = useState(false);
   const [loading, setLoading] = useState(true);
   const [uploading, setUploading] = useState(false);
   const [showUpload, setShowUpload] = useState(false);
@@ -109,16 +115,20 @@ export function LearningMaterialsPage() {
     setError('');
     try {
       const client = requireSupabase();
-      const [materialResult, classResult, subjectResult] = await Promise.all([
+      const [materialResult, classResult, subjectResult, storageResult] = await Promise.all([
         client.from('learning_materials')
-          .select('id,school_id,class_id,subject_id,uploaded_by,title,description,topic,storage_path,storage_provider,mime_type,file_size,file_name,visibility,is_uploaded,is_published,created_at,subject:subjects(name),school_class:school_classes(name)')
+          .select('id,school_id,class_id,subject_id,uploaded_by,title,description,topic,storage_path,storage_provider,storage_connection_id,mime_type,file_size,file_name,visibility,is_uploaded,is_published,created_at,subject:subjects(name),school_class:school_classes(name)')
           .eq('school_id', schoolId).order('created_at', { ascending: false }),
         client.from('school_classes').select('id,name').eq('school_id', schoolId).order('name'),
         client.from('subjects').select('id,name').eq('school_id', schoolId).order('name'),
+        canUpload
+          ? client.functions.invoke('learning-material-storage', { body: { action: 'list-connections', schoolId } })
+          : Promise.resolve({ data: null, error: null }),
       ]);
       if (materialResult.error) throw materialResult.error;
       if (classResult.error) throw classResult.error;
       if (subjectResult.error) throw subjectResult.error;
+      if (storageResult.error) throw storageResult.error;
 
       let allowedClasses = (classResult.data ?? []) as SchoolClass[];
       let allowedSubjects = (subjectResult.data ?? []) as Subject[];
@@ -146,12 +156,15 @@ export function LearningMaterialsPage() {
       setMaterials((materialResult.data ?? []) as unknown as Material[]);
       setClasses(allowedClasses);
       setSubjects(allowedSubjects);
+      const storageData = storageResult.data as { connections?: StorageConnection[]; managedStorageAvailable?: boolean } | null;
+      setStorageConnections(storageData?.connections ?? []);
+      setManagedStorageAvailable(storageData?.managedStorageAvailable === true);
     } catch (loadError) {
       setError(errorMessage(loadError, 'Could not load learning materials.'));
     } finally {
       setLoading(false);
     }
-  }, [schoolId, user, role, refreshKey]);
+  }, [schoolId, user, role, refreshKey, canUpload]);
 
   useEffect(() => { void load(); }, [load]);
 
@@ -190,6 +203,10 @@ export function LearningMaterialsPage() {
       setError('Choose the class and subject for this resource.');
       return;
     }
+    if (!managedStorageAvailable && storageConnections.length === 0) {
+      setError('No R2 storage is configured. Ask the school administrator to add a bucket or contact Campus Connect to request managed storage.');
+      return;
+    }
 
     setUploading(true);
     setError('');
@@ -212,6 +229,7 @@ export function LearningMaterialsPage() {
         visibility: form.visibility,
         is_published: false,
         storage_provider: 'r2',
+        storage_connection_id: form.storage_connection_id || null,
         storage_path: storagePath,
         file_name: file.name.slice(0, 200),
         mime_type: mimeType,
@@ -348,6 +366,7 @@ export function LearningMaterialsPage() {
       subject_id: material.subject_id ?? '',
       visibility: material.visibility,
       is_published: material.is_published,
+      storage_connection_id: material.storage_connection_id ?? '',
     });
     setError('');
   }
@@ -386,7 +405,7 @@ export function LearningMaterialsPage() {
     <div className="page-stack materials-page">
       <div className="page-heading">
         <div><span className="eyebrow">{activeMembership?.school.name}</span><h1>Learning materials</h1><p>Organize class resources by subject and topic, then share them securely with learners.</p></div>
-        {canUpload && <button className="button button-primary" onClick={() => { setError(''); setForm({ ...emptyForm }); setShowUpload(true); }}><UploadCloud size={16} /> Upload material</button>}
+        {canUpload && <button className="button button-primary" onClick={() => { setError(''); setForm({ ...emptyForm, storage_connection_id: managedStorageAvailable ? '' : storageConnections[0]?.id ?? '' }); setShowUpload(true); }}><UploadCloud size={16} /> Upload material</button>}
       </div>
       <div className="materials-storage-note"><span><FolderOpen size={17} /></span><p><strong>Private learning library</strong> Files are stored in Cloudflare R2; Supabase controls who can see each resource. Supported file size: up to 500 MB.</p></div>
       {notice && <p className="inline-success" role="status">{notice}</p>}
@@ -425,10 +444,12 @@ export function LearningMaterialsPage() {
             <label className="field"><span>Topic or unit <small>(optional)</small></span><input maxLength={160} value={form.topic} onChange={(event) => setForm({ ...form, topic: event.target.value })} placeholder="e.g. Fractions and decimals" /></label>
             <label className="field"><span>Description <small>(optional)</small></span><textarea maxLength={2000} rows={3} value={form.description} onChange={(event) => setForm({ ...form, description: event.target.value })} /></label>
             <label className="field"><span>File <small>PDF, Word, PowerPoint, Excel, text, MP4, WebM, or MOV · max 500 MB</small></span><input required name="resource_file" type="file" accept=".pdf,.doc,.docx,.ppt,.pptx,.xls,.xlsx,.txt,.mp4,.webm,.mov,application/pdf,video/mp4,video/webm,video/quicktime" /></label>
+            <label className="field"><span>Store this file in</span><select value={form.storage_connection_id} onChange={(event) => setForm({ ...form, storage_connection_id: event.target.value })}><>{managedStorageAvailable && <option value="">Campus Connect managed R2</option>}{storageConnections.map((connection) => <option key={connection.id} value={connection.id}>{connection.label}</option>)}</></select></label>
             <label className="field"><span>Who can access it?</span><select value={form.visibility} onChange={(event) => setForm({ ...form, visibility: event.target.value as UploadForm['visibility'] })}><option value="class">Assigned class only</option><option value="school">All school members</option></select></label>
             <label className="checkbox-field"><input type="checkbox" checked={form.is_published} onChange={(event) => setForm({ ...form, is_published: event.target.checked })} /><span>Publish for the selected audience after upload</span></label>
-            <div className="modal-actions"><button className="button button-quiet" type="button" onClick={() => setShowUpload(false)} disabled={uploading}>Cancel</button><button className="button button-primary" type="submit" disabled={uploading || !classes.length || !subjects.length}>{uploading ? 'Uploading and verifying…' : 'Upload resource'}</button></div>
+            <div className="modal-actions"><button className="button button-quiet" type="button" onClick={() => setShowUpload(false)} disabled={uploading}>Cancel</button><button className="button button-primary" type="submit" disabled={uploading || !classes.length || !subjects.length || (!managedStorageAvailable && !storageConnections.length)}>{uploading ? 'Uploading and verifying…' : 'Upload resource'}</button></div>
             {canUpload && (!classes.length || !subjects.length) && <p className="quiet-note">Your profile needs an assigned class and subject before you can upload materials.</p>}
+            {!managedStorageAvailable && !storageConnections.length && <p className="quiet-note">No storage provider is available. Ask your school administrator to connect an R2 bucket, or contact Campus Connect to request managed storage.</p>}
           </form>
         </section>
       </div>}

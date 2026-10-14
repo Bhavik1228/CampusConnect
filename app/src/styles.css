@@ -1931,6 +1931,53 @@ td strong { color: #3e435a; font-weight: 600; }
   .staff-form-grid, .staff-assignment-grid, .staff-profile-facts { grid-template-columns: 1fr; }
   .staff-directory-item { flex-wrap: wrap; }
   .staff-directory-item > .staff-status { margin-left: 46px; }
+}
+.storage-connections-panel { display: grid; gap: 17px; }
+.storage-option, .storage-connection { display: flex; align-items: center; gap: 12px; padding: 13px; border: 1px solid #e9eaf1; border-radius: 10px; background: #fff; }
+.storage-option-icon { display: grid; width: 36px; height: 36px; flex: none; place-items: center; border-radius: 9px; background: #f2f0ff; color: #6555d9; }
+.storage-option > div, .storage-connection > div { min-width: 0; flex: 1; }
+.storage-option strong, .storage-connection strong { color: #3f4359; font-size: 11px; }
+.storage-option p { margin: 4px 0 0; color: #81869a; font-size: 10px; line-height: 1.55; }
+.storage-connection-list { display: grid; gap: 8px; }
+.storage-connection { padding: 10px 12px; }
+.storage-connection small { display: block; margin-top: 4px; color: #83889b; font-size: 9px; }
+.storage-empty, .assignment-empty-submissions { padding: 12px; border: 1px dashed #dedfe8; border-radius: 8px; color: #858a9e; font-size: 10px; }
+.storage-connection-form { display: grid; gap: 12px; padding-top: 15px; border-top: 1px solid #edeef3; }
+.storage-connection-form > .button { justify-self: start; }
+.assignments-page { gap: 16px; }
+.assignments-list { display: grid; gap: 13px; }
+.assignment-card { display: grid; gap: 13px; padding: 17px; }
+.assignment-card-heading, .assignment-submission-title { display: flex; align-items: flex-start; justify-content: space-between; gap: 12px; }
+.assignment-card-heading h2 { margin: 8px 0 3px; color: #34384e; font-size: 16px; }
+.assignment-card-heading p, .assignment-description { margin: 0; color: #777d91; font-size: 10px; line-height: 1.6; }
+.assignment-actions { display: flex; flex-wrap: wrap; gap: 7px; }
+.assignment-facts { display: flex; flex-wrap: wrap; gap: 14px; color: #74798d; font-size: 9px; }
+.assignment-facts span { display: inline-flex; align-items: center; gap: 5px; }
+.assignment-resource, .assignment-existing-file { display: flex; align-items: center; gap: 9px; padding: 10px 12px; border: 1px solid #e4e4f0; border-radius: 8px; background: #fafaff; color: #6258be; text-align: left; }
+.assignment-resource > span { display: grid; flex: 1; gap: 3px; }
+.assignment-resource strong { font-size: 10px; }
+.assignment-resource small { color: #85899b; font-size: 8px; }
+.assignment-submit-form, .assignment-submissions { display: grid; gap: 11px; padding-top: 14px; border-top: 1px solid #edeef3; }
+.assignment-submit-form > .button { justify-self: start; }
+.assignment-feedback { display: grid; gap: 4px; padding: 10px 12px; border-radius: 8px; background: #f2fbf6; color: #57745f; font-size: 10px; line-height: 1.5; }
+.assignment-feedback strong { color: #3a6847; }
+.assignment-existing-file { justify-self: start; font-size: 9px; }
+.assignment-submission-list { display: grid; gap: 10px; }
+.assignment-submission { display: grid; gap: 9px; padding: 12px; border: 1px solid #ececf2; border-radius: 9px; background: #fff; }
+.assignment-submission-title { align-items: center; }
+.assignment-submission-title > div { display: grid; gap: 4px; }
+.assignment-submission-title strong { color: #41465a; font-size: 10px; }
+.assignment-submission-title small { color: #85899b; font-size: 8px; }
+.assignment-student-response { margin: 0; padding: 9px; border-radius: 6px; background: #f8f8fc; color: #62677b; font-size: 10px; line-height: 1.55; white-space: pre-wrap; }
+.assignment-feedback-fields { display: grid; grid-template-columns: minmax(100px, .7fr) minmax(180px, 2fr) auto; align-items: end; gap: 9px; }
+.assignment-feedback-fields .button { margin-bottom: 1px; }
+.assignments-empty { display: grid; justify-items: start; gap: 8px; padding: 24px; }
+.assignments-empty h2 { margin: 0; color: #3c4055; font-size: 15px; }
+.assignments-empty p { margin: 0; color: #85899b; font-size: 10px; }
+.assignment-create-modal { width: min(100%, 650px); }
+@media (max-width: 700px) {
+  .assignment-feedback-fields { grid-template-columns: 1fr; }
+  .assignment-card-heading { flex-direction: column; }
   .staff-document-heading { align-items: flex-start; flex-direction: column; }
   .website-fee-row { grid-template-columns: 1fr; }
 }

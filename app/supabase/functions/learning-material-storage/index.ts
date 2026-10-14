@@ -2,6 +2,7 @@ import { createClient } from 'npm:@supabase/supabase-js@2';
 import {
   DeleteObjectCommand,
   GetObjectCommand,
+  HeadBucketCommand,
   HeadObjectCommand,
   PutObjectCommand,
   S3Client,
@@ -33,6 +34,13 @@ type StorageRequest = {
   action?: unknown;
   materialId?: unknown;
   disposition?: unknown;
+  schoolId?: unknown;
+  connectionId?: unknown;
+  label?: unknown;
+  accountId?: unknown;
+  bucketName?: unknown;
+  accessKeyId?: unknown;
+  secretAccessKey?: unknown;
 };
 type Material = {
   id: string;
@@ -45,6 +53,19 @@ type Material = {
   file_size: number | null;
   file_name?: string | null;
   is_uploaded: boolean;
+  storage_connection_id: string | null;
+};
+type R2Credentials = {
+  accountId: string;
+  bucketName: string;
+  accessKeyId: string;
+  secretAccessKey: string;
+};
+type StoredConnection = {
+  id: string;
+  school_id: string;
+  credentials_ciphertext: string;
+  credentials_nonce: string;
 };
 
 function respond(status: number, body: Record<string, unknown>) {
@@ -54,11 +75,18 @@ function respond(status: number, body: Record<string, unknown>) {
   });
 }
 
-function makeR2Client() {
+function makeR2Client(credentials?: R2Credentials) {
+  if (credentials) {
+    return new S3Client({
+      region: 'auto',
+      endpoint: `https://${credentials.accountId}.r2.cloudflarestorage.com`,
+      credentials: { accessKeyId: credentials.accessKeyId, secretAccessKey: credentials.secretAccessKey },
+    });
+  }
   const accountId = Deno.env.get('R2_ACCOUNT_ID');
   const accessKeyId = Deno.env.get('R2_ACCESS_KEY_ID');
   const secretAccessKey = Deno.env.get('R2_SECRET_ACCESS_KEY');
-  if (!accountId || !accessKeyId || !secretAccessKey) {
+  if (!accountId || !accessKeyId || !secretAccessKey || !Deno.env.get('R2_BUCKET_NAME')) {
     throw new Error('Cloudflare R2 storage configuration is incomplete.');
   }
   return new S3Client({
@@ -68,10 +96,55 @@ function makeR2Client() {
   });
 }
 
-function getBucketName() {
+function getManagedCredentials(): R2Credentials | null {
+  const accountId = Deno.env.get('R2_ACCOUNT_ID');
   const bucketName = Deno.env.get('R2_BUCKET_NAME');
-  if (!bucketName) throw new Error('Cloudflare R2 bucket configuration is incomplete.');
-  return bucketName;
+  const accessKeyId = Deno.env.get('R2_ACCESS_KEY_ID');
+  const secretAccessKey = Deno.env.get('R2_SECRET_ACCESS_KEY');
+  if (!accountId || !bucketName || !accessKeyId || !secretAccessKey) return null;
+  return { accountId, bucketName, accessKeyId, secretAccessKey };
+}
+
+function encodeBase64(bytes: Uint8Array) {
+  let binary = '';
+  for (const byte of bytes) binary += String.fromCharCode(byte);
+  return btoa(binary);
+}
+
+function decodeBase64(value: string) {
+  return Uint8Array.from(atob(value), (character) => character.charCodeAt(0));
+}
+
+async function encryptionKey() {
+  const secret = Deno.env.get('R2_CREDENTIAL_ENCRYPTION_KEY');
+  if (!secret || secret.length < 32) {
+    throw new Error('School R2 credentials are not enabled. Configure R2_CREDENTIAL_ENCRYPTION_KEY in Supabase secrets.');
+  }
+  const digest = await crypto.subtle.digest('SHA-256', new TextEncoder().encode(secret));
+  return crypto.subtle.importKey('raw', digest, 'AES-GCM', false, ['encrypt', 'decrypt']);
+}
+
+async function encryptCredentials(credentials: R2Credentials) {
+  const nonce = crypto.getRandomValues(new Uint8Array(12));
+  const ciphertext = await crypto.subtle.encrypt(
+    { name: 'AES-GCM', iv: nonce },
+    await encryptionKey(),
+    new TextEncoder().encode(JSON.stringify(credentials)),
+  );
+  return { credentials_nonce: encodeBase64(nonce), credentials_ciphertext: encodeBase64(new Uint8Array(ciphertext)) };
+}
+
+async function decryptCredentials(connection: StoredConnection): Promise<R2Credentials> {
+  const plaintext = await crypto.subtle.decrypt(
+    { name: 'AES-GCM', iv: decodeBase64(connection.credentials_nonce) },
+    await encryptionKey(),
+    decodeBase64(connection.credentials_ciphertext),
+  );
+  const parsed = JSON.parse(new TextDecoder().decode(plaintext)) as Partial<R2Credentials>;
+  if (!parsed.accountId || !parsed.bucketName || !parsed.accessKeyId || !parsed.secretAccessKey) {
+    throw new Error('The saved R2 connection credentials are incomplete.');
+  }
+  return parsed as R2Credentials;
 }
 
 function isUuid(value: unknown): value is string {
@@ -92,6 +165,9 @@ Deno.serve(async (request: Request) => {
     if (!supabaseUrl || !anonKey) throw new Error('Supabase function configuration is incomplete.');
     const serviceRoleKey = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY');
     if (!serviceRoleKey) throw new Error('Learning materials storage configuration is incomplete.');
+    const serviceClient = createClient(supabaseUrl, serviceRoleKey, {
+      auth: { persistSession: false, autoRefreshToken: false },
+    });
 
     const userClient = createClient(supabaseUrl, anonKey, {
       auth: { persistSession: false, autoRefreshToken: false },
@@ -101,16 +177,123 @@ Deno.serve(async (request: Request) => {
     if (authError || !user) return respond(401, { error: 'Your session is invalid. Sign in again.' });
 
     const payload = await request.json() as StorageRequest;
-    if (!isUuid(payload.materialId)) return respond(400, { error: 'Choose a valid learning resource.' });
     const action = typeof payload.action === 'string' ? payload.action : '';
+
+    if (action === 'list-connections' || action === 'add-connection' || action === 'delete-connection') {
+      if (!isUuid(payload.schoolId)) return respond(400, { error: 'Choose a valid school.' });
+      const { data: memberships, error: membershipError } = await userClient
+        .from('school_memberships')
+        .select('role')
+        .eq('school_id', payload.schoolId)
+        .eq('profile_id', user.id);
+      if (membershipError) throw membershipError;
+      const roles = memberships?.map((membership) => membership.role) ?? [];
+      if (!roles.length) return respond(403, { error: 'You cannot configure storage for this school.' });
+
+      if (action === 'list-connections') {
+        if (!roles.some((role) => ['school_admin', 'academic_coordinator', 'teacher'].includes(role))) {
+          return respond(403, { error: 'School staff access is required to view storage options.' });
+        }
+        const { data: connections, error: listError } = await serviceClient
+          .from('school_storage_connections')
+          .select('id,label,created_at')
+          .eq('school_id', payload.schoolId)
+          .order('created_at');
+        if (listError) throw listError;
+        return respond(200, {
+          connections: connections ?? [],
+          managedStorageAvailable: Boolean(getManagedCredentials()),
+        });
+      }
+
+      if (!roles.includes('school_admin')) {
+        return respond(403, { error: 'Only a school administrator can change storage connections.' });
+      }
+
+      if (action === 'delete-connection') {
+        if (!isUuid(payload.connectionId)) return respond(400, { error: 'Choose a valid storage connection.' });
+        const { count, error: usageError } = await serviceClient
+          .from('learning_materials')
+          .select('id', { count: 'exact', head: true })
+          .eq('school_id', payload.schoolId)
+          .eq('storage_connection_id', payload.connectionId);
+        if (usageError) throw usageError;
+        if ((count ?? 0) > 0) return respond(409, { error: 'This connection is in use by learning materials. Move or remove those files before deleting it.' });
+        const { data: deleted, error: deleteError } = await serviceClient
+          .from('school_storage_connections')
+          .delete()
+          .eq('id', payload.connectionId)
+          .eq('school_id', payload.schoolId)
+          .select('id')
+          .maybeSingle();
+        if (deleteError) throw deleteError;
+        if (!deleted) return respond(404, { error: 'The storage connection was not found.' });
+        return respond(200, { status: 'deleted' });
+      }
+
+      const label = typeof payload.label === 'string' ? payload.label.trim() : '';
+      const accountId = typeof payload.accountId === 'string' ? payload.accountId.trim() : '';
+      const bucketName = typeof payload.bucketName === 'string' ? payload.bucketName.trim() : '';
+      const accessKeyId = typeof payload.accessKeyId === 'string' ? payload.accessKeyId.trim() : '';
+      const secretAccessKey = typeof payload.secretAccessKey === 'string' ? payload.secretAccessKey : '';
+      if (label.length < 2 || label.length > 80
+        || !/^[a-f0-9]{32}$/i.test(accountId)
+        || !/^[a-z0-9][a-z0-9-]{1,61}[a-z0-9]$/.test(bucketName)
+        || accessKeyId.length < 8 || accessKeyId.length > 256
+        || secretAccessKey.length < 16 || secretAccessKey.length > 512) {
+        return respond(400, { error: 'Check the connection name and R2 account, bucket, and API token details.' });
+      }
+      const credentials = { accountId, bucketName, accessKeyId, secretAccessKey };
+      try {
+        await makeR2Client(credentials).send(new HeadBucketCommand({ Bucket: bucketName }));
+      } catch (verificationError) {
+        console.error(
+          'Cloudflare R2 bucket verification failed.',
+          verificationError instanceof Error ? verificationError.name : 'Unknown error',
+        );
+        return respond(400, { error: 'Could not verify this R2 bucket. Confirm the account, bucket, and token permissions.' });
+      }
+      const encrypted = await encryptCredentials(credentials);
+      const { data: connection, error: insertError } = await serviceClient
+        .from('school_storage_connections')
+        .insert({
+          school_id: payload.schoolId,
+          label,
+          ...encrypted,
+          created_by: user.id,
+        })
+        .select('id,label,created_at')
+        .single();
+      if (insertError) throw insertError;
+      return respond(201, { connection });
+    }
+
+    if (!isUuid(payload.materialId)) return respond(400, { error: 'Choose a valid learning resource.' });
     const { data: material, error: materialError } = await userClient
       .from('learning_materials')
-      .select('id,school_id,class_id,uploaded_by,storage_path,storage_provider,mime_type,file_size,file_name,is_uploaded')
+      .select('id,school_id,class_id,uploaded_by,storage_path,storage_provider,mime_type,file_size,file_name,is_uploaded,storage_connection_id')
       .eq('id', payload.materialId)
       .maybeSingle();
     if (materialError) throw materialError;
     if (!material) return respond(404, { error: 'The learning resource is unavailable or you do not have access.' });
     const record = material as Material;
+    let r2Credentials: R2Credentials | undefined;
+    if (record.storage_provider === 'r2') {
+      if (record.storage_connection_id) {
+        const { data: connection, error: connectionError } = await serviceClient
+          .from('school_storage_connections')
+          .select('id,school_id,credentials_ciphertext,credentials_nonce')
+          .eq('id', record.storage_connection_id)
+          .eq('school_id', record.school_id)
+          .maybeSingle();
+        if (connectionError) throw connectionError;
+        if (!connection) return respond(409, { error: 'This resource’s school R2 connection is missing.' });
+        r2Credentials = await decryptCredentials(connection as StoredConnection);
+      } else {
+        r2Credentials = getManagedCredentials() ?? undefined;
+        if (!r2Credentials) return respond(409, { error: 'No R2 storage is configured for this school. Ask the school administrator to add a bucket or contact Campus Connect to request managed storage.' });
+      }
+    }
 
     if (record.storage_provider === 'supabase' && action !== 'delete-resource') {
       return respond(400, { error: 'This is a legacy Supabase file. Open or delete it from the learning materials page.' });
@@ -126,11 +309,11 @@ Deno.serve(async (request: Request) => {
         return respond(400, { error: 'This file type is not supported.' });
       }
       const command = new PutObjectCommand({
-        Bucket: getBucketName(),
+        Bucket: r2Credentials!.bucketName,
         Key: record.storage_path,
         ContentType: record.mime_type,
       });
-      const uploadUrl = await getSignedUrl(makeR2Client(), command, { expiresIn: SIGNED_URL_SECONDS });
+      const uploadUrl = await getSignedUrl(makeR2Client(r2Credentials), command, { expiresIn: SIGNED_URL_SECONDS });
       return respond(200, { uploadUrl, expiresIn: SIGNED_URL_SECONDS });
     }
 
@@ -139,19 +322,16 @@ Deno.serve(async (request: Request) => {
       if (record.is_uploaded) return respond(200, { status: 'uploaded' });
       if (!record.file_size || !record.mime_type) return respond(400, { error: 'The resource is missing its file details.' });
 
-      const r2 = makeR2Client();
+      const r2 = makeR2Client(r2Credentials);
       const head = await r2.send(new HeadObjectCommand({
-        Bucket: getBucketName(),
+        Bucket: r2Credentials!.bucketName,
         Key: record.storage_path,
       }));
       if (head.ContentLength !== record.file_size || head.ContentType !== record.mime_type) {
-        await r2.send(new DeleteObjectCommand({ Bucket: getBucketName(), Key: record.storage_path }));
+        await r2.send(new DeleteObjectCommand({ Bucket: r2Credentials!.bucketName, Key: record.storage_path }));
         return respond(422, { error: 'The uploaded file did not match the recorded size and type. Please upload it again.' });
       }
 
-      const serviceClient = createClient(supabaseUrl, serviceRoleKey, {
-        auth: { persistSession: false, autoRefreshToken: false },
-      });
       const { data: finalized, error: finalizeError } = await serviceClient
         .from('learning_materials')
         .update({ is_uploaded: true })
@@ -170,12 +350,12 @@ Deno.serve(async (request: Request) => {
       if (!record.is_uploaded) return respond(409, { error: 'This resource is not available yet.' });
       const download = payload.disposition === 'attachment';
       const command = new GetObjectCommand({
-        Bucket: getBucketName(),
+        Bucket: r2Credentials!.bucketName,
         Key: record.storage_path,
         ResponseContentType: record.mime_type ?? 'application/octet-stream',
         ResponseContentDisposition: download ? 'attachment' : 'inline',
       });
-      const url = await getSignedUrl(makeR2Client(), command, { expiresIn: SIGNED_URL_SECONDS });
+      const url = await getSignedUrl(makeR2Client(r2Credentials), command, { expiresIn: SIGNED_URL_SECONDS });
       return respond(200, { url, expiresIn: SIGNED_URL_SECONDS });
     }
 
@@ -212,15 +392,12 @@ Deno.serve(async (request: Request) => {
       if (!mayDelete) {
         return respond(403, { error: 'Only the uploader or a school academic manager can delete this resource.' });
       }
-      const serviceClient = createClient(supabaseUrl, serviceRoleKey, {
-        auth: { persistSession: false, autoRefreshToken: false },
-      });
       if (record.storage_provider === 'supabase') {
         const { error: fileDeleteError } = await serviceClient.storage.from('learning-materials').remove([record.storage_path]);
         if (fileDeleteError) throw fileDeleteError;
       } else {
-        const r2 = makeR2Client();
-        await r2.send(new DeleteObjectCommand({ Bucket: getBucketName(), Key: record.storage_path }));
+        const r2 = makeR2Client(r2Credentials);
+        await r2.send(new DeleteObjectCommand({ Bucket: r2Credentials!.bucketName, Key: record.storage_path }));
       }
       const { data: deleted, error: deleteError } = await serviceClient
         .from('learning_materials')

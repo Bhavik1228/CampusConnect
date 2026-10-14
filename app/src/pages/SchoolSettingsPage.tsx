@@ -1,8 +1,9 @@
 import { useEffect, useState, type FormEvent, type ReactNode } from 'react';
-import { BookOpen, Check, ClipboardCheck, Globe, LockKeyhole, MessageSquare, Plus, Puzzle, Save, School, ShieldCheck, Trash2 } from 'lucide-react';
+import { BookOpen, Check, ClipboardCheck, Cloud, Globe, LockKeyhole, MessageSquare, Plus, Puzzle, Save, School, ShieldCheck, Trash2 } from 'lucide-react';
 import { useAuth } from '../contexts/AuthContext';
 import { ErrorState, LoadingState, SuccessMessage } from '../components/Feedback';
 import { requireSupabase } from '../lib/supabase';
+import { StorageConnectionsPanel } from './StorageConnectionsPanel';
 import type {
   SchoolAcademicPolicies,
   SchoolCommunicationSettings,
@@ -85,7 +86,7 @@ interface AttendanceStatus {
   sort_order: number;
 }
 
-type SettingsTab = 'profile' | 'academics' | 'attendance' | 'portals' | 'modules' | 'security' | 'website';
+type SettingsTab = 'profile' | 'academics' | 'attendance' | 'portals' | 'modules' | 'security' | 'website' | 'storage';
 const tabs: { id: SettingsTab; label: string; icon: typeof School; description: string }[] = [
   { id: 'profile', label: 'School profile', icon: School, description: 'Identity, branding, contact details, and student records.' },
   { id: 'academics', label: 'Academics', icon: BookOpen, description: 'Grading scales, assessment, terms, reporting, and timetables.' },
@@ -94,6 +95,7 @@ const tabs: { id: SettingsTab; label: string; icon: typeof School; description: 
   { id: 'modules', label: 'Modules & features', icon: Puzzle, description: 'Choose the tools and capabilities enabled for your school.' },
   { id: 'security', label: 'Security & privacy', icon: ShieldCheck, description: 'Account protection, password rules, retention, and exports.' },
   { id: 'website', label: 'School website', icon: Globe, description: 'Publish your public school website, admissions details, fees, and results lookup.' },
+  { id: 'storage', label: 'File storage', icon: Cloud, description: 'Connect managed storage or your own private R2 buckets.' },
 ];
 
 function makeWebsiteSlug(name: string) {
@@ -199,6 +201,7 @@ export function SchoolSettingsPage() {
   const { activeMembership, refreshMemberships, user } = useAuth();
   const schoolId = activeMembership?.school_id;
   const canEdit = activeMembership?.role === 'school_admin';
+  const canViewStorage = canEdit || activeMembership?.role === 'academic_coordinator' || activeMembership?.role === 'teacher';
   const [tab, setTab] = useState<SettingsTab>('profile');
   const [profile, setProfile] = useState<SchoolProfile | null>(null);
   const [academics, setAcademics] = useState<SchoolAcademicPolicies | null>(null);
@@ -392,7 +395,7 @@ export function SchoolSettingsPage() {
       {success && <SuccessMessage message={success} />}
       <div className="settings-layout">
         <nav className="settings-nav" aria-label="School settings categories">
-          {tabs.filter((item) => item.id !== 'website' || canEdit).map(({ id, label, icon: Icon }) => <button key={id} type="button" className={`settings-nav-item${tab === id ? ' active' : ''}`} aria-current={tab === id ? 'page' : undefined} onClick={() => changeTab(id)}><Icon size={17} /><span>{label}</span>{tab === id && <Check size={14} className="settings-nav-check" />}</button>)}
+          {tabs.filter((item) => (item.id !== 'website' || canEdit) && (item.id !== 'storage' || canViewStorage)).map(({ id, label, icon: Icon }) => <button key={id} type="button" className={`settings-nav-item${tab === id ? ' active' : ''}`} aria-current={tab === id ? 'page' : undefined} onClick={() => changeTab(id)}><Icon size={17} /><span>{label}</span>{tab === id && <Check size={14} className="settings-nav-check" />}</button>)}
           <p className="settings-nav-description">{tabs.find((item) => item.id === tab)?.description}</p>
         </nav>
         <div className="settings-main">
@@ -666,6 +669,7 @@ export function SchoolSettingsPage() {
             </Section>
             {saveButton('website')}
           </form>}
+          {tab === 'storage' && <StorageConnectionsPanel />}
 
         </div>
       </div>
