@@ -24,3 +24,6 @@ verify_jwt = false
 
 [functions.staff-invite]
 verify_jwt = false
+
+[functions.learning-material-storage]
+verify_jwt = false

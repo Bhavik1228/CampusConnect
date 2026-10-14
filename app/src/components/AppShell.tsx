@@ -4,7 +4,7 @@ import {
   BookMarked, BookOpenCheck, BookOpenText, CalendarDays, Check, ChevronDown, Library,
   ChevronLeft, ClipboardCheck, GraduationCap, LayoutDashboard, LogOut, Menu,
   Settings, UsersRound, X, CalendarClock, CircleDollarSign, UserRoundPlus,
-  Award, BriefcaseBusiness,
+  Award, BriefcaseBusiness, FileStack,
   MessageCircle, ShieldCheck,
   type LucideIcon,
 } from 'lucide-react';
@@ -27,6 +27,7 @@ const navigation: { title: string; items: { to: string; label: string; icon: Luc
     { to: '/attendance', label: 'Attendance', icon: ClipboardCheck },
     { to: '/learning', label: 'Learning', icon: BookOpenText },
     { to: '/courses-lessons', label: 'Courses & lessons', icon: Library },
+    { to: '/learning-materials', label: 'Learning materials', icon: FileStack },
     { to: '/grades-results', label: 'Grades & results', icon: Award, roles: ['school_admin', 'academic_coordinator', 'teacher', 'student', 'parent'] },
     { to: '/calendar', label: 'Calendar', icon: CalendarDays },
   ] },
@@ -43,7 +44,7 @@ const navigation: { title: string; items: { to: string; label: string; icon: Luc
 const pageNames: Record<string, string> = {
   '/dashboard': 'Overview', '/students': 'Students', '/admissions': 'Admissions & enrolment', '/teachers': 'Teachers', '/staff': 'Staff & teachers',
   '/classes': 'Classes', '/subjects': 'Subjects', '/timetable': 'Timetable', '/attendance': 'Attendance',
-  '/learning': 'Learning', '/courses-lessons': 'Courses & lessons', '/grades-results': 'Grades & results', '/calendar': 'Calendar', '/academic-calendar': 'Academic calendar', '/settings': 'Settings',
+  '/learning': 'Learning', '/courses-lessons': 'Courses & lessons', '/learning-materials': 'Learning materials', '/grades-results': 'Grades & results', '/calendar': 'Calendar', '/academic-calendar': 'Academic calendar', '/settings': 'Settings',
   '/finance': 'Student fees', '/accounting-staff': 'Accounting staff',
   '/messaging': 'Messages', '/audit-log': 'Audit log',
 };

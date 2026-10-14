@@ -24,6 +24,7 @@ import { AuditLogPage } from '../pages/AuditLogPage';
 import { AdmissionsPage } from '../pages/AdmissionsPage';
 import { StudentsPage } from '../pages/StudentsPage';
 import { CoursesLessonsPage } from '../pages/CoursesLessonsPage';
+import { LearningMaterialsPage } from '../pages/LearningMaterialsPage';
 
 function RouteGate({ authOnly = true }: { authOnly?: boolean }) {
   const { user, loading, memberships } = useAuth();
@@ -62,6 +63,7 @@ export function ProtectedApp() {
           <Route path="/attendance" element={<AttendancePage />} />
           <Route path="/learning" element={<TestMakerPage />} />
           <Route path="/courses-lessons" element={<CoursesLessonsPage />} />
+          <Route path="/learning-materials" element={<LearningMaterialsPage />} />
           <Route path="/grades-results" element={<GradesResultsPage />} />
           <Route path="/calendar" element={<AcademicPages kind="calendar" />} />
           <Route path="/settings" element={<SchoolSettingsPage />} />
