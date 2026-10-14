@@ -184,3 +184,5 @@ create trigger audit_library_checkouts_change
 create trigger enforce_maintenance_library_checkouts
   before insert or update or delete on public.library_checkouts
   for each row execute function public.enforce_maintenance_write();
+
+notify pgrst, 'reload schema';

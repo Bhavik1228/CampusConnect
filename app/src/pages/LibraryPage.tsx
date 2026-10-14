@@ -59,7 +59,7 @@ type Checkout = {
   book: { title: string; barcode: string } | null;
   student: { student_number: string; first_name: string; last_name: string; school_class: { name: string } | null } | null;
 };
-type CheckoutSlip = { code: string; book: Book; student: StudentOption; checkedOutAt: string };
+type CheckoutSlip = { code: string; book: Book; student: StudentOption; schoolName: string; checkedOutAt: string };
 
 const emptyForm: BookForm = {
   title: '', isbn: '', authors: '', publisher: '', edition: '',
@@ -414,24 +414,31 @@ export function LibraryPage() {
         color: { dark: '#20243a', light: '#ffffff' },
       });
       pdf.setFillColor(101, 85, 217);
-      pdf.rect(0, 0, 105, 25, 'F');
+      pdf.rect(0, 0, 105, 31, 'F');
       pdf.setTextColor(255, 255, 255);
       pdf.setFont('helvetica', 'bold');
-      pdf.setFontSize(13);
-      pdf.text('CAMPUS CONNECT LIBRARY', 8, 11);
+      const schoolLibraryTitle = `${slip.schoolName} Library`;
+      let titleFontSize = 12;
+      while (titleFontSize > 7 && pdf.getTextWidth(schoolLibraryTitle) > 89) {
+        titleFontSize -= 0.5;
+        pdf.setFontSize(titleFontSize);
+      }
+      pdf.text(schoolLibraryTitle, 8, 11);
       pdf.setFont('helvetica', 'normal');
+      pdf.setFontSize(7);
+      pdf.text('Campus Connect', 8, 18);
       pdf.setFontSize(8);
-      pdf.text('Book checkout return slip', 8, 18);
+      pdf.text('Book checkout return slip', 8, 25);
       pdf.setTextColor(38, 42, 64);
       pdf.setFont('helvetica', 'bold');
       pdf.setFontSize(11);
-      pdf.text(pdf.splitTextToSize(slip.book.title, 88).slice(0, 2), 8, 34);
+      pdf.text(pdf.splitTextToSize(slip.book.title, 88).slice(0, 2), 8, 40);
       pdf.setFont('helvetica', 'normal');
       pdf.setFontSize(8);
-      pdf.text(`${slip.student.first_name} ${slip.student.last_name}`, 8, 48);
-      pdf.text(`Student number: ${slip.student.student_number}`, 8, 54);
-      pdf.text(`Checked out: ${new Date(slip.checkedOutAt).toLocaleString()}`, 8, 60);
-      pdf.addImage(qr, 'PNG', 34, 66, 37, 37);
+      pdf.text(`${slip.student.first_name} ${slip.student.last_name}`, 8, 54);
+      pdf.text(`Student number: ${slip.student.student_number}`, 8, 60);
+      pdf.text(`Checked out: ${new Date(slip.checkedOutAt).toLocaleString()}`, 8, 66);
+      pdf.addImage(qr, 'PNG', 34, 72, 37, 37);
       pdf.setFont('helvetica', 'bold');
       pdf.setFontSize(11);
       pdf.text(formattedCode, 52.5, 110, { align: 'center' });
@@ -471,6 +478,7 @@ export function LibraryPage() {
         code: rawCode,
         book: activeCheckoutBook,
         student,
+        schoolName: activeMembership?.school.name ?? 'School',
         checkedOutAt: response.checked_out_at ?? new Date().toISOString(),
       };
       setActiveCheckoutBook(null);
@@ -504,7 +512,13 @@ export function LibraryPage() {
       const { data, error: returnError } = await requireSupabase().rpc('return_library_book', {
         return_code: code,
       });
-      if (returnError) throw returnError;
+      if (returnError) {
+        const rpcError = returnError as { code?: string; message?: string };
+        if (rpcError.code === 'PGRST202' || rpcError.message?.includes('return_library_book')) {
+          throw new Error('Book returns are not enabled in the database yet. Apply migration 202610140008_library_checkouts.sql to this Supabase project, then retry. If the migration is already applied, refresh the PostgREST schema cache.');
+        }
+        throw returnError;
+      }
       const result = data as { book_title?: string } | null;
       setReturnCode('');
       setSuccess(`Return processed${result?.book_title ? `: “${result.book_title}”` : ''}. The available-copy count has been updated.`);
