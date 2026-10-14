@@ -60,6 +60,7 @@ export function AppShell() {
   const [logoutError, setLogoutError] = useState('');
   const [modules, setModules] = useState<Record<string, boolean> | null>(null);
   const [modulesError, setModulesError] = useState('');
+  const [maintenance, setMaintenance] = useState<{ active: boolean; scope: string | null; read_only: boolean; notice: string; ends_at: string | null; emergency: boolean } | null>(null);
   const navigate = useNavigate();
   const location = useLocation();
   const title = pageNames[location.pathname] ?? 'Workspace';
@@ -76,6 +77,26 @@ export function AppShell() {
     '/accounting-staff': 'module_finance',
     '/messaging': 'module_messaging',
   };
+  const maintenanceModuleForPath: Record<string, string> = {
+    '/admissions': 'admissions',
+    '/timetable': 'timetable',
+    '/attendance': 'attendance',
+    '/learning': 'learning',
+    '/courses-lessons': 'learning',
+    '/learning-materials': 'learning',
+    '/assignments': 'assignments',
+    '/grades-results': 'grades',
+    '/finance': 'finance',
+    '/accounting-staff': 'finance',
+    '/messaging': 'messaging',
+    '/students': 'students',
+    '/teachers': 'staff',
+    '/staff': 'staff',
+    '/classes': 'academics',
+    '/subjects': 'academics',
+    '/calendar': 'calendar',
+    '/academic-calendar': 'calendar',
+  };
   const disabledModule = moduleForPath[location.pathname] && modules?.[moduleForPath[location.pathname]] === false;
 
   useEffect(() => {
@@ -85,20 +106,55 @@ export function AppShell() {
     if (!activeMembership) return () => { active = false; };
     void (async () => {
       try {
-        const { data, error } = await requireSupabase().from('school_module_settings')
-          .select('module_admissions,module_attendance,module_timetable,module_learning,module_assignments,module_assessment_results,module_finance,module_messaging')
-          .eq('school_id', activeMembership.school_id)
-          .maybeSingle();
-        if (error) throw error;
-        if (!data) throw new Error('School module settings are missing. Ask a school administrator to check the school setup.');
-        if (active) setModules(data as Record<string, boolean>);
+        const [moduleResult, maintenanceResult] = await Promise.all([
+          requireSupabase().from('school_module_settings')
+            .select('module_admissions,module_attendance,module_timetable,module_learning,module_assignments,module_assessment_results,module_finance,module_messaging')
+            .eq('school_id', activeMembership.school_id)
+            .maybeSingle(),
+          requireSupabase().rpc('platform_maintenance_status', {
+            target_school: activeMembership.school_id,
+            target_module: maintenanceModuleForPath[location.pathname] ?? null,
+          }),
+        ]);
+        if (moduleResult.error) throw moduleResult.error;
+        if (!moduleResult.data) throw new Error('School module settings are missing. Ask a school administrator to check the school setup.');
+        if (maintenanceResult.error) throw maintenanceResult.error;
+        if (!maintenanceResult.data || typeof maintenanceResult.data.active !== 'boolean') throw new Error('Maintenance status returned an invalid response.');
+        if (active) {
+          setModules(moduleResult.data as Record<string, boolean>);
+          setMaintenance(maintenanceResult.data);
+        }
       } catch (error) {
         console.error('Could not load school feature availability.', error);
         if (active) setModulesError(error instanceof Error ? error.message : 'Could not load school feature availability.');
       }
     })();
     return () => { active = false; };
-  }, [activeMembership?.school_id]);
+  }, [activeMembership?.school_id, location.pathname]);
+
+  useEffect(() => {
+    if (!activeMembership) return;
+    let active = true;
+    const refreshStatus = async () => {
+      try {
+        const { data, error } = await requireSupabase().rpc('platform_maintenance_status', {
+          target_school: activeMembership.school_id,
+          target_module: maintenanceModuleForPath[location.pathname] ?? null,
+        });
+        if (error) throw error;
+        if (!data || typeof data.active !== 'boolean') throw new Error('Maintenance status returned an invalid response.');
+        if (active) setMaintenance(data);
+      } catch (error) {
+        console.error('Could not refresh maintenance status.', error);
+        if (active) setModulesError(error instanceof Error ? error.message : 'Could not refresh maintenance status.');
+      }
+    };
+    const timer = window.setInterval(() => { void refreshStatus(); }, 20_000);
+    return () => {
+      active = false;
+      window.clearInterval(timer);
+    };
+  }, [activeMembership?.school_id, location.pathname]);
 
   async function logout() {
     setLogoutError('');
@@ -149,9 +205,10 @@ export function AppShell() {
           <div className="topbar-actions"><span className="role-badge"><span></span>{activeMembership?.role.replace(/_/g, ' ')}</span></div>
         </header>
         <div className="page-content">
-          {maintenanceNotice && <aside className="platform-maintenance-notice" role="status">{maintenanceNotice}</aside>}
+          {maintenance?.active && <aside className="platform-maintenance-notice" role="status">{maintenance.notice || maintenanceNotice || 'Maintenance is in progress.'}{maintenance.read_only ? ' This workspace is read-only; changes are temporarily disabled.' : ''}{maintenance.ends_at ? ` Scheduled until ${new Date(maintenance.ends_at).toLocaleString()}.` : ''}</aside>}
+          {!maintenance?.active && maintenanceNotice && <aside className="platform-maintenance-notice" role="status">{maintenanceNotice}</aside>}
           {logoutError && <ErrorState message={logoutError} />}
-          {modulesError ? <ErrorState message={modulesError} /> : modules === null ? <LoadingState label="Loading school features…" /> : disabledModule ? <section className="content-card system-owner-panel"><h2>This feature is unavailable</h2><p className="system-owner-muted">This module is disabled for your school by platform or school settings.</p></section> : <Outlet />}
+          {modulesError ? <ErrorState message={modulesError} /> : modules === null || maintenance === null ? <LoadingState label="Loading school features…" /> : maintenance.active && !maintenance.read_only ? <section className="content-card school-maintenance-block"><span className="brand-mark"><ShieldCheck size={20} /></span><span className="eyebrow">Maintenance in progress</span><h1>{maintenance.emergency ? 'Emergency maintenance' : 'This workspace is temporarily unavailable'}</h1><p>{maintenance.notice || maintenanceNotice || 'Campus Connect is undergoing maintenance. Please try again later.'}</p>{maintenance.ends_at && <small>Scheduled to end {new Date(maintenance.ends_at).toLocaleString()}.</small>}<button className="button button-quiet" onClick={() => void logout()}><LogOut size={14} /> Sign out</button></section> : disabledModule ? <section className="content-card system-owner-panel"><h2>This feature is unavailable</h2><p className="system-owner-muted">This module is disabled for your school by platform or school settings.</p></section> : <Outlet />}
         </div>
         <footer className="workspace-footer"><span>Campus Connect</span><span>School information & learning management</span></footer>
       </main>

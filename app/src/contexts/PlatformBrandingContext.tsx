@@ -6,6 +6,8 @@ type PlatformBranding = {
   logoUrl: string;
   faviconUrl: string;
   maintenanceNotice: string;
+  maintenanceActive: boolean;
+  maintenanceReadOnly: boolean;
 };
 
 const defaultBranding: PlatformBranding = {
@@ -13,6 +15,8 @@ const defaultBranding: PlatformBranding = {
   logoUrl: '',
   faviconUrl: '',
   maintenanceNotice: '',
+  maintenanceActive: false,
+  maintenanceReadOnly: false,
 };
 
 const PlatformBrandingContext = createContext(defaultBranding);
@@ -34,6 +38,8 @@ export function PlatformBrandingProvider({ children }: { children: ReactNode }) 
             logoUrl: typeof data.logo_url === 'string' ? data.logo_url : '',
             faviconUrl: typeof data.favicon_url === 'string' ? data.favicon_url : '',
             maintenanceNotice: typeof data.maintenance_notice === 'string' ? data.maintenance_notice : '',
+            maintenanceActive: data.maintenance_active === true,
+            maintenanceReadOnly: data.maintenance_read_only === true,
           });
         }
       } catch (error) {
@@ -43,9 +49,11 @@ export function PlatformBrandingProvider({ children }: { children: ReactNode }) 
     const refresh = () => { void loadBranding(); };
     refresh();
     window.addEventListener('platform-branding-updated', refresh);
+    const timer = window.setInterval(refresh, 20_000);
     return () => {
       active = false;
       window.removeEventListener('platform-branding-updated', refresh);
+      window.clearInterval(timer);
     };
   }, []);
 

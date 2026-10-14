@@ -30,6 +30,10 @@ import { CoursesLessonsPage } from '../pages/CoursesLessonsPage';
 import { LearningMaterialsPage } from '../pages/LearningMaterialsPage';
 import { AssignmentsPage } from '../pages/AssignmentsPage';
 import { SystemOwnerPage } from '../pages/SystemOwnerPage';
+import { SystemOwnerSchoolsPage } from '../pages/SystemOwnerSchoolsPage';
+import { SystemOwnerSettingsPage } from '../pages/SystemOwnerSettingsPage';
+import { SystemOwnerMaintenancePage } from '../pages/SystemOwnerMaintenancePage';
+import { SystemOwnerShell } from './SystemOwnerShell';
 
 function RouteGate({ authOnly = true, requireMembership = true }: { authOnly?: boolean; requireMembership?: boolean }) {
   const { user, loading, memberships } = useAuth();
@@ -76,6 +80,33 @@ function SchoolWorkspaceGate() {
   return <Outlet />;
 }
 
+function SystemOwnerGate() {
+  const { user } = useAuth();
+  const [access, setAccess] = useState<'checking' | 'owner' | 'denied' | 'error'>('checking');
+  const [retry, setRetry] = useState(0);
+
+  useEffect(() => {
+    let active = true;
+    if (!user) {
+      setAccess('denied');
+      return () => { active = false; };
+    }
+    setAccess('checking');
+    void checkSystemOwner()
+      .then((isOwner) => { if (active) setAccess(isOwner ? 'owner' : 'denied'); })
+      .catch((error: unknown) => {
+        console.error('Could not verify system owner page access.', error);
+        if (active) setAccess('error');
+      });
+    return () => { active = false; };
+  }, [user, retry]);
+
+  if (access === 'checking') return <div className="full-screen-loading"><LoadingState label="Verifying system owner access…" /></div>;
+  if (access === 'error') return <main className="config-page"><div className="config-card"><ErrorState message="Owner authorization could not be verified. Access is denied until verification succeeds." /><button className="button button-primary" onClick={() => setRetry((value) => value + 1)}>Retry verification</button></div></main>;
+  if (access === 'denied') return <Navigate to={user ? '/dashboard' : '/login'} replace />;
+  return <Outlet />;
+}
+
 function SetupRequired() {
   return <main className="config-page"><div className="config-card"><span className="brand-mark"><BookOpenCheckIcon /></span><span className="eyebrow">One setup step remaining</span><h1>Connect your Supabase project</h1><p>The app is configured to use Supabase Auth and PostgreSQL, but no project credentials are present yet. Add the public project URL and anon key to your local <code>.env</code> file.</p><pre>VITE_SUPABASE_URL=https://your-project.supabase.co{'\n'}VITE_SUPABASE_ANON_KEY=your-anon-key</pre><p>Then apply the migration in <code>supabase/migrations</code> using the Supabase CLI or SQL editor, and restart the dev server. Never put a service-role key in this app.</p></div></main>;
 }
@@ -92,7 +123,14 @@ export function ProtectedApp() {
       <Route path="/login" element={<LoginRoute />} />
       <Route path="/school/:slug" element={<PublicSchoolWebsitePage />} />
       <Route element={<RouteGate requireMembership={false} />}>
-        <Route path="/system-owner" element={<SystemOwnerPage />} />
+        <Route path="/system-owner" element={<SystemOwnerGate />}>
+          <Route element={<SystemOwnerShell />}>
+            <Route index element={<SystemOwnerPage />} />
+            <Route path="schools" element={<SystemOwnerSchoolsPage />} />
+            <Route path="settings" element={<SystemOwnerSettingsPage />} />
+            <Route path="maintenance" element={<SystemOwnerMaintenancePage />} />
+          </Route>
+        </Route>
         <Route element={<SchoolWorkspaceGate />}>
           <Route element={<AppShell />}>
           <Route path="/dashboard" element={<DashboardPage />} />

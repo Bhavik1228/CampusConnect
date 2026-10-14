@@ -24,10 +24,24 @@ type OwnerRequest = {
   school?: unknown;
   adminEmail?: unknown;
   settings?: unknown;
+  enabled?: unknown;
+  readOnly?: unknown;
+  emergency?: unknown;
+  notice?: unknown;
+  scope?: unknown;
+  moduleKey?: unknown;
+  startsAt?: unknown;
+  endsAt?: unknown;
+  windowId?: unknown;
 };
 
 const schoolTypes = ['primary', 'secondary', 'k12', 'university', 'other'];
 const subscriptionStatuses = ['free', 'trial', 'active', 'past_due', 'cancelled'];
+const maintenanceModules = [
+  'academics', 'admissions', 'assignments', 'attendance', 'calendar',
+  'communication', 'finance', 'grades', 'learning', 'messaging',
+  'staff', 'students', 'timetable',
+];
 
 function respond(status: number, body: Record<string, unknown>) {
   return new Response(JSON.stringify(body), {
@@ -88,6 +102,183 @@ Deno.serve(async (request: Request) => {
         && Deno.env.get('R2_SECRET_ACCESS_KEY'),
       );
       return respond(200, { dashboard: { ...data, managedStorageConfigured } });
+    }
+
+    if (payload.action === 'maintenance-dashboard') {
+      const [
+        { data: maintenance, error: maintenanceError },
+        { data: status, error: statusError },
+        { data: windows, error: windowsError },
+        { data: schools, error: schoolsError },
+      ] = await Promise.all([
+        serviceClient.from('platform_maintenance').select('*').eq('id', 1).single(),
+        serviceClient.rpc('platform_maintenance_status'),
+        serviceClient.from('platform_maintenance_windows')
+          .select('id,scope,school_id,module_key,starts_at,ends_at,read_only,notice,cancelled_at,created_at,school:schools(name)')
+          .is('cancelled_at', null)
+          .order('starts_at', { ascending: true })
+          .limit(100),
+        serviceClient.from('schools').select('id,name').order('name').limit(1000),
+      ]);
+      if (maintenanceError) throw maintenanceError;
+      if (statusError) throw statusError;
+      if (windowsError) throw windowsError;
+      if (schoolsError) throw schoolsError;
+      return respond(200, { maintenance, status, windows, schools, modules: maintenanceModules });
+    }
+
+    if (payload.action === 'set-global-maintenance') {
+      if (typeof payload.enabled !== 'boolean'
+        || typeof payload.readOnly !== 'boolean'
+        || typeof payload.emergency !== 'boolean'
+        || !isShortText(payload.notice, 2000)) {
+        return respond(400, { error: 'Provide a valid global maintenance state, access mode, and notice.' });
+      }
+      const enabled = payload.enabled;
+      const { error } = await serviceClient.from('platform_maintenance').upsert({
+        id: 1,
+        global_enabled: enabled,
+        global_read_only: enabled && payload.readOnly,
+        emergency_enabled: enabled && payload.emergency,
+        notice: payload.notice,
+        updated_by: user.id,
+        updated_at: new Date().toISOString(),
+      }, { onConflict: 'id' });
+      if (error) throw error;
+      if (!enabled) {
+        const { error: cancelError } = await serviceClient.from('platform_maintenance_windows')
+          .update({ cancelled_at: new Date().toISOString() })
+          .eq('scope', 'global')
+          .is('cancelled_at', null);
+        if (cancelError) throw cancelError;
+      }
+      const { error: activityError } = await serviceClient.from('platform_activity').insert({
+        actor_id: user.id,
+        action: enabled ? payload.emergency ? 'emergency_maintenance_activated' : 'global_maintenance_activated' : 'global_maintenance_disabled',
+        target_type: 'platform_maintenance',
+        details: { read_only: enabled && payload.readOnly, emergency: enabled && payload.emergency },
+      });
+      if (activityError) throw activityError;
+      return respond(200, { enabled });
+    }
+
+    if (payload.action === 'schedule-maintenance') {
+      if (!['global', 'school', 'module'].includes(String(payload.scope))
+        || typeof payload.startsAt !== 'string'
+        || !Number.isFinite(Date.parse(payload.startsAt))
+        || (payload.endsAt !== null && payload.endsAt !== undefined
+          && (typeof payload.endsAt !== 'string' || !Number.isFinite(Date.parse(payload.endsAt))))
+        || (typeof payload.endsAt === 'string' && Date.parse(payload.endsAt) <= Date.parse(payload.startsAt))
+        || (Date.parse(payload.startsAt) > Date.now() && !payload.endsAt)
+        || typeof payload.readOnly !== 'boolean'
+        || !isShortText(payload.notice, 2000)) {
+        return respond(400, { error: 'Enter valid maintenance scope, start/end times, mode, and notice.' });
+      }
+      const scope = payload.scope as string;
+      if ((scope === 'school' || scope === 'module') && !isUuid(payload.schoolId)) {
+        return respond(400, { error: 'Choose a valid school for scoped maintenance.' });
+      }
+      if (scope === 'module' && (typeof payload.moduleKey !== 'string' || !maintenanceModules.includes(payload.moduleKey))) {
+        return respond(400, { error: 'Choose a valid module for module-specific maintenance.' });
+      }
+      const { data, error } = await serviceClient.from('platform_maintenance_windows').insert({
+        scope,
+        school_id: scope === 'global' ? null : payload.schoolId,
+        module_key: scope === 'module' ? payload.moduleKey : null,
+        starts_at: new Date(payload.startsAt).toISOString(),
+        ends_at: typeof payload.endsAt === 'string' ? new Date(payload.endsAt).toISOString() : null,
+        read_only: payload.readOnly,
+        notice: payload.notice,
+        created_by: user.id,
+      }).select('id').single();
+      if (error) throw error;
+      const { error: activityError } = await serviceClient.from('platform_activity').insert({
+        actor_id: user.id,
+        action: 'maintenance_scheduled',
+        target_type: 'maintenance_window',
+        target_id: data.id,
+        details: { scope, school_id: scope === 'global' ? null : payload.schoolId, module: scope === 'module' ? payload.moduleKey : null },
+      });
+      if (activityError) throw activityError;
+      return respond(200, { windowId: data.id });
+    }
+
+    if (payload.action === 'set-scoped-maintenance') {
+      if ((payload.scope !== 'school' && payload.scope !== 'module')
+        || !isUuid(payload.schoolId)
+        || typeof payload.enabled !== 'boolean'
+        || typeof payload.readOnly !== 'boolean'
+        || !isShortText(payload.notice, 2000)
+        || (payload.scope === 'module' && (typeof payload.moduleKey !== 'string' || !maintenanceModules.includes(payload.moduleKey)))) {
+        return respond(400, { error: 'Provide a valid school/module maintenance scope and access mode.' });
+      }
+      if (!payload.enabled) {
+        const updateQuery = serviceClient.from('platform_maintenance_windows')
+          .update({ cancelled_at: new Date().toISOString() })
+          .eq('scope', payload.scope)
+          .eq('school_id', payload.schoolId)
+          .is('cancelled_at', null)
+          .lte('starts_at', new Date().toISOString())
+          .is('ends_at', null);
+        const { error } = payload.scope === 'module'
+          ? await updateQuery.eq('module_key', payload.moduleKey)
+          : await updateQuery;
+        if (error) throw error;
+      } else {
+        const existingQuery = serviceClient.from('platform_maintenance_windows')
+          .select('id', { count: 'exact', head: true })
+          .eq('scope', payload.scope)
+          .eq('school_id', payload.schoolId)
+          .is('cancelled_at', null)
+          .lte('starts_at', new Date().toISOString())
+          .is('ends_at', null);
+        const { error: existingError, count } = payload.scope === 'module'
+          ? await existingQuery.eq('module_key', payload.moduleKey)
+          : await existingQuery;
+        if (existingError) throw existingError;
+        if (count) return respond(409, { error: 'This maintenance mode is already enabled.' });
+        const { error } = await serviceClient.from('platform_maintenance_windows').insert({
+          scope: payload.scope,
+          school_id: payload.schoolId,
+          module_key: payload.scope === 'module' ? payload.moduleKey : null,
+          starts_at: new Date().toISOString(),
+          ends_at: null,
+          read_only: payload.readOnly,
+          notice: payload.notice,
+          created_by: user.id,
+        });
+        if (error) throw error;
+      }
+      const { error: activityError } = await serviceClient.from('platform_activity').insert({
+        actor_id: user.id,
+        action: `${payload.scope}_maintenance_${payload.enabled ? 'activated' : 'disabled'}`,
+        target_type: payload.scope,
+        target_id: payload.schoolId,
+        details: { module: payload.scope === 'module' ? payload.moduleKey : null, read_only: payload.enabled && payload.readOnly },
+      });
+      if (activityError) throw activityError;
+      return respond(200, { enabled: payload.enabled });
+    }
+
+    if (payload.action === 'cancel-maintenance') {
+      if (!isUuid(payload.windowId)) return respond(400, { error: 'Choose a valid scheduled maintenance window.' });
+      const { data, error } = await serviceClient.from('platform_maintenance_windows')
+        .update({ cancelled_at: new Date().toISOString() })
+        .eq('id', payload.windowId)
+        .is('cancelled_at', null)
+        .select('id,scope,school_id,module_key')
+        .maybeSingle();
+      if (error) throw error;
+      if (!data) return respond(404, { error: 'The maintenance window has already ended or been cancelled.' });
+      const { error: activityError } = await serviceClient.from('platform_activity').insert({
+        actor_id: user.id,
+        action: 'maintenance_cancelled',
+        target_type: 'maintenance_window',
+        target_id: data.id,
+        details: { scope: data.scope, school_id: data.school_id, module: data.module_key },
+      });
+      if (activityError) throw activityError;
+      return respond(200, { cancelled: true });
     }
 
     if (payload.action === 'list-schools') {

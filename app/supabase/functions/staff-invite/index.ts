@@ -76,6 +76,15 @@ Deno.serve(async (request: Request) => {
     if (membershipCheckError) throw membershipCheckError;
     if (!adminMembership) return respond(403, { error: 'Only a school administrator can invite accounting staff.' });
 
+    const { data: maintenance, error: maintenanceError } = await adminClient.rpc('platform_maintenance_status', {
+      target_school: schoolId,
+      target_module: 'staff',
+    });
+    if (maintenanceError) throw maintenanceError;
+    if (maintenance?.active) {
+      return respond(423, { error: 'Staff changes are temporarily disabled during maintenance.' });
+    }
+
     const { data: invitation, error: invitationError } = await adminClient.auth.admin.inviteUserByEmail(email, {
       data: { full_name: fullName },
     });

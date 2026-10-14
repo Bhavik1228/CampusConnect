@@ -202,6 +202,17 @@ Deno.serve(async (request: Request) => {
         return respond(403, { error: 'This school is suspended. Contact Campus Connect support for assistance.' });
       }
 
+      if (action !== 'list-connections') {
+        const { data: maintenance, error: maintenanceError } = await serviceClient.rpc('platform_maintenance_status', {
+          target_school: payload.schoolId,
+          target_module: 'learning',
+        });
+        if (maintenanceError) throw maintenanceError;
+        if (maintenance?.active) {
+          return respond(423, { error: 'Learning materials are temporarily read-only or unavailable during maintenance.' });
+        }
+      }
+
       if (action === 'list-connections') {
         if (!roles.some((role) => ['school_admin', 'academic_coordinator', 'teacher'].includes(role))) {
           return respond(403, { error: 'School staff access is required to view storage options.' });
@@ -332,6 +343,17 @@ Deno.serve(async (request: Request) => {
     if (materialError) throw materialError;
     if (!material) return respond(404, { error: 'The learning resource is unavailable or you do not have access.' });
     const record = material as Material;
+    if (['create-upload-url', 'finalize-upload', 'delete-resource'].includes(action)) {
+      const { data: maintenance, error: maintenanceError } = await serviceClient.rpc('platform_maintenance_status', {
+        target_school: record.school_id,
+        target_module: 'learning',
+      });
+      if (maintenanceError) throw maintenanceError;
+      if (maintenance?.active) {
+        return respond(423, { error: 'Learning materials are temporarily read-only or unavailable during maintenance.' });
+      }
+    }
+
     let r2Credentials: R2Credentials | undefined;
     if (record.storage_provider === 'r2') {
       if (record.storage_connection_id) {
