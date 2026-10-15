@@ -1,4 +1,4 @@
-export type AppRole = 'system_admin' | 'school_admin' | 'academic_coordinator' | 'teacher' | 'student' | 'parent' | 'finance_manager' | 'accountant' | 'bursar' | 'cashier' | 'nurse' | 'doctor';
+export type AppRole = 'system_admin' | 'school_admin' | 'academic_coordinator' | 'teacher' | 'student' | 'parent' | 'finance_manager' | 'accountant' | 'bursar' | 'cashier' | 'nurse' | 'doctor' | 'secretary';
 
 export interface SchoolMembership {
   school_id: string;
@@ -137,6 +137,7 @@ export interface SchoolModuleSettings {
   module_transport: boolean;
   module_hostel: boolean;
   module_health: boolean;
+  module_visitors: boolean;
   module_canteen: boolean;
   module_uniform: boolean;
   attendance_lesson_registers: boolean;

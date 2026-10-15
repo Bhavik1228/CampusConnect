@@ -34,6 +34,7 @@ const roleLabels: Record<AppRole, string> = {
   cashier: 'Cashier',
   nurse: 'School nurse',
   doctor: 'School doctor',
+  secretary: 'School secretary',
 };
 
 export function AccountingStaffPage() {

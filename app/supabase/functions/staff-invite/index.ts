@@ -6,7 +6,7 @@ const corsHeaders = {
   'Access-Control-Allow-Methods': 'POST, OPTIONS',
 };
 
-const supportedStaffRoles = new Set(['finance_manager', 'accountant', 'bursar', 'cashier', 'nurse', 'doctor']);
+const supportedStaffRoles = new Set(['finance_manager', 'accountant', 'bursar', 'cashier', 'nurse', 'doctor', 'secretary']);
 
 interface InviteRequest {
   schoolId?: unknown;
@@ -74,7 +74,7 @@ Deno.serve(async (request: Request) => {
       .eq('role', 'school_admin')
       .maybeSingle();
     if (membershipCheckError) throw membershipCheckError;
-    if (!adminMembership) return respond(403, { error: 'Only a school administrator can invite accounting staff.' });
+    if (!adminMembership) return respond(403, { error: 'Only a school administrator can invite staff.' });
 
     const { data: maintenance, error: maintenanceError } = await adminClient.rpc('platform_maintenance_status', {
       target_school: schoolId,

@@ -145,7 +145,7 @@ const moduleGroups: { title: string; description: string; options: [keyof School
   ] },
   { title: 'School services', description: 'Optional services for schools that need them.', options: [
     ['module_analytics', 'Analytics'], ['module_library', 'Library'], ['module_finance', 'Finance'],
-    ['module_transport', 'Transport'], ['module_hostel', 'Hostel'], ['module_health', 'Health office'],
+    ['module_transport', 'Transport'], ['module_hostel', 'Hostel'], ['module_health', 'Health office'], ['module_visitors', 'Visitor management'],
     ['module_canteen', 'Canteen'], ['module_uniform', 'Uniforms'],
   ] },
 ];

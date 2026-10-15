@@ -36,6 +36,7 @@ import { SystemOwnerMaintenancePage } from '../pages/SystemOwnerMaintenancePage'
 import { SystemOwnerShell } from './SystemOwnerShell';
 import { LibraryPage, PublicLibraryBookPage } from '../pages/LibraryPage';
 import { HealthPage } from '../pages/HealthPage';
+import { VisitorsPage } from '../pages/VisitorsPage';
 
 function RouteGate({ authOnly = true, requireMembership = true }: { authOnly?: boolean; requireMembership?: boolean }) {
   const { user, loading, memberships } = useAuth();
@@ -154,6 +155,8 @@ export function ProtectedApp() {
           <Route path="/library" element={<LibraryPage />} />
           <Route path="/health" element={<HealthPage />} />
           <Route path="/health/report/:visitId" element={<HealthPage />} />
+          <Route path="/visitors" element={<VisitorsPage />} />
+          <Route path="/visitors/verify/:visitId" element={<VisitorsPage />} />
           <Route path="/assignments" element={<AssignmentsPage />} />
           <Route path="/grades-results" element={<GradesResultsPage />} />
           <Route path="/calendar" element={<AcademicPages kind="calendar" />} />
@@ -185,6 +188,10 @@ function LoginRoute() {
     && /^\/health\/report\/[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(requestedDestination)
     ? requestedDestination
     : null;
+  const visitorBadgePath = requestedDestination
+    && /^\/visitors\/verify\/[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(requestedDestination)
+    ? requestedDestination
+    : null;
 
   useEffect(() => {
     let active = true;
@@ -210,6 +217,7 @@ function LoginRoute() {
   if (user && ownerStatus === 'owner') return <Navigate to="/system-owner" replace />;
   if (user && publicBookPath) return <Navigate to={publicBookPath} replace />;
   if (user && healthReportPath) return <Navigate to={healthReportPath} replace />;
+  if (user && visitorBadgePath) return <Navigate to={visitorBadgePath} replace />;
   if (user && memberships.length === 0) return <SchoolSetup />;
   if (user) return <Navigate to="/dashboard" replace />;
   return <AuthScreen />;
