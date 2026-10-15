@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react';
-import { NavLink, Outlet, useLocation, useNavigate } from 'react-router-dom';
+import { Navigate, NavLink, Outlet, useLocation, useNavigate } from 'react-router-dom';
 import {
   BookCopy, BookMarked, BookOpenCheck, BookOpenText, CalendarDays, Check, ChevronDown, ClipboardList, Library,
   ChevronLeft, ClipboardCheck, GraduationCap, LayoutDashboard, LogOut, Menu,
@@ -66,8 +66,10 @@ export function AppShell() {
   const [maintenance, setMaintenance] = useState<{ active: boolean; scope: string | null; read_only: boolean; notice: string; ends_at: string | null; emergency: boolean } | null>(null);
   const navigate = useNavigate();
   const location = useLocation();
+  const isHealthcareRole = activeMembership?.role === 'nurse' || activeMembership?.role === 'doctor';
   const title = pageNames[location.pathname] ?? (location.pathname.startsWith('/health/report/') ? 'Health report' : 'Workspace');
   const modulePath = location.pathname.startsWith('/health/report/') ? '/health' : location.pathname;
+  const isHealthRoute = modulePath === '/health';
   const moduleForPath: Record<string, string> = {
     '/admissions': 'module_admissions',
     '/timetable': 'module_timetable',
@@ -114,22 +116,28 @@ export function AppShell() {
     if (!activeMembership) return () => { active = false; };
     void (async () => {
       try {
+        const client = requireSupabase();
         const [moduleResult, maintenanceResult] = await Promise.all([
-          requireSupabase().from('school_module_settings')
-            .select('module_admissions,module_attendance,module_timetable,module_learning,module_assignments,module_assessment_results,module_finance,module_messaging,module_library,module_health')
-            .eq('school_id', activeMembership.school_id)
-            .maybeSingle(),
-          requireSupabase().rpc('platform_maintenance_status', {
+          isHealthcareRole
+            ? client.rpc('health_access_enabled', { target_school: activeMembership.school_id })
+            : client.from('school_module_settings')
+              .select('module_admissions,module_attendance,module_timetable,module_learning,module_assignments,module_assessment_results,module_finance,module_messaging,module_library,module_health')
+              .eq('school_id', activeMembership.school_id)
+              .maybeSingle(),
+          client.rpc('platform_maintenance_status', {
             target_school: activeMembership.school_id,
             target_module: maintenanceModuleForPath[modulePath] ?? null,
           }),
         ]);
         if (moduleResult.error) throw moduleResult.error;
-        if (!moduleResult.data) throw new Error('School module settings are missing. Ask a school administrator to check the school setup.');
+        if (isHealthcareRole && typeof moduleResult.data !== 'boolean') throw new Error('Could not verify that the school health module is enabled.');
+        if (!isHealthcareRole && !moduleResult.data) throw new Error('School module settings are missing. Ask a school administrator to check the school setup.');
         if (maintenanceResult.error) throw maintenanceResult.error;
         if (!maintenanceResult.data || typeof maintenanceResult.data.active !== 'boolean') throw new Error('Maintenance status returned an invalid response.');
         if (active) {
-          setModules(moduleResult.data as Record<string, boolean>);
+          setModules(isHealthcareRole
+            ? { module_health: moduleResult.data === true }
+            : moduleResult.data as Record<string, boolean>);
           setMaintenance(maintenanceResult.data);
         }
       } catch (error) {
@@ -138,7 +146,7 @@ export function AppShell() {
       }
     })();
     return () => { active = false; };
-  }, [activeMembership?.school_id, location.pathname]);
+  }, [activeMembership?.school_id, location.pathname, isHealthcareRole]);
 
   useEffect(() => {
     if (!activeMembership) return;
@@ -176,32 +184,40 @@ export function AppShell() {
 
   function sidebarContent() {
     const isAccountingRole = ['finance_manager', 'accountant', 'bursar', 'cashier'].includes(activeMembership?.role ?? '');
+    const visibleNavigation = isHealthcareRole
+      ? navigation.map((group) => ({
+        ...group,
+        items: group.items.filter((item) => item.to === '/health'),
+      })).filter((group) => group.items.length > 0)
+      : navigation;
     return <>
       <div className="sidebar-top">
         <a className="brand" href="/"><span className="brand-mark">{logoUrl ? <img src={logoUrl} alt="" /> : <BookOpenCheck size={20} />}</span><span>{platformName}</span></a>
         <button className="icon-button mobile-close" onClick={() => setMobileOpen(false)} aria-label="Close navigation"><X size={20} /></button>
       </div>
-      <div className="school-picker-wrap">
+      {!isHealthcareRole && <div className="school-picker-wrap">
         <button className="school-picker" onClick={() => setSchoolMenuOpen(!schoolMenuOpen)} aria-expanded={schoolMenuOpen}>
           <span className="school-monogram">{activeMembership?.school.name.slice(0, 1).toUpperCase() ?? 'S'}</span>
           <span className="school-picker-copy"><strong>{activeMembership?.school.name}</strong><small>{activeMembership?.role.replace(/_/g, ' ')}</small></span>
           <ChevronDown size={16} />
         </button>
         {schoolMenuOpen && <div className="school-menu">{memberships.map((membership) => <button key={membership.school_id} onClick={() => { selectSchool(membership.school_id); setSchoolMenuOpen(false); setMobileOpen(false); }}><span>{membership.school.name}</span>{membership.school_id === activeMembership?.school_id && <Check size={15} />}</button>)}</div>}
-      </div>
+      </div>}
       <nav className="side-navigation" aria-label="Main navigation">
-        {navigation.map((group) => {
+        {visibleNavigation.map((group) => {
           const items = group.items.filter((item) => (!item.roles || item.roles.includes(activeMembership?.role ?? 'student'))
             && (!item.module || modules?.[item.module] !== false));
           return items.length ? <div className="nav-group" key={group.title}><span className="nav-label">{group.title}</span>{items.map(({ to, label, icon: Icon }) => <NavLink key={to} to={to} onClick={() => setMobileOpen(false)} className={({ isActive }) => `nav-item${isActive ? ' active' : ''}`}><Icon size={18} strokeWidth={1.8} /><span>{label}</span></NavLink>)}</div> : null;
         })}
       </nav>
       <div className="sidebar-bottom">
-        {!isAccountingRole && <NavLink to="/settings" onClick={() => setMobileOpen(false)} className={({ isActive }) => `nav-item${isActive ? ' active' : ''}`}><Settings size={18} strokeWidth={1.8} /><span>Settings</span></NavLink>}
+        {!isHealthcareRole && !isAccountingRole && <NavLink to="/settings" onClick={() => setMobileOpen(false)} className={({ isActive }) => `nav-item${isActive ? ' active' : ''}`}><Settings size={18} strokeWidth={1.8} /><span>Settings</span></NavLink>}
         <div className="profile-row"><span className="avatar">{(user?.user_metadata.full_name as string | undefined)?.slice(0, 1).toUpperCase() ?? user?.email?.slice(0, 1).toUpperCase()}</span><span className="profile-copy"><strong>{(user?.user_metadata.full_name as string | undefined) ?? user?.email}</strong><small>{user?.email}</small></span><button className="icon-button" onClick={() => void logout()} aria-label="Sign out"><LogOut size={17} /></button></div>
       </div>
     </>;
   }
+
+  if (isHealthcareRole && !isHealthRoute) return <Navigate to="/health" replace />;
 
   return (
     <div className="app-layout">
