@@ -49,6 +49,8 @@ const roleNames: Record<AppRole, string> = {
   accountant: 'Accountant',
   bursar: 'Bursar',
   cashier: 'Cashier',
+  nurse: 'School nurse',
+  doctor: 'School doctor',
 };
 
 function formatDate(value: string | null) {

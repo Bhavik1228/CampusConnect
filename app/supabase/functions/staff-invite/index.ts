@@ -6,7 +6,7 @@ const corsHeaders = {
   'Access-Control-Allow-Methods': 'POST, OPTIONS',
 };
 
-const accountingRoles = new Set(['finance_manager', 'accountant', 'bursar', 'cashier']);
+const supportedStaffRoles = new Set(['finance_manager', 'accountant', 'bursar', 'cashier', 'nurse', 'doctor']);
 
 interface InviteRequest {
   schoolId?: unknown;
@@ -59,8 +59,8 @@ Deno.serve(async (request: Request) => {
     if (email.length > 320 || !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) {
       return respond(400, { error: 'Enter a valid email address.' });
     }
-    if (!accountingRoles.has(role)) {
-      return respond(400, { error: 'Choose a supported accounting role.' });
+    if (!supportedStaffRoles.has(role)) {
+      return respond(400, { error: 'Choose a supported staff role.' });
     }
 
     const adminClient = createClient(supabaseUrl, serviceRoleKey, {

@@ -4,7 +4,7 @@ import {
   BookCopy, BookMarked, BookOpenCheck, BookOpenText, CalendarDays, Check, ChevronDown, ClipboardList, Library,
   ChevronLeft, ClipboardCheck, GraduationCap, LayoutDashboard, LogOut, Menu,
   Settings, UsersRound, X, CalendarClock, CircleDollarSign, UserRoundPlus,
-  Award, BriefcaseBusiness, FileStack,
+  Award, BriefcaseBusiness, FileStack, HeartPulse,
   MessageCircle, ShieldCheck,
   type LucideIcon,
 } from 'lucide-react';
@@ -31,6 +31,7 @@ const navigation: { title: string; items: { to: string; label: string; icon: Luc
     { to: '/courses-lessons', label: 'Courses & lessons', icon: Library, module: 'module_learning' },
     { to: '/learning-materials', label: 'Learning materials', icon: FileStack, module: 'module_learning' },
     { to: '/library', label: 'Library', icon: BookCopy, module: 'module_library' },
+    { to: '/health', label: 'Health', icon: HeartPulse, roles: ['school_admin', 'nurse', 'doctor'], module: 'module_health' },
     { to: '/assignments', label: 'Assignments & homework', icon: ClipboardList, roles: ['school_admin', 'academic_coordinator', 'teacher', 'student', 'parent'], module: 'module_assignments' },
     { to: '/grades-results', label: 'Grades & results', icon: Award, roles: ['school_admin', 'academic_coordinator', 'teacher', 'student', 'parent'], module: 'module_assessment_results' },
     { to: '/calendar', label: 'Calendar', icon: CalendarDays },
@@ -51,7 +52,7 @@ const pageNames: Record<string, string> = {
   '/learning': 'Learning', '/courses-lessons': 'Courses & lessons', '/learning-materials': 'Learning materials', '/assignments': 'Assignments & homework', '/grades-results': 'Grades & results', '/calendar': 'Calendar', '/academic-calendar': 'Academic calendar', '/settings': 'Settings',
   '/finance': 'Student fees', '/accounting-staff': 'Accounting staff',
   '/messaging': 'Messages', '/audit-log': 'Audit log',
-  '/library': 'Library',
+  '/library': 'Library', '/health': 'Student health', '/health/report': 'Health report',
 };
 
 export function AppShell() {
@@ -65,7 +66,8 @@ export function AppShell() {
   const [maintenance, setMaintenance] = useState<{ active: boolean; scope: string | null; read_only: boolean; notice: string; ends_at: string | null; emergency: boolean } | null>(null);
   const navigate = useNavigate();
   const location = useLocation();
-  const title = pageNames[location.pathname] ?? 'Workspace';
+  const title = pageNames[location.pathname] ?? (location.pathname.startsWith('/health/report/') ? 'Health report' : 'Workspace');
+  const modulePath = location.pathname.startsWith('/health/report/') ? '/health' : location.pathname;
   const moduleForPath: Record<string, string> = {
     '/admissions': 'module_admissions',
     '/timetable': 'module_timetable',
@@ -79,6 +81,7 @@ export function AppShell() {
     '/accounting-staff': 'module_finance',
     '/messaging': 'module_messaging',
     '/library': 'module_library',
+    '/health': 'module_health',
   };
   const maintenanceModuleForPath: Record<string, string> = {
     '/admissions': 'admissions',
@@ -93,6 +96,7 @@ export function AppShell() {
     '/accounting-staff': 'finance',
     '/messaging': 'messaging',
     '/library': 'library',
+    '/health': 'health',
     '/students': 'students',
     '/teachers': 'staff',
     '/staff': 'staff',
@@ -101,7 +105,7 @@ export function AppShell() {
     '/calendar': 'calendar',
     '/academic-calendar': 'calendar',
   };
-  const disabledModule = moduleForPath[location.pathname] && modules?.[moduleForPath[location.pathname]] === false;
+  const disabledModule = moduleForPath[modulePath] && modules?.[moduleForPath[modulePath]] === false;
 
   useEffect(() => {
     let active = true;
@@ -112,12 +116,12 @@ export function AppShell() {
       try {
         const [moduleResult, maintenanceResult] = await Promise.all([
           requireSupabase().from('school_module_settings')
-            .select('module_admissions,module_attendance,module_timetable,module_learning,module_assignments,module_assessment_results,module_finance,module_messaging,module_library')
+            .select('module_admissions,module_attendance,module_timetable,module_learning,module_assignments,module_assessment_results,module_finance,module_messaging,module_library,module_health')
             .eq('school_id', activeMembership.school_id)
             .maybeSingle(),
           requireSupabase().rpc('platform_maintenance_status', {
             target_school: activeMembership.school_id,
-            target_module: maintenanceModuleForPath[location.pathname] ?? null,
+            target_module: maintenanceModuleForPath[modulePath] ?? null,
           }),
         ]);
         if (moduleResult.error) throw moduleResult.error;
@@ -143,7 +147,7 @@ export function AppShell() {
       try {
         const { data, error } = await requireSupabase().rpc('platform_maintenance_status', {
           target_school: activeMembership.school_id,
-          target_module: maintenanceModuleForPath[location.pathname] ?? null,
+          target_module: maintenanceModuleForPath[modulePath] ?? null,
         });
         if (error) throw error;
         if (!data || typeof data.active !== 'boolean') throw new Error('Maintenance status returned an invalid response.');
