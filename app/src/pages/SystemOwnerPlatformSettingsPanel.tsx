@@ -26,7 +26,7 @@ const schoolTypes = [
 const globalFeatures = [
   ['attendance', 'Attendance'], ['timetable', 'Timetable'], ['learning', 'Learning'],
   ['assignments', 'Assignments'], ['grades', 'Grades and results'], ['finance', 'Finance'],
-  ['messaging', 'Messaging'], ['admissions', 'Admissions'],
+  ['messaging', 'Messaging'], ['admissions', 'Admissions'], ['mobile_app', 'Android app access'],
 ];
 const dateFormats = ['YYYY-MM-DD', 'DD/MM/YYYY', 'MM/DD/YYYY', 'DD.MM.YYYY'];
 

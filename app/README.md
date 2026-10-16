@@ -37,6 +37,11 @@ The academic modules whose backend schema exists but which do not yet have compl
 - Vite
 - React Router
 - Supabase Auth, PostgreSQL, and RLS, with private Cloudflare R2 object storage for new learning materials and Supabase Storage compatibility for existing files
+- Optional Android client: Expo Router, React Native, and TypeScript in [`mobile/`](./mobile/) (setup and build instructions in [`mobile/README.md`](./mobile/README.md))
+
+## Android app
+
+The Android project is maintained separately in `app/mobile/` and reuses this web app's Supabase project and database. Apply the pending Android access migration before inviting mobile users. School administrators enable Android access and configure role/module availability in **Settings → Modules & features**; the System Owner can disable it globally in **Platform settings → Global feature availability**. See the [Android app guide](./mobile/README.md) for environment setup, workflows, limitations, and APK/EAS build steps.
 
 Supabase remains the authentication, metadata, and authorization backend. No service-role key belongs in the browser.
 
@@ -110,14 +115,14 @@ Supabase remains the authentication, metadata, and authorization backend. No ser
    npx supabase functions deploy login-alert
    ```
 
-8. In the Supabase dashboard's **Edge Functions → Secrets**, set `POSTMARK_SERVER_TOKEN`, `POSTMARK_FROM_EMAIL` (a verified Postmark sender), `SECURITY_ALERT_EMAIL` (the security mailbox), and `LOGIN_ALERT_HASH_SECRET` (a random secret of at least 32 bytes). Do not put these values in the Vite `.env` file or browser bundle. Supabase supplies the function with its project URL and service-role secret; the service-role secret must remain in Edge Function/server configuration only.
+8. In the Supabase dashboard's **Edge Functions → Secrets**, set `RESEND_API_KEY`, `RESEND_FROM_EMAIL` (an address on your verified sending domain), `SECURITY_ALERT_EMAIL` (the security mailbox), and `LOGIN_ALERT_HASH_SECRET` (a random secret of at least 32 bytes). `login-alert` uses Resend when these Resend settings are present; otherwise it retains the legacy Postmark settings `POSTMARK_SERVER_TOKEN` and `POSTMARK_FROM_EMAIL`. Do not put provider secrets in the Vite `.env` file or browser bundle. Supabase supplies the function with its project URL and service-role secret; the service-role secret must remain in Edge Function/server configuration only.
 9. Start the app from `app/`.
 
 The project URL and anon key must come from the same active Supabase project. Copy the **Project URL** from the Supabase dashboard (Project Settings → API); a DNS error such as `ERR_NAME_NOT_RESOLVED` means the configured hostname cannot be found and authentication requests cannot reach Supabase. Correct `VITE_SUPABASE_URL` in `app/.env`, then restart Vite because environment variables are read at startup.
 
-Supabase Auth sends signup verification and password-reset messages. The deployed `login-alert` Edge Function uses Postmark for successful-login notices and notifies the designated security mailbox after five failed-login responses for the same account/source within 15 minutes; repeat notices are limited to one per hour for that pair. Failed-attempt reports originate in the browser after Supabase rejects a sign-in, so treat them as a security signal, not authoritative audit evidence. Failed-attempt fingerprints are HMACed server-side and retained for at most 30 days. Do not email passwords, access tokens, or the submitted login credentials.
+Supabase Auth sends signup verification, password-reset, and staff-invitation emails. The `login-alert` Edge Function uses Resend for successful-login notices and notifies the designated security mailbox after five failed-login responses for the same account/source within 15 minutes; repeat notices are limited to one per hour for that pair. Failed-attempt reports originate in the browser after Supabase rejects a sign-in, so treat them as a security signal, not authoritative audit evidence. Failed-attempt fingerprints are HMACed server-side and retained for at most 30 days. Do not email passwords, access tokens, or the submitted login credentials.
 
-For production, configure custom SMTP in Supabase for reliable verification and password-reset delivery (the default email service is rate-limited and intended for testing), and verify the sender domain in Postmark. The Postmark Edge Function can be deployed without Postmark secrets, but alerts will return an error and will not be delivered until those secrets and the migration are configured.
+For production, verify a domain you own with Resend and configure Supabase Auth's custom SMTP settings to use Resend (`smtp.resend.com`, port `465`, username `resend`, password your Resend API key). Set the Auth sender address to an address on that verified domain. The free `*.vercel.app` hosting domain is not yours to authenticate as an email sender; add a custom domain to the Vercel project and verify it with Resend, or use another domain you control. Vercel hosting itself is compatible with Resend and does not need special email-domain permissions. Resend's current free transactional tier allows 3,000 emails/month with a limit of 100/day; confirm current quotas on its pricing page. The default Supabase email sender is limited and intended for testing. Keep the API key in Supabase Edge Function secrets and Supabase Auth SMTP settings only, never in Vite variables. Email notifications currently queued by attendance workflows still require a separate delivery worker; configuring Auth SMTP and `login-alert` does not deliver that queue.
 
 ## Deploying the app to Vercel
 

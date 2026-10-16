@@ -248,6 +248,17 @@ td strong { color: #3e435a; font-weight: 600; }
 .settings-toggle > input:focus-visible + .settings-switch { outline: 3px solid rgba(101, 85, 217, .26); outline-offset: 2px; }
 .settings-toggle.disabled { cursor: not-allowed; opacity: .65; }
 .settings-feature-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); column-gap: 20px; }
+.settings-table-wrap { width: 100%; overflow-x: auto; }
+.settings-table { width: 100%; min-width: 470px; border-collapse: collapse; color: #51566a; font-size: 10px; }
+.settings-table th, .settings-table td { padding: 8px 7px; border-bottom: 1px solid #eff0f5; text-align: center; }
+.settings-table thead th { color: #777d91; font-size: 9px; font-weight: 700; }
+.settings-table th:first-child { min-width: 135px; text-align: left; }
+.settings-checkbox-label { display: inline-flex; align-items: center; justify-content: center; min-width: 28px; min-height: 28px; }
+.settings-checkbox-label input { width: 15px; height: 15px; accent-color: #6555d9; }
+.settings-audit-list { display: grid; gap: 7px; margin-top: 12px; padding-top: 12px; border-top: 1px solid #eff0f5; }
+.settings-audit-list h4 { margin: 0; color: #51566a; font-size: 10px; }
+.settings-audit-list p { margin: 0; color: #858a9a; font-size: 9px; }
+.inline-warning { margin: 0; padding: 10px 12px; border-radius: 8px; background: #fff4e5; color: #8a4b00; font-size: 11px; }
 .settings-status-list { display: flex; flex-direction: column; }
 .settings-status-row { display: grid; grid-template-columns: minmax(95px, .7fr) 1fr 1fr; align-items: center; gap: 10px; padding: 5px 0; border-bottom: 1px solid #f1f1f5; }
 .settings-status-label { display: flex; flex-direction: column; gap: 4px; color: #51566a; font-size: 9px; text-transform: capitalize; }

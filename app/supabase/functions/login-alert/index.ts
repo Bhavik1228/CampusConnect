@@ -41,7 +41,36 @@ function getSourceAddress(request: Request) {
   );
 }
 
-async function sendPostmarkEmail(to: string, subject: string, textBody: string) {
+async function sendEmail(to: string, subject: string, textBody: string) {
+  const resendApiKey = Deno.env.get('RESEND_API_KEY');
+  const resendFrom = Deno.env.get('RESEND_FROM_EMAIL');
+  if (resendApiKey || resendFrom) {
+    if (!resendApiKey || !resendFrom) {
+      throw new Error('Resend sender configuration is incomplete.');
+    }
+
+    const response = await fetch('https://api.resend.com/emails', {
+      method: 'POST',
+      headers: {
+        'Authorization': `Bearer ${resendApiKey}`,
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify({
+        from: resendFrom,
+        to: [to],
+        subject,
+        text: textBody,
+      }),
+    });
+    if (!response.ok) {
+      console.error('Resend rejected a Campus Connect security email.', {
+        status: response.status,
+      });
+      throw new Error('Resend failed to send the security email.');
+    }
+    return;
+  }
+
   const token = Deno.env.get('POSTMARK_SERVER_TOKEN');
   const from = Deno.env.get('POSTMARK_FROM_EMAIL');
   if (!token || !from) throw new Error('Postmark sender configuration is missing.');
@@ -99,7 +128,7 @@ Deno.serve(async (request: Request) => {
         return jsonResponse(401, { error: 'A verified account is required.' });
       }
 
-      await sendPostmarkEmail(
+      await sendEmail(
         data.user.email,
         'New sign-in to Campus Connect',
         `A successful sign-in to your Campus Connect account was recorded at ${new Date().toISOString()}.\n\nIf this was not you, open Campus Connect and reset your password.`,
@@ -137,7 +166,7 @@ Deno.serve(async (request: Request) => {
     }
 
     try {
-      await sendPostmarkEmail(
+      await sendEmail(
         securityEmail,
         'Campus Connect: repeated sign-in failures',
         `Campus Connect recorded at least five failed sign-in attempts for an email address from the same network source within 15 minutes.\n\nThe attempted address and source IP are not included in this alert. Review your Supabase Auth logs if these attempts were unexpected.\n\nRecorded at ${new Date().toISOString()}.`,

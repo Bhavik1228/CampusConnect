@@ -5,6 +5,7 @@ import { ErrorState, LoadingState, SuccessMessage } from '../components/Feedback
 import { requireSupabase } from '../lib/supabase';
 import { StorageConnectionsPanel } from './StorageConnectionsPanel';
 import type {
+  AppRole,
   SchoolAcademicPolicies,
   SchoolCommunicationSettings,
   SchoolModuleSettings,
@@ -88,6 +89,50 @@ interface AttendanceStatus {
 }
 
 type SettingsTab = 'profile' | 'academics' | 'attendance' | 'portals' | 'modules' | 'security' | 'website' | 'storage';
+type MobileModule = 'visitors' | 'library' | 'health' | 'notifications';
+interface MobileAccessSettings {
+  enabled: boolean;
+  role_modules: Partial<Record<AppRole, MobileModule[]>>;
+  announcement: string;
+  platform_enabled: boolean;
+  updated_at: string | null;
+  recent_active_sessions?: number;
+  recent_activity?: { actor_name: string; created_at: string; previous_settings: object; new_settings: object }[];
+}
+
+const mobileRoles: { role: AppRole; label: string }[] = [
+  { role: 'school_admin', label: 'School administrator' },
+  { role: 'academic_coordinator', label: 'Academic coordinator' },
+  { role: 'teacher', label: 'Teacher' },
+  { role: 'student', label: 'Student' },
+  { role: 'parent', label: 'Parent' },
+  { role: 'finance_manager', label: 'Finance manager' },
+  { role: 'accountant', label: 'Accountant' },
+  { role: 'bursar', label: 'Bursar' },
+  { role: 'cashier', label: 'Cashier' },
+  { role: 'nurse', label: 'School nurse' },
+  { role: 'doctor', label: 'School doctor' },
+  { role: 'secretary', label: 'Secretary' },
+];
+const mobileModules: { id: MobileModule; label: string; schoolModule?: keyof SchoolModuleSettings }[] = [
+  { id: 'visitors', label: 'Visitors', schoolModule: 'module_visitors' },
+  { id: 'library', label: 'Library', schoolModule: 'module_library' },
+  { id: 'health', label: 'Health office', schoolModule: 'module_health' },
+  { id: 'notifications', label: 'Notifications' },
+];
+const defaultMobileAccess: MobileAccessSettings = {
+  enabled: false,
+  role_modules: {
+    school_admin: ['visitors', 'library', 'notifications'],
+    academic_coordinator: ['library', 'notifications'],
+    nurse: ['health', 'notifications'],
+    doctor: ['health', 'notifications'],
+    secretary: ['visitors', 'notifications'],
+  },
+  announcement: '',
+  platform_enabled: true,
+  updated_at: null,
+};
 const tabs: { id: SettingsTab; label: string; icon: typeof School; description: string }[] = [
   { id: 'profile', label: 'School profile', icon: School, description: 'Identity, branding, contact details, and student records.' },
   { id: 'academics', label: 'Academics', icon: BookOpen, description: 'Grading scales, assessment, terms, reporting, and timetables.' },
@@ -211,6 +256,7 @@ export function SchoolSettingsPage() {
   const [attendanceStatuses, setAttendanceStatuses] = useState<AttendanceStatus[]>([]);
   const [communication, setCommunication] = useState<SchoolCommunicationSettings | null>(null);
   const [modules, setModules] = useState<SchoolModuleSettings | null>(null);
+  const [mobileAccess, setMobileAccess] = useState<MobileAccessSettings>(defaultMobileAccess);
   const [security, setSecurity] = useState<SchoolSecuritySettings | null>(null);
   const [website, setWebsite] = useState<WebsiteSettings | null>(null);
   const [loading, setLoading] = useState(true);
@@ -247,6 +293,13 @@ export function SchoolSettingsPage() {
           setAttendanceStatuses((statusResult.data ?? []) as AttendanceStatus[]);
           setCommunication(communicationResult.data as SchoolCommunicationSettings);
           setModules(moduleResult.data as SchoolModuleSettings);
+          if (canEdit) {
+            const { data: mobileSettings, error: mobileSettingsError } = await client.rpc('get_school_mobile_access', {
+              target_school: activeSchoolId,
+            });
+            if (mobileSettingsError) throw mobileSettingsError;
+            setMobileAccess({ ...defaultMobileAccess, ...(mobileSettings as Partial<MobileAccessSettings>) });
+          }
           setSecurity(securityResult.data as SchoolSecuritySettings);
           setWebsite(websiteResult.data
             ? websiteResult.data as WebsiteSettings
@@ -355,6 +408,13 @@ export function SchoolSettingsPage() {
         await persist('school_communication_settings', communication);
       } else if (section === 'modules' && modules) {
         await persist('school_module_settings', modules);
+        const { error: mobileSaveError } = await requireSupabase().rpc('save_school_mobile_access', {
+          target_school: schoolId,
+          requested_enabled: mobileAccess.enabled,
+          requested_role_modules: mobileAccess.role_modules,
+          requested_announcement: mobileAccess.announcement,
+        });
+        if (mobileSaveError) throw new Error(`School modules were saved, but Android access settings were not saved: ${mobileSaveError.message}`);
       } else if (section === 'security' && security) {
         await persist('school_security_settings', security);
       } else if (section === 'website' && website && user) {
@@ -585,6 +645,46 @@ export function SchoolSettingsPage() {
                 ['reports_custom', 'Custom reports'],
               ] as [keyof SchoolModuleSettings, string][]).map(([key, label]) => <Toggle key={key} label={label} checked={Boolean(modules[key])} disabled={!canEdit} onChange={(checked) => setModules({ ...modules, [key]: checked })} />)}</div>
             </Section>
+            {canEdit && <Section title="Android app access" detail="Mobile access is disabled until your school administrator enables it. Changes are recorded in the school's access audit history.">
+              {!mobileAccess.platform_enabled && <p className="inline-warning" role="status">Android access is currently disabled platform-wide by the System Owner.</p>}
+              <Toggle label="Enable the Campus Connect Android app" detail="Disabling this blocks registered Android sessions on their next protected backend request without affecting the web app." checked={mobileAccess.enabled} disabled={!canEdit} onChange={(checked) => setMobileAccess((current) => ({ ...current, enabled: checked }))} />
+              <label className="field"><span>Optional app announcement</span><textarea maxLength={1000} rows={3} value={mobileAccess.announcement} disabled={!canEdit} onChange={(event) => setMobileAccess((current) => ({ ...current, announcement: event.target.value }))} placeholder="A short notice shown to mobile app users" /></label>
+              <div className="settings-table-wrap">
+                <table className="settings-table">
+                  <thead><tr><th scope="col">School role</th>{mobileModules.map((module) => <th scope="col" key={module.id}>{module.label}</th>)}</tr></thead>
+                  <tbody>{mobileRoles.map(({ role, label }) => <tr key={role}>
+                    <th scope="row">{label}</th>
+                    {mobileModules.map((module) => {
+                      const enabledForRole = mobileAccess.role_modules[role]?.includes(module.id) ?? false;
+                      const moduleEnabled = !module.schoolModule || Boolean(modules[module.schoolModule]);
+                      return <td key={module.id}><label className="settings-checkbox-label">
+                        <input
+                          type="checkbox"
+                          aria-label={`${module.label} for ${label}`}
+                          checked={enabledForRole}
+                          disabled={!canEdit || !moduleEnabled}
+                          onChange={(event) => setMobileAccess((current) => {
+                            const currentModules = current.role_modules[role] ?? [];
+                            const role_modules = event.target.checked
+                              ? [...new Set([...currentModules, module.id])]
+                              : currentModules.filter((item) => item !== module.id);
+                            return { ...current, role_modules: { ...current.role_modules, [role]: role_modules } };
+                          })}
+                        />
+                        {!moduleEnabled && <span className="sr-only">School module disabled</span>}
+                      </label></td>;
+                    })}
+                  </tr>)}</tbody>
+                </table>
+              </div>
+              <p className="settings-readonly">{mobileAccess.recent_active_sessions ?? 0} mobile sessions active in the last 30 days.</p>
+              {(mobileAccess.recent_activity?.length ?? 0) > 0 && <div className="settings-audit-list">
+                <h4>Recent mobile access changes</h4>
+                {mobileAccess.recent_activity?.map((activity, index) => <p key={`${activity.created_at}-${index}`}>
+                  <strong>{activity.actor_name}</strong> · {new Date(activity.created_at).toLocaleString()}
+                </p>)}
+              </div>}
+            </Section>}
             {saveButton('modules')}
           </form>}
 
