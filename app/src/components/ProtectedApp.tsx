@@ -37,6 +37,7 @@ import { SystemOwnerShell } from './SystemOwnerShell';
 import { LibraryPage, PublicLibraryBookPage } from '../pages/LibraryPage';
 import { HealthPage } from '../pages/HealthPage';
 import { VisitorsPage } from '../pages/VisitorsPage';
+import { MobileInstallPage } from '../pages/MobileInstallPage';
 
 function RouteGate({ authOnly = true, requireMembership = true }: { authOnly?: boolean; requireMembership?: boolean }) {
   const { user, loading, memberships } = useAuth();
@@ -125,6 +126,7 @@ export function ProtectedApp() {
       <Routes>
       <Route path="/" element={<LandingPage />} />
       <Route path="/login" element={<LoginRoute />} />
+      <Route path="/mobile/install" element={<MobileInstallPage />} />
       <Route path="/book/:slug/:barcode" element={<PublicLibraryBookPage />} />
       <Route path="/school/:slug/library/:barcode" element={<PublicLibraryBookPage websitePath />} />
       <Route path="/school/:slug" element={<PublicSchoolWebsitePage />} />

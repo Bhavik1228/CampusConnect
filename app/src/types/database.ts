@@ -52,6 +52,7 @@ export interface Subject {
   school_id: string;
   name: string;
   code: string | null;
+  department_id?: string | null;
   created_at: string;
 }
 

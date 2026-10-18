@@ -17,6 +17,7 @@ export type MobileRole =
 export interface MobileMembership {
   school_id: string;
   school_name: string;
+  school_logo_path?: string | null;
   role: MobileRole;
   eligible: boolean;
   mobile_enabled: boolean;

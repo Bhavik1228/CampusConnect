@@ -19,9 +19,10 @@ type Course = {
 };
 type Unit = { id: string; course_id: string; title: string; description: string; position: number };
 type Lesson = { id: string; course_id: string; unit_id: string; title: string; description: string; objectives: string; position: number; published: boolean };
-type Subject = { id: string; name: string };
+type Subject = { id: string; name: string; department_id: string | null };
 type SchoolClass = { id: string; name: string };
-type Teacher = { id: string; first_name: string; last_name: string; profile_id: string | null };
+type Teacher = { id: string; first_name: string; last_name: string; profile_id: string | null; staff_profile_id: string | null; department_id: string | null };
+type StaffDepartment = { id: string; department_id: string | null };
 type Student = { id: string; student_number: string; first_name: string; last_name: string };
 type Completion = { lesson_id: string; student_id: string; completed_at: string };
 type Dialog = 'course' | 'unit' | 'lesson' | null;
@@ -42,6 +43,7 @@ export function CoursesLessonsPage() {
   const [subjects, setSubjects] = useState<Subject[]>([]);
   const [classes, setClasses] = useState<SchoolClass[]>([]);
   const [teachers, setTeachers] = useState<Teacher[]>([]);
+  const [hodDepartmentIds, setHodDepartmentIds] = useState<string[]>([]);
   const [students, setStudents] = useState<Student[]>([]);
   const [completions, setCompletions] = useState<Completion[]>([]);
   const [courseId, setCourseId] = useState('');
@@ -59,7 +61,24 @@ export function CoursesLessonsPage() {
   const [refreshKey, setRefreshKey] = useState(0);
   const activeCourse = courses.find((course) => course.id === courseId) ?? null;
   const activeLesson = lessons.find((lesson) => lesson.id === lessonId) ?? null;
-  const canManageCourse = isSchoolManager || (role === 'teacher' && activeCourse?.teacher?.profile_id === user?.id);
+  const availableCourseSubjects = isSchoolManager
+    ? subjects
+    : hodDepartmentIds.length
+      ? subjects.filter((subject) => subject.department_id && hodDepartmentIds.includes(subject.department_id))
+      : subjects;
+  const availableCourseTeachers = isSchoolManager
+    ? teachers
+    : hodDepartmentIds.length
+      ? teachers.filter((teacher) => teacher.department_id && hodDepartmentIds.includes(teacher.department_id))
+      : teachers.filter((teacher) => teacher.profile_id === user?.id);
+  const canManageCourse = isSchoolManager || (role === 'teacher' && Boolean(activeCourse && (
+    activeCourse.teacher?.profile_id === user?.id
+    || (
+      hodDepartmentIds.includes(subjects.find((subject) => subject.id === activeCourse.subject_id)?.department_id ?? '')
+      && hodDepartmentIds.includes(teachers.find((teacher) => teacher.id === activeCourse.teacher_id)?.department_id ?? '')
+    )
+  )));
+  const canManageCompletion = isSchoolManager || (role === 'teacher' && activeCourse?.teacher?.profile_id === user?.id);
 
   const load = useCallback(async () => {
     if (!schoolId) return;
@@ -67,21 +86,39 @@ export function CoursesLessonsPage() {
     setError('');
     try {
       const client = requireSupabase();
-      const [courseResult, subjectResult, classResult, teacherResult] = await Promise.all([
+      const [courseResult, subjectResult, classResult, teacherResult, staffResult] = await Promise.all([
         client.from('lesson_courses').select('id,subject_id,class_id,teacher_id,title,description,objectives,status,subject:subjects(name),school_class:school_classes(name),teacher:teacher_profiles(first_name,last_name,profile_id)').eq('school_id', schoolId).order('title'),
-        client.from('subjects').select('id,name').eq('school_id', schoolId).order('name'),
+        client.from('subjects').select('id,name,department_id').eq('school_id', schoolId).order('name'),
         client.from('school_classes').select('id,name').eq('school_id', schoolId).order('name'),
-        client.from('teacher_profiles').select('id,first_name,last_name,profile_id').eq('school_id', schoolId).order('last_name'),
+        client.from('teacher_profiles').select('id,first_name,last_name,profile_id,staff_profile_id').eq('school_id', schoolId).order('last_name'),
+        client.from('staff_profiles').select('id,department_id').eq('school_id', schoolId),
       ]);
       if (courseResult.error) throw courseResult.error;
       if (subjectResult.error) throw subjectResult.error;
       if (classResult.error) throw classResult.error;
       if (teacherResult.error) throw teacherResult.error;
-      const teacherRows = (teacherResult.data ?? []) as (Teacher & { profile_id: string | null })[];
+      if (staffResult.error) throw staffResult.error;
+      const staffDepartments = new Map(((staffResult.data ?? []) as StaffDepartment[]).map((item) => [item.id, item.department_id]));
+      const teacherRows = (teacherResult.data ?? []).map((teacher) => ({
+        ...teacher,
+        department_id: teacher.staff_profile_id ? staffDepartments.get(teacher.staff_profile_id) ?? null : null,
+      })) as Teacher[];
+      let currentHodDepartmentIds: string[] = [];
+      if (role === 'teacher' && user?.id) {
+        const currentTeacherIds = teacherRows.filter((teacher) => teacher.profile_id === user.id).map((teacher) => teacher.id);
+        if (currentTeacherIds.length) {
+          const { data: responsibilityRows, error: responsibilityError } = await client.from('teacher_responsibilities')
+            .select('department_id').eq('school_id', schoolId)
+            .eq('responsibility_type', 'head_of_department').in('teacher_id', currentTeacherIds);
+          if (responsibilityError) throw responsibilityError;
+          currentHodDepartmentIds = (responsibilityRows ?? []).flatMap((item) => item.department_id ? [item.department_id] : []);
+        }
+      }
       setCourses((courseResult.data ?? []) as unknown as Course[]);
       setSubjects((subjectResult.data ?? []) as Subject[]);
       setClasses((classResult.data ?? []) as SchoolClass[]);
       setTeachers(teacherRows);
+      setHodDepartmentIds(currentHodDepartmentIds);
       const currentCourses = (courseResult.data ?? []) as unknown as Course[];
       const selectedId = currentCourses.some((course) => course.id === courseId) ? courseId : currentCourses[0]?.id ?? '';
       setCourseId(selectedId);
@@ -99,7 +136,16 @@ export function CoursesLessonsPage() {
         const selectedLesson = lessonRows.some((lesson) => lesson.id === lessonId) ? lessonId : '';
         setLessonId(selectedLesson);
         if (selectedLesson) {
-          const isCourseManager = isSchoolManager || (role === 'teacher' && currentCourses.find((course) => course.id === selectedId)?.teacher?.profile_id === user?.id);
+          const selectedCourse = currentCourses.find((course) => course.id === selectedId);
+          const selectedCourseTeacher = teacherRows.find((teacher) => teacher.id === selectedCourse?.teacher_id);
+          const selectedCourseSubject = (subjectResult.data ?? []).find((subject) => subject.id === selectedCourse?.subject_id);
+          const isCourseManager = isSchoolManager || (role === 'teacher' && Boolean(selectedCourse && (
+            selectedCourse.teacher?.profile_id === user?.id
+            || (
+              currentHodDepartmentIds.includes(selectedCourseSubject?.department_id ?? '')
+              && currentHodDepartmentIds.includes(selectedCourseTeacher?.department_id ?? '')
+            )
+          )));
           const completionQuery = client.from('lesson_completions').select('lesson_id,student_id,completed_at').eq('school_id', schoolId).in('lesson_id', lessonRows.map((lesson) => lesson.id));
           if (isCourseManager) {
             const [studentResult, completionResult] = await Promise.all([
@@ -212,7 +258,7 @@ export function CoursesLessonsPage() {
   }
 
   async function toggleCompletion(studentId: string, completed: boolean) {
-    if (!schoolId || !user || !activeLesson) return;
+    if (!schoolId || !user || !activeLesson || !canManageCompletion) return;
     setError('');
     try {
       const client = requireSupabase();
@@ -271,7 +317,7 @@ export function CoursesLessonsPage() {
                 <div className="section-heading"><div><span className="eyebrow">Progress tracking</span><h3>Student completion</h3></div><span className="table-count">{completedIds.size}/{students.length} complete</span></div>
                 {students.length === 0 ? <p className="quiet-note">There are no active students assigned to this class yet.</p> : <div className="completion-list">{students.map((student) => {
                   const completed = completedIds.has(student.id);
-                  return <div className="completion-row" key={student.id}><span className="mono-cell">{student.student_number}</span><strong>{student.first_name} {student.last_name}</strong><button className={`completion-toggle${completed ? ' completed' : ''}`} onClick={() => void toggleCompletion(student.id, completed)} aria-label={`${completed ? 'Mark incomplete' : 'Mark complete'} for ${student.first_name} ${student.last_name}`}>{completed ? <Check size={15} /> : <Circle size={15} />}{completed ? 'Completed' : 'Mark complete'}</button></div>;
+                  return <div className="completion-row" key={student.id}><span className="mono-cell">{student.student_number}</span><strong>{student.first_name} {student.last_name}</strong>{canManageCompletion ? <button className={`completion-toggle${completed ? ' completed' : ''}`} onClick={() => void toggleCompletion(student.id, completed)} aria-label={`${completed ? 'Mark incomplete' : 'Mark complete'} for ${student.first_name} ${student.last_name}`}>{completed ? <Check size={15} /> : <Circle size={15} />}{completed ? 'Completed' : 'Mark complete'}</button> : <span className={`completion-toggle${completed ? ' completed' : ''}`}>{completed ? <Check size={15} /> : <Circle size={15} />}{completed ? 'Completed' : 'Not complete'}</span>}</div>;
                 })}</div>}
               </div>}
             </section>}
@@ -284,8 +330,8 @@ export function CoursesLessonsPage() {
           <form className="modal-form" onSubmit={(event) => void save(event)}>
             {dialog === 'course' ? <>
               <label className="field"><span>Course title</span><input required minLength={2} maxLength={140} value={courseForm.title} onChange={(event) => setCourseForm({ ...courseForm, title: event.target.value })} /></label>
-              <div className="form-row"><label className="field"><span>Subject</span><select required value={courseForm.subject_id} onChange={(event) => setCourseForm({ ...courseForm, subject_id: event.target.value })}><option value="">Select subject</option>{subjects.map((subject) => <option key={subject.id} value={subject.id}>{subject.name}</option>)}</select></label><label className="field"><span>Class</span><select required value={courseForm.class_id} onChange={(event) => setCourseForm({ ...courseForm, class_id: event.target.value })}><option value="">Select class</option>{classes.map((schoolClass) => <option key={schoolClass.id} value={schoolClass.id}>{schoolClass.name}</option>)}</select></label></div>
-              <label className="field"><span>Assigned teacher</span><select required value={courseForm.teacher_id} onChange={(event) => setCourseForm({ ...courseForm, teacher_id: event.target.value })}><option value="">Select teacher</option>{(isSchoolManager ? teachers : teachers.filter((teacher) => teacher.profile_id === user?.id)).map((teacher) => <option key={teacher.id} value={teacher.id}>{teacher.first_name} {teacher.last_name}</option>)}</select></label>
+              <div className="form-row"><label className="field"><span>Subject</span><select required value={courseForm.subject_id} onChange={(event) => setCourseForm({ ...courseForm, subject_id: event.target.value })}><option value="">Select subject</option>{availableCourseSubjects.map((subject) => <option key={subject.id} value={subject.id}>{subject.name}</option>)}</select></label><label className="field"><span>Class</span><select required value={courseForm.class_id} onChange={(event) => setCourseForm({ ...courseForm, class_id: event.target.value })}><option value="">Select class</option>{classes.map((schoolClass) => <option key={schoolClass.id} value={schoolClass.id}>{schoolClass.name}</option>)}</select></label></div>
+              <label className="field"><span>Assigned teacher</span><select required value={courseForm.teacher_id} onChange={(event) => setCourseForm({ ...courseForm, teacher_id: event.target.value })}><option value="">Select teacher</option>{availableCourseTeachers.map((teacher) => <option key={teacher.id} value={teacher.id}>{teacher.first_name} {teacher.last_name}</option>)}</select></label>
               <label className="field"><span>Description</span><textarea maxLength={5000} rows={3} value={courseForm.description} onChange={(event) => setCourseForm({ ...courseForm, description: event.target.value })} /></label>
               <label className="field"><span>Course objectives</span><textarea maxLength={5000} rows={3} value={courseForm.objectives} onChange={(event) => setCourseForm({ ...courseForm, objectives: event.target.value })} /></label>
               <label className="field"><span>Availability</span><select value={courseForm.status} onChange={(event) => setCourseForm({ ...courseForm, status: event.target.value as Course['status'] })}><option value="draft">Draft</option><option value="published">Published to class</option><option value="archived">Archived</option></select></label>

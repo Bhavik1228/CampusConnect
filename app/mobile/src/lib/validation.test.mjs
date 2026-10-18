@@ -28,9 +28,15 @@ test('classifies supported visitor, ISBN, library barcode, and return scans', ()
 test('shows only modules that backend access returned as available', () => {
   const membership = {
     eligible: true,
+    mobile_enabled: true,
+    platform_enabled: true,
+    school_active: true,
     accessible_modules: ['visitors', 'notifications'],
   };
   assert.equal(canUseModule(membership, 'visitors'), true);
   assert.equal(canUseModule(membership, 'health'), false);
+  assert.equal(canUseModule({ ...membership, mobile_enabled: false }, 'visitors'), false);
+  assert.equal(canUseModule({ ...membership, platform_enabled: false }, 'visitors'), false);
+  assert.equal(canUseModule({ ...membership, school_active: false }, 'visitors'), false);
   assert.equal(canUseModule(null, 'visitors'), false);
 });

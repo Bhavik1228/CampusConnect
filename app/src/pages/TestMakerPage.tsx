@@ -12,6 +12,7 @@ type AssessmentStatus = 'draft' | 'ready';
 type LearningView = 'assessments' | 'library' | 'papers' | 'results';
 type Question = {
   id: string;
+  department_id: string | null;
   question_text: string;
   topic: string;
   subtopic: string;
@@ -52,8 +53,10 @@ type Assessment = {
   mark_scheme: string;
   question_ids: string[];
   status: AssessmentStatus;
+  department_id: string | null;
   updated_at: string;
 };
+type Department = { id: string; name: string };
 type StudentChoice = {
   id: string;
   student_number: string;
@@ -70,6 +73,7 @@ type AssessmentResult = {
   percentage: number;
   assessment_date: string;
   notes: string;
+  status: 'draft' | 'approved' | 'published';
   created_at: string;
   updated_at: string;
 };
@@ -93,7 +97,7 @@ const QUALIFICATIONS = [
   'Custom qualification',
 ];
 const EMPTY_QUESTION: QuestionForm = {
-  question_text: '', topic: '', subtopic: '', marks: 1, difficulty: 'Standard',
+  department_id: null, question_text: '', topic: '', subtopic: '', marks: 1, difficulty: 'Standard',
   source_name: 'Teacher-created', source_url: '', mark_scheme: '',
 };
 const EMPTY_ASSESSMENT: AssessmentForm = {
@@ -102,6 +106,7 @@ const EMPTY_ASSESSMENT: AssessmentForm = {
   difficulty: 'Mixed', instructions: 'Answer all questions. Show your working where appropriate.',
   question_order: 'As selected', permitted_resources: 'No calculators', mark_scheme: '',
   question_ids: [], status: 'draft',
+  department_id: null,
 };
 const CAMBRIDGE_PAST_PAPERS_URL = 'https://www.cambridgeinternational.org/support-and-training-for-schools/support-for-teachers/past-papers/';
 
@@ -153,8 +158,11 @@ function parseCsvRows(text: string): string[][] {
 export function TestMakerPage() {
   const { activeMembership, user } = useAuth();
   const schoolId = activeMembership?.school_id;
+  const isAcademicLead = activeMembership?.role === 'school_admin' || activeMembership?.role === 'academic_coordinator';
   const [assessments, setAssessments] = useState<Assessment[]>([]);
   const [questions, setQuestions] = useState<Question[]>([]);
+  const [departments, setDepartments] = useState<Department[]>([]);
+  const [hodDepartmentIds, setHodDepartmentIds] = useState<string[]>([]);
   const [students, setStudents] = useState<StudentChoice[]>([]);
   const [results, setResults] = useState<AssessmentResult[]>([]);
   const [activeAssessmentId, setActiveAssessmentId] = useState('');
@@ -180,11 +188,18 @@ export function TestMakerPage() {
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState('');
   const [notice, setNotice] = useState('');
+  const isHod = hodDepartmentIds.length > 0;
+  const availableDepartments = isAcademicLead
+    ? departments
+    : departments.filter((department) => hodDepartmentIds.includes(department.id));
 
   useEffect(() => {
     if (!schoolId) return;
     setAssessments([]);
     setQuestions([]);
+    setDepartments([]);
+    setHodDepartmentIds([]);
+    setQuestionForm({ ...EMPTY_QUESTION });
     setStudents([]);
     setResults([]);
     setPapers([]);
@@ -201,24 +216,50 @@ export function TestMakerPage() {
       setError('');
       try {
         const client = requireSupabase();
-        const [assessmentResult, questionResult, papersResult, studentResult, resultResult] = await Promise.all([
+        const [assessmentResult, questionResult, papersResult, studentResult, resultResult, departmentResult] = await Promise.all([
           client.from('learning_assessments').select('*').eq('school_id', schoolId).order('updated_at', { ascending: false }),
           client.from('learning_questions').select('*').eq('school_id', schoolId).order('created_at', { ascending: false }),
           client.from('past_papers').select('id, subject_name, subject_code, year, session, paper_number, document_type, file_name, file_size, created_at').eq('school_id', schoolId).order('year', { ascending: false }),
           client.from('students').select('id, student_number, first_name, last_name, status').eq('school_id', schoolId).order('last_name').order('first_name'),
-          client.from('learning_assessment_results').select('id, student_id, assessment_id, marks_obtained, maximum_marks, percentage, assessment_date, notes, created_at, updated_at').eq('school_id', schoolId).order('assessment_date', { ascending: false }).order('created_at', { ascending: false }),
+          client.from('learning_assessment_results').select('id, student_id, assessment_id, marks_obtained, maximum_marks, percentage, assessment_date, notes, status, created_at, updated_at').eq('school_id', schoolId).order('assessment_date', { ascending: false }).order('created_at', { ascending: false }),
+          client.from('school_departments').select('id,name').eq('school_id', schoolId).order('name'),
         ]);
         if (assessmentResult.error) throw assessmentResult.error;
         if (questionResult.error) throw questionResult.error;
         if (papersResult.error) throw papersResult.error;
         if (studentResult.error) throw studentResult.error;
         if (resultResult.error) throw resultResult.error;
+        if (departmentResult.error) throw departmentResult.error;
+        let currentHodDepartmentIds: string[] = [];
+        if (activeMembership?.role === 'teacher' && user?.id) {
+          const { data: teacherRows, error: teacherError } = await client.from('teacher_profiles')
+            .select('id').eq('school_id', schoolId).eq('profile_id', user.id);
+          if (teacherError) throw teacherError;
+          const teacherIds = (teacherRows ?? []).map((teacher) => teacher.id);
+          if (teacherIds.length) {
+            const { data: responsibilityRows, error: responsibilityError } = await client.from('teacher_responsibilities')
+              .select('department_id').eq('school_id', schoolId)
+              .eq('responsibility_type', 'head_of_department').in('teacher_id', teacherIds);
+            if (responsibilityError) throw responsibilityError;
+            currentHodDepartmentIds = (responsibilityRows ?? []).flatMap((item) => item.department_id ? [item.department_id] : []);
+          }
+        }
         if (alive) {
           setAssessments((assessmentResult.data ?? []) as Assessment[]);
           setQuestions((questionResult.data ?? []) as Question[]);
           setPapers((papersResult.data ?? []) as PastPaper[]);
           setStudents((studentResult.data ?? []) as StudentChoice[]);
           setResults((resultResult.data ?? []) as AssessmentResult[]);
+          setDepartments((departmentResult.data ?? []) as Department[]);
+          setHodDepartmentIds(currentHodDepartmentIds);
+          if (currentHodDepartmentIds.length) {
+            setForm((current) => current.department_id
+              ? current
+              : { ...current, department_id: currentHodDepartmentIds[0] });
+            setQuestionForm((current) => current.department_id
+              ? current
+              : { ...current, department_id: currentHodDepartmentIds[0] });
+          }
         }
       } catch (loadError) {
         if (alive) setError(getErrorMessage(loadError, 'Could not load the Test Maker.'));
@@ -228,7 +269,7 @@ export function TestMakerPage() {
     }
     void load();
     return () => { alive = false; };
-  }, [schoolId]);
+  }, [schoolId, activeMembership?.role, user?.id]);
 
   const selectedQuestions = useMemo(() => {
     const byId = new Map(questions.map((question) => [question.id, question]));
@@ -268,7 +309,7 @@ export function TestMakerPage() {
 
   function beginNewAssessment() {
     setActiveAssessmentId('');
-    setForm({ ...EMPTY_ASSESSMENT });
+    setForm({ ...EMPTY_ASSESSMENT, department_id: isHod ? hodDepartmentIds[0] ?? null : null });
     setView('assessments');
     setNotice('');
   }
@@ -294,6 +335,10 @@ export function TestMakerPage() {
     if (!schoolId || !user) return;
     if (!form.title.trim()) {
       setError('Add a test title before saving.');
+      return;
+    }
+    if (isHod && (!form.department_id || !hodDepartmentIds.includes(form.department_id))) {
+      setError('Choose one of your assigned departments for this assessment.');
       return;
     }
     setSaving(true);
@@ -468,6 +513,10 @@ export function TestMakerPage() {
       setError('Enter the question text and topic.');
       return;
     }
+    if (isHod && (!questionForm.department_id || !hodDepartmentIds.includes(questionForm.department_id))) {
+      setError('Choose one of your assigned departments for this question.');
+      return;
+    }
     setSaving(true);
     setError('');
     setNotice('');
@@ -488,7 +537,7 @@ export function TestMakerPage() {
       if (result.error) throw result.error;
       const saved = result.data as Question;
       setQuestions((current) => [saved, ...current.filter((item) => item.id !== saved.id)]);
-      setQuestionForm({ ...EMPTY_QUESTION });
+      setQuestionForm({ ...EMPTY_QUESTION, department_id: isHod ? hodDepartmentIds[0] ?? null : null });
       setEditingQuestionId('');
       setNotice('Question saved to the library.');
     } catch (saveError) {
@@ -545,6 +594,7 @@ export function TestMakerPage() {
         });
       }
       const rows = imported.map((item) => ({
+        department_id: isHod ? (form.department_id ?? hodDepartmentIds[0] ?? null) : null,
         question_text: String(item.question_text ?? '').trim(),
         topic: String(item.topic ?? '').trim(),
         subtopic: String(item.subtopic ?? '').trim(),
@@ -628,6 +678,7 @@ export function TestMakerPage() {
                     updateForm('qualification', curriculum === 'Cambridge' ? 'Cambridge IGCSE' : 'Custom qualification');
                   }}><option>Cambridge</option><option>Custom curriculum</option></select></label>
                   <label>Qualification<select value={form.qualification} onChange={(event) => updateForm('qualification', event.target.value)}>{qualificationOptions.map((qualification) => <option key={qualification}>{qualification}</option>)}</select></label>
+                  {(isAcademicLead || isHod) && <label>Department<select value={form.department_id ?? ''} onChange={(event) => updateForm('department_id', event.target.value || null)}><option value="">Not department-assigned</option>{availableDepartments.map((department) => <option key={department.id} value={department.id}>{department.name}</option>)}</select></label>}
                   <label>Subject<input value={form.subject} onChange={(event) => updateForm('subject', event.target.value)} placeholder="e.g. Biology" /></label>
                   <label>Syllabus code<input value={form.syllabus_code} onChange={(event) => updateForm('syllabus_code', event.target.value)} placeholder="Optional" /></label>
                   <label>Topic<input value={form.topic} onChange={(event) => updateForm('topic', event.target.value)} placeholder="e.g. Cells" /></label>
@@ -685,9 +736,9 @@ export function TestMakerPage() {
                 const student = students.find((item) => item.id === result.student_id);
                 const assessment = assessments.find((item) => item.id === result.assessment_id);
                 return <article className={`result-history-item${editingResultId === result.id ? ' selected' : ''}`} key={result.id}>
-                  <div className="result-history-main"><span className="result-history-date">{new Date(`${result.assessment_date}T00:00:00`).toLocaleDateString()}</span><strong>{student ? `${student.first_name} ${student.last_name}` : 'Student record unavailable'}</strong><span>{assessment?.title ?? 'Saved test'}{assessment?.subject ? ` · ${assessment.subject}` : ''}</span>{result.notes && <small>{result.notes}</small>}</div>
+                  <div className="result-history-main"><span className="result-history-date">{new Date(`${result.assessment_date}T00:00:00`).toLocaleDateString()} · {result.status}</span><strong>{student ? `${student.first_name} ${student.last_name}` : 'Student record unavailable'}</strong><span>{assessment?.title ?? 'Saved test'}{assessment?.subject ? ` · ${assessment.subject}` : ''}</span>{result.notes && <small>{result.notes}</small>}</div>
                   <div className="result-history-score"><strong>{result.marks_obtained} <span>/ {result.maximum_marks}</span></strong><small>{Number(result.percentage).toFixed(1)}%</small></div>
-                  <div className="result-history-actions"><button className="icon-button" title="Edit result" aria-label="Edit result" onClick={() => editResult(result)}><Pencil size={14} /></button><button className="icon-button danger-icon" title="Delete result" aria-label="Delete result" onClick={() => void deleteResult(result)}><Trash2 size={14} /></button></div>
+                  {result.status === 'draft' && <div className="result-history-actions"><button className="icon-button" title="Edit draft result" aria-label="Edit draft result" onClick={() => editResult(result)}><Pencil size={14} /></button><button className="icon-button danger-icon" title="Delete draft result" aria-label="Delete draft result" onClick={() => void deleteResult(result)}><Trash2 size={14} /></button></div>}
                 </article>;
               })}
             </div> : <div className="test-empty"><span><History size={20} /></span><strong>{results.length ? 'No matching results' : 'No results recorded yet'}</strong><p>{results.length ? 'Try another student name, number, or test title.' : 'Record a student’s marks above to start building their assessment history.'}</p></div>}
@@ -705,7 +756,7 @@ export function TestMakerPage() {
             <p className="import-hint">CSV headers: <code>question_text,topic,subtopic,marks,difficulty,source_name,source_url,mark_scheme</code>. JSON imports use the same field names as an array of objects.</p>
             <div className="question-library-list">
               {visibleQuestions.map((question) => <article className="library-question" key={question.id}>
-                <div className="library-question-main"><div className="library-question-meta"><span>{question.topic}{question.subtopic ? ` · ${question.subtopic}` : ''}</span><span>{question.marks} marks</span><span>{question.difficulty}</span></div><p>{question.question_text}</p><small>{question.source_name}{question.source_url && <> · <a href={question.source_url} target="_blank" rel="noreferrer">Source <ExternalLink size={10} /></a></>}</small></div>
+                <div className="library-question-main">                <div className="library-question-meta"><span>{question.topic}{question.subtopic ? ` · ${question.subtopic}` : ''}</span>{question.department_id && <span>{departments.find((department) => department.id === question.department_id)?.name ?? 'Department'}</span>}<span>{question.marks} marks</span><span>{question.difficulty}</span></div><p>{question.question_text}</p><small>{question.source_name}{question.source_url && <> · <a href={question.source_url} target="_blank" rel="noreferrer">Source <ExternalLink size={10} /></a></>}</small></div>
                 <div className="library-question-actions"><button className="icon-button" title="Edit question" aria-label="Edit question" onClick={() => editQuestion(question)}><Pencil size={14} /></button><button className="icon-button danger-icon" title="Delete question" aria-label="Delete question" onClick={() => void deleteQuestion(question)}><Trash2 size={14} /></button><button className="button button-quiet" onClick={() => { toggleQuestion(question.id); setView('assessments'); }}><Plus size={13} /> Add to test</button></div>
               </article>)}
               {!visibleQuestions.length && <div className="test-empty"><span><Library size={20} /></span><strong>{questions.length ? 'No matching questions' : 'Your library is empty'}</strong><p>Add teacher-created items or import questions your school is authorized to use.</p></div>}
@@ -716,6 +767,7 @@ export function TestMakerPage() {
             <form className="test-question-form" onSubmit={(event) => void saveQuestion(event)}>
               <label>Question text<textarea required rows={5} value={questionForm.question_text} onChange={(event) => setQuestionForm((current) => ({ ...current, question_text: event.target.value }))} placeholder="Enter the question exactly as it should appear on the test." /></label>
               <div className="test-form-grid">
+                {(isAcademicLead || isHod) && <label>Department<select value={questionForm.department_id ?? ''} onChange={(event) => setQuestionForm((current) => ({ ...current, department_id: event.target.value || null }))}><option value="">Not department-assigned</option>{availableDepartments.map((department) => <option key={department.id} value={department.id}>{department.name}</option>)}</select></label>}
                 <label>Topic<input required value={questionForm.topic} onChange={(event) => setQuestionForm((current) => ({ ...current, topic: event.target.value }))} /></label>
                 <label>Subtopic<input value={questionForm.subtopic} onChange={(event) => setQuestionForm((current) => ({ ...current, subtopic: event.target.value }))} /></label>
                 <label>Marks<input type="number" min="1" value={questionForm.marks} onChange={(event) => setQuestionForm((current) => ({ ...current, marks: Number(event.target.value) }))} /></label>

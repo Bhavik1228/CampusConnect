@@ -1,11 +1,12 @@
 import { useState } from 'react';
-import { Link, Redirect } from 'expo-router';
+import { Link, Redirect, useLocalSearchParams } from 'expo-router';
 import { KeyboardAvoidingView, Platform, Text, View, StyleSheet } from 'react-native';
 import { Button, Card, Field, Loading, Message, colors } from '../src/components/ui';
 import { useCampusAuth } from '../src/lib/auth-context';
 import { requireSupabase, supabase } from '../src/lib/supabase';
 
 export default function LoginScreen() {
+  const { school } = useLocalSearchParams<{ school?: string }>();
   const { session, loading, accessError, signIn } = useCampusAuth();
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
@@ -14,7 +15,7 @@ export default function LoginScreen() {
   const [busy, setBusy] = useState(false);
 
   if (loading) return <Loading label="Restoring your secure session…" />;
-  if (session) return <Redirect href="/select-school" />;
+  if (session) return <Redirect href={school ? { pathname: '/select-school', params: { school } } : '/select-school'} />;
 
   async function submit() {
     setBusy(true);

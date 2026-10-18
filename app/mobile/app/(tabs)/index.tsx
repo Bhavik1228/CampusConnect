@@ -1,5 +1,5 @@
 import { Link } from 'expo-router';
-import { Text, View } from 'react-native';
+import { Image, Text, View } from 'react-native';
 import { BodyText, Card, Heading, Page, colors } from '../../src/components/ui';
 import { useCampusAuth } from '../../src/lib/auth-context';
 import { canUseModule } from '../../src/lib/validation';
@@ -20,8 +20,15 @@ export default function HomeScreen() {
         ? <Card><Heading>No mobile modules enabled</Heading><BodyText muted>Ask a school administrator to enable mobile features for your role.</BodyText></Card>
         : null}
       <Card style={{ backgroundColor: colors.navy, borderColor: colors.navy }}>
-        <Text style={{ color: '#C8BEFF', fontSize: 12, fontWeight: '800', letterSpacing: 1 }}>CAMPUS CONNECT</Text>
-        <Text style={{ color: colors.white, fontSize: 20, fontWeight: '800' }}>{selectedSchool.school_name}</Text>
+        <View style={{ flexDirection: 'row', alignItems: 'center', gap: 12 }}>
+          {selectedSchool.school_logo_path?.startsWith('https://')
+            ? <Image source={{ uri: selectedSchool.school_logo_path }} accessibilityLabel={`${selectedSchool.school_name} logo`} style={{ width: 52, height: 52, borderRadius: 12, backgroundColor: colors.white }} />
+            : <Text accessibilityLabel={`${selectedSchool.school_name} logo`} style={{ width: 52, height: 52, borderRadius: 12, overflow: 'hidden', backgroundColor: colors.white, color: colors.navy, textAlign: 'center', textAlignVertical: 'center', fontSize: 20, fontWeight: '800' }}>{selectedSchool.school_name.slice(0, 1).toUpperCase()}</Text>}
+          <View style={{ flex: 1, gap: 4 }}>
+            <Text style={{ color: '#C8BEFF', fontSize: 12, fontWeight: '800', letterSpacing: 1 }}>CAMPUS CONNECT</Text>
+            <Text style={{ color: colors.white, fontSize: 20, fontWeight: '800' }}>{selectedSchool.school_name}</Text>
+          </View>
+        </View>
         <Text style={{ color: '#D3D8E8' }}>{selectedSchool.announcement ?? 'Your school workspace, on the move.'}</Text>
         <Link href="/scan" style={{ color: '#FFFFFF', backgroundColor: colors.violet, padding: 13, borderRadius: 11, textAlign: 'center', fontWeight: '700' }}>
           Open scanner

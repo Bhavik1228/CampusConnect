@@ -20,7 +20,13 @@ export function isValidIsbn(value: string) {
 }
 
 export function canUseModule(membership: MobileMembership | null, module: MobileModule) {
-  return Boolean(membership?.eligible && membership.accessible_modules.includes(module));
+  return Boolean(
+    membership?.eligible
+    && membership.mobile_enabled
+    && membership.platform_enabled
+    && membership.school_active !== false
+    && membership.accessible_modules.includes(module)
+  );
 }
 
 export function classifyScan(value: string) {

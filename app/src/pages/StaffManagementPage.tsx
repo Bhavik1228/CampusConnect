@@ -20,12 +20,19 @@ type StaffProfile = {
 };
 type TeacherProfile = {
   id: string;
+  profile_id: string | null;
   staff_profile_id: string | null;
   qualifications: string;
   employment_status: EmploymentStatus;
 };
 type Department = { id: string; name: string };
-type Choice = { id: string; name: string };
+type TeacherResponsibility = {
+  teacher_id: string;
+  responsibility_type: 'class_teacher' | 'head_of_department';
+  class_id: string | null;
+  department_id: string | null;
+};
+type Choice = { id: string; name: string; department_id?: string | null };
 type Assignment = { teacher_id: string; class_id?: string; subject_id?: string };
 type StaffDocument = {
   id: string;
@@ -41,6 +48,8 @@ type StaffForm = Omit<StaffProfile, 'id' | 'profile_id'> & {
   is_teacher: boolean;
   class_ids: string[];
   subject_ids: string[];
+  class_teacher_ids: string[];
+  hod_department_ids: string[];
 };
 
 const EMPTY_FORM: StaffForm = {
@@ -57,6 +66,8 @@ const EMPTY_FORM: StaffForm = {
   is_teacher: false,
   class_ids: [],
   subject_ids: [],
+  class_teacher_ids: [],
+  hod_department_ids: [],
 };
 const ALLOWED_DOCUMENT_TYPES = new Set([
   'application/pdf',
@@ -77,13 +88,14 @@ function errorMessage(error: unknown, fallback: string) {
 }
 
 function emptyForm(): StaffForm {
-  return { ...EMPTY_FORM, class_ids: [], subject_ids: [] };
+  return { ...EMPTY_FORM, class_ids: [], subject_ids: [], class_teacher_ids: [], hod_department_ids: [] };
 }
 
 export function StaffManagementPage() {
   const { activeMembership, user } = useAuth();
   const schoolId = activeMembership?.school_id;
   const isAdmin = activeMembership?.role === 'school_admin';
+  const [responsibilities, setResponsibilities] = useState<TeacherResponsibility[]>([]);
   const [staff, setStaff] = useState<StaffProfile[]>([]);
   const [teachers, setTeachers] = useState<TeacherProfile[]>([]);
   const [departments, setDepartments] = useState<Department[]>([]);
@@ -111,16 +123,17 @@ export function StaffManagementPage() {
     setError('');
     try {
       const client = requireSupabase();
-      const [staffResult, teacherResult, departmentResult, classResult, subjectResult, classAssignmentsResult, subjectAssignmentsResult] = await Promise.all([
+      const [staffResult, teacherResult, departmentResult, classResult, subjectResult, classAssignmentsResult, subjectAssignmentsResult, responsibilityResult] = await Promise.all([
         client.from('staff_profiles').select('id,profile_id,department_id,employee_number,first_name,last_name,email,phone,job_title,employment_status,hire_date').eq('school_id', schoolId).order('last_name').order('first_name'),
-        client.from('teacher_profiles').select('id,staff_profile_id,qualifications,employment_status').eq('school_id', schoolId),
+        client.from('teacher_profiles').select('id,profile_id,staff_profile_id,qualifications,employment_status').eq('school_id', schoolId),
         client.from('school_departments').select('id,name').eq('school_id', schoolId).order('name'),
         client.from('school_classes').select('id,name').eq('school_id', schoolId).order('name'),
-        client.from('subjects').select('id,name').eq('school_id', schoolId).order('name'),
+        client.from('subjects').select('id,name,department_id').eq('school_id', schoolId).order('name'),
         client.from('teacher_class_assignments').select('teacher_id,class_id').eq('school_id', schoolId),
         client.from('teacher_subjects').select('teacher_id,subject_id').eq('school_id', schoolId),
+        client.from('teacher_responsibilities').select('teacher_id,responsibility_type,class_id,department_id').eq('school_id', schoolId),
       ]);
-      for (const response of [staffResult, teacherResult, departmentResult, classResult, subjectResult, classAssignmentsResult, subjectAssignmentsResult]) {
+      for (const response of [staffResult, teacherResult, departmentResult, classResult, subjectResult, classAssignmentsResult, subjectAssignmentsResult, responsibilityResult]) {
         if (response.error) throw response.error;
       }
       const records = (staffResult.data ?? []) as StaffProfile[];
@@ -131,6 +144,7 @@ export function StaffManagementPage() {
       setSubjects((subjectResult.data ?? []) as Choice[]);
       setClassAssignments((classAssignmentsResult.data ?? []) as Assignment[]);
       setSubjectAssignments((subjectAssignmentsResult.data ?? []) as Assignment[]);
+      setResponsibilities((responsibilityResult.data ?? []) as TeacherResponsibility[]);
     } catch (loadError) {
       setError(errorMessage(loadError, 'Could not load the staff directory.'));
     } finally {
@@ -144,13 +158,27 @@ export function StaffManagementPage() {
     () => new Map(teachers.filter((teacher) => teacher.staff_profile_id).map((teacher) => [teacher.staff_profile_id as string, teacher])),
     [teachers],
   );
+  const hodDepartmentIds = useMemo(() => {
+    const currentTeacherIds = new Set(teachers.filter((teacher) => teacher.profile_id === user?.id).map((teacher) => teacher.id));
+    return new Set(responsibilities
+      .filter((item) => item.responsibility_type === 'head_of_department' && currentTeacherIds.has(item.teacher_id) && item.department_id)
+      .map((item) => item.department_id as string));
+  }, [teachers, responsibilities, user?.id]);
+  const isHod = hodDepartmentIds.size > 0;
+  const visibleSubjects = isAdmin ? subjects : subjects.filter((subject) => subject.department_id && hodDepartmentIds.has(subject.department_id));
+  const visibleDepartments = isAdmin ? departments : departments.filter((department) => hodDepartmentIds.has(department.id));
   const visibleStaff = staff.filter((person) => {
     const department = departments.find((item) => item.id === person.department_id)?.name ?? '';
     const needle = query.trim().toLowerCase();
-    return !needle || `${person.first_name} ${person.last_name} ${person.employee_number} ${person.email ?? ''} ${person.job_title} ${department}`.toLowerCase().includes(needle);
+    const withinDepartment = isAdmin || (person.department_id !== null && hodDepartmentIds.has(person.department_id));
+    return withinDepartment && (!needle || `${person.first_name} ${person.last_name} ${person.employee_number} ${person.email ?? ''} ${person.job_title} ${department}`.toLowerCase().includes(needle));
   });
   const selectedStaff = staff.find((person) => person.id === selectedId) ?? null;
   const selectedTeacher = selectedStaff ? teacherByStaffId.get(selectedStaff.id) ?? null : null;
+  const canEditSelectedStaff = isAdmin || Boolean(selectedStaff?.department_id && hodDepartmentIds.has(selectedStaff.department_id));
+  const selectedResponsibilities = selectedTeacher
+    ? responsibilities.filter((item) => item.teacher_id === selectedTeacher.id)
+    : [];
 
   useEffect(() => {
     if (!schoolId || !selectedId || !isAdmin) {
@@ -201,7 +229,15 @@ export function StaffManagementPage() {
       qualifications: teacher?.qualifications ?? '',
       is_teacher: Boolean(teacher),
       class_ids: teacher ? classAssignments.filter((item) => item.teacher_id === teacher.id).map((item) => item.class_id as string) : [],
-      subject_ids: teacher ? subjectAssignments.filter((item) => item.teacher_id === teacher.id).map((item) => item.subject_id as string) : [],
+      subject_ids: teacher ? subjectAssignments
+        .filter((item) => item.teacher_id === teacher.id && (isAdmin || visibleSubjects.some((subject) => subject.id === item.subject_id)))
+        .map((item) => item.subject_id as string) : [],
+      class_teacher_ids: teacher ? responsibilities
+        .filter((item) => item.teacher_id === teacher.id && item.responsibility_type === 'class_teacher' && item.class_id)
+        .map((item) => item.class_id as string) : [],
+      hod_department_ids: teacher ? responsibilities
+        .filter((item) => item.teacher_id === teacher.id && item.responsibility_type === 'head_of_department' && item.department_id)
+        .map((item) => item.department_id as string) : [],
     });
     setShowCreateForm(true);
     setError('');
@@ -276,6 +312,41 @@ export function StaffManagementPage() {
         ]);
         if (classInsert.error) throw classInsert.error;
         if (subjectInsert.error) throw subjectInsert.error;
+        if (isAdmin) {
+          const { error: responsibilityDeleteError } = await client.from('teacher_responsibilities')
+            .delete().eq('school_id', schoolId).eq('teacher_id', teacherId);
+          if (responsibilityDeleteError) throw responsibilityDeleteError;
+          const classResponsibilities = form.class_teacher_ids.map((classId) => ({
+            school_id: schoolId,
+            teacher_id: teacherId,
+            responsibility_type: 'class_teacher' as const,
+            class_id: classId,
+            assigned_by: user.id,
+          }));
+          const hodResponsibilities = form.hod_department_ids.map((departmentId) => ({
+            school_id: schoolId,
+            teacher_id: teacherId,
+            responsibility_type: 'head_of_department' as const,
+            department_id: departmentId,
+            assigned_by: user.id,
+          }));
+          const responsibilityRows = [...classResponsibilities, ...hodResponsibilities];
+          if (responsibilityRows.length) {
+            if (form.class_teacher_ids.length) {
+              const { error: clearClassLeadsError } = await client.from('teacher_responsibilities')
+                .delete().eq('school_id', schoolId).eq('responsibility_type', 'class_teacher').in('class_id', form.class_teacher_ids);
+              if (clearClassLeadsError) throw clearClassLeadsError;
+            }
+            if (form.hod_department_ids.length) {
+              const { error: clearDepartmentHeadsError } = await client.from('teacher_responsibilities')
+                .delete().eq('school_id', schoolId).eq('responsibility_type', 'head_of_department').in('department_id', form.hod_department_ids);
+              if (clearDepartmentHeadsError) throw clearDepartmentHeadsError;
+            }
+            const { error: responsibilityInsertError } = await client.from('teacher_responsibilities')
+              .insert(responsibilityRows);
+            if (responsibilityInsertError) throw responsibilityInsertError;
+          }
+        }
       }
       setSelectedId(savedStaff.id);
       setShowCreateForm(false);
@@ -415,7 +486,7 @@ export function StaffManagementPage() {
 
       <div className="staff-management-layout">
         <section className="content-card staff-directory-card">
-          <div className="section-heading"><div><span className="eyebrow">School directory</span><h2>Staff directory</h2></div><span className="table-count">{staff.length} staff</span></div>
+          <div className="section-heading"><div><span className="eyebrow">School directory</span><h2>Staff directory</h2></div><span className="table-count">{visibleStaff.length} staff</span></div>
           <label className="table-search staff-search"><Search size={15} /><input value={query} onChange={(event) => setQuery(event.target.value)} placeholder="Search name, department, or employee ID" /></label>
           {loading ? <LoadingState label="Loading staff directory..." /> : visibleStaff.length ? <div className="staff-directory-list">
             {visibleStaff.map((person) => {
@@ -427,7 +498,7 @@ export function StaffManagementPage() {
                 <span className={`staff-status staff-status-${person.employment_status}`}>{STATUS_LABELS[person.employment_status]}</span>
               </button>;
             })}
-          </div> : <div className="staff-empty"><UserRound size={22} /><strong>{query ? 'No matching staff' : 'No staff profiles yet'}</strong><span>{isAdmin ? 'Add staff profiles to create your school directory.' : 'Your school staff will appear here.'}</span></div>}
+          </div> : <div className="staff-empty"><UserRound size={22} /><strong>{query ? 'No matching staff' : 'No staff profiles yet'}</strong><span>{isAdmin ? 'Add staff profiles to create your school directory.' : isHod ? 'No staff profiles are assigned to your departments.' : 'Your school staff will appear here.'}</span></div>}
           {isAdmin && <div className="staff-department-manager">
             <div><Building2 size={15} /><strong>Departments</strong></div>
             <form onSubmit={(event) => void addDepartment(event)}><input required maxLength={80} value={departmentName} onChange={(event) => setDepartmentName(event.target.value)} placeholder="New department name" /><button className="button button-quiet" disabled={saving}><Plus size={13} />Add</button></form>
@@ -435,7 +506,7 @@ export function StaffManagementPage() {
           </div>}
         </section>
 
-        {showCreateForm && isAdmin ? <section className="content-card staff-profile-card">
+        {showCreateForm && (isAdmin || (editingId && canEditSelectedStaff)) ? <section className="content-card staff-profile-card">
           <div className="section-heading"><div><span className="eyebrow">{editingId ? 'Update staff record' : 'New staff record'}</span><h2>{editingId ? 'Edit staff profile' : 'Add staff profile'}</h2></div><button className="icon-button" aria-label="Close staff form" onClick={() => setShowCreateForm(false)}><X size={17} /></button></div>
           <form onSubmit={(event) => void saveStaff(event)}>
             <div className="staff-form-grid">
@@ -445,22 +516,26 @@ export function StaffManagementPage() {
               <label className="field"><span>Last name</span><input required maxLength={80} value={form.last_name} onChange={(event) => setForm((current) => ({ ...current, last_name: event.target.value }))} /></label>
               <label className="field"><span>Email</span><input type="email" maxLength={254} value={form.email ?? ''} onChange={(event) => setForm((current) => ({ ...current, email: event.target.value || null }))} /></label>
               <label className="field"><span>Phone</span><input type="tel" maxLength={40} value={form.phone ?? ''} onChange={(event) => setForm((current) => ({ ...current, phone: event.target.value || null }))} /></label>
-              <label className="field"><span>Department</span><select value={form.department_id ?? ''} onChange={(event) => setForm((current) => ({ ...current, department_id: event.target.value || null }))}><option value="">No department</option>{departments.map((department) => <option key={department.id} value={department.id}>{department.name}</option>)}</select></label>
+              <label className="field"><span>Department</span><select value={form.department_id ?? ''} disabled={!isAdmin} onChange={(event) => setForm((current) => ({ ...current, department_id: event.target.value || null }))}>{isAdmin && <option value="">No department</option>}{visibleDepartments.map((department) => <option key={department.id} value={department.id}>{department.name}</option>)}</select></label>
               <label className="field"><span>Employment status</span><select value={form.employment_status} onChange={(event) => setForm((current) => ({ ...current, employment_status: event.target.value as EmploymentStatus }))}>{Object.entries(STATUS_LABELS).map(([status, label]) => <option key={status} value={status}>{label}</option>)}</select></label>
               <label className="field"><span>Hire date</span><input type="date" value={form.hire_date ?? ''} onChange={(event) => setForm((current) => ({ ...current, hire_date: event.target.value || null }))} /></label>
             </div>
-            <label className="staff-checkbox"><input type="checkbox" checked={form.is_teacher} onChange={(event) => setForm((current) => ({ ...current, is_teacher: event.target.checked }))} /><span><strong>Teacher profile</strong><small>Include teaching qualifications, subject expertise, and class/subject allocations.</small></span><GraduationCap size={19} /></label>
+            <label className="staff-checkbox"><input type="checkbox" checked={form.is_teacher} disabled={!isAdmin} onChange={(event) => setForm((current) => ({ ...current, is_teacher: event.target.checked }))} /><span><strong>Teacher profile</strong><small>Include teaching qualifications, subject expertise, and class/subject allocations.</small></span><GraduationCap size={19} /></label>
             {form.is_teacher && <>
               <label className="field"><span>Qualifications &amp; certifications</span><textarea rows={3} maxLength={2000} value={form.qualifications} onChange={(event) => setForm((current) => ({ ...current, qualifications: event.target.value }))} placeholder="Degrees, teaching certificates, and relevant experience" /></label>
               <div className="staff-assignment-grid">
                 <fieldset><legend>Class allocations</legend>{classes.length ? classes.map((schoolClass) => <label key={schoolClass.id}><input type="checkbox" checked={form.class_ids.includes(schoolClass.id)} onChange={(event) => setForm((current) => ({ ...current, class_ids: event.target.checked ? [...current.class_ids, schoolClass.id] : current.class_ids.filter((id) => id !== schoolClass.id) }))} />{schoolClass.name}</label>) : <small>Add classes before assigning teachers.</small>}</fieldset>
-                <fieldset><legend>Subject allocations</legend>{subjects.length ? subjects.map((subject) => <label key={subject.id}><input type="checkbox" checked={form.subject_ids.includes(subject.id)} onChange={(event) => setForm((current) => ({ ...current, subject_ids: event.target.checked ? [...current.subject_ids, subject.id] : current.subject_ids.filter((id) => id !== subject.id) }))} />{subject.name}</label>) : <small>Add subjects before assigning teachers.</small>}</fieldset>
+                <fieldset><legend>Subject allocations</legend>{visibleSubjects.length ? visibleSubjects.map((subject) => <label key={subject.id}><input type="checkbox" checked={form.subject_ids.includes(subject.id)} onChange={(event) => setForm((current) => ({ ...current, subject_ids: event.target.checked ? [...current.subject_ids, subject.id] : current.subject_ids.filter((id) => id !== subject.id) }))} />{subject.name}</label>) : <small>{isHod ? 'Your department has no assigned subjects.' : 'Add subjects before assigning teachers.'}</small>}</fieldset>
               </div>
+              {isAdmin && <div className="staff-assignment-grid staff-responsibility-grid">
+                <fieldset><legend>Class Teacher / Form Tutor</legend><small>Designate this teacher to manage class-level records and progress.</small>{classes.length ? classes.map((schoolClass) => <label key={schoolClass.id}><input type="checkbox" checked={form.class_teacher_ids.includes(schoolClass.id)} onChange={(event) => setForm((current) => ({ ...current, class_teacher_ids: event.target.checked ? [...current.class_teacher_ids, schoolClass.id] : current.class_teacher_ids.filter((id) => id !== schoolClass.id) }))} />{schoolClass.name}</label>) : <small>Add classes before assigning a class teacher.</small>}</fieldset>
+                <fieldset><legend>Head of Department</legend><small>Assign a department for HOD oversight.</small>{departments.length ? departments.map((department) => <label key={department.id}><input type="checkbox" checked={form.hod_department_ids.includes(department.id)} onChange={(event) => setForm((current) => ({ ...current, hod_department_ids: event.target.checked ? [...current.hod_department_ids, department.id] : current.hod_department_ids.filter((id) => id !== department.id) }))} />{department.name}</label>) : <small>Add departments before assigning an HOD.</small>}</fieldset>
+              </div>}
             </>}
             <div className="staff-form-actions"><button className="button button-primary" disabled={saving}><Save size={14} />{saving ? 'Saving...' : editingId ? 'Save profile' : 'Create staff profile'}</button><button className="button button-quiet" type="button" onClick={() => setShowCreateForm(false)}>Cancel</button></div>
           </form>
         </section> : selectedStaff ? <section className="content-card staff-profile-card">
-          <div className="section-heading"><div><span className="eyebrow">{selectedStaff.employee_number}</span><h2>{selectedStaff.first_name} {selectedStaff.last_name}</h2></div>{isAdmin && <button className="button button-quiet" onClick={() => startEdit(selectedStaff)}><Save size={14} />Edit profile</button>}</div>
+          <div className="section-heading"><div><span className="eyebrow">{selectedStaff.employee_number}</span><h2>{selectedStaff.first_name} {selectedStaff.last_name}</h2></div>{canEditSelectedStaff && <button className="button button-quiet" onClick={() => startEdit(selectedStaff)}><Save size={14} />Edit profile</button>}</div>
           <div className="staff-profile-facts">
             <div><span>Job title</span><strong>{selectedStaff.job_title || (selectedTeacher ? 'Teacher' : 'Staff member')}</strong></div>
             <div><span>Department</span>{isAdmin ? <select value={selectedStaff.department_id ?? ''} aria-label="Staff department assignment" onChange={(event) => void saveDepartmentAssignment(selectedStaff.id, event.target.value)}><option value="">No department</option>{departments.map((department) => <option key={department.id} value={department.id}>{department.name}</option>)}</select> : <strong>{departments.find((item) => item.id === selectedStaff.department_id)?.name ?? 'Not assigned'}</strong>}</div>
@@ -469,7 +544,7 @@ export function StaffManagementPage() {
             <div><span>Email</span><strong>{selectedStaff.email || 'Not recorded'}</strong></div>
             <div><span>Phone</span><strong>{selectedStaff.phone || 'Not recorded'}</strong></div>
           </div>
-          {selectedTeacher && <div className="staff-teacher-detail"><h3><GraduationCap size={16} />Teacher details</h3><p>{selectedTeacher.qualifications || 'No qualifications recorded.'}</p><div><span><strong>Classes</strong>{classAssignments.filter((assignment) => assignment.teacher_id === selectedTeacher.id).map((assignment) => classes.find((item) => item.id === assignment.class_id)?.name).filter(Boolean).join(', ') || 'Not allocated'}</span><span><strong>Subjects</strong>{subjectAssignments.filter((assignment) => assignment.teacher_id === selectedTeacher.id).map((assignment) => subjects.find((item) => item.id === assignment.subject_id)?.name).filter(Boolean).join(', ') || 'Not allocated'}</span></div></div>}
+          {selectedTeacher && <div className="staff-teacher-detail"><h3><GraduationCap size={16} />Teacher details</h3><p>{selectedTeacher.qualifications || 'No qualifications recorded.'}</p><div><span><strong>Classes</strong>{classAssignments.filter((assignment) => assignment.teacher_id === selectedTeacher.id).map((assignment) => classes.find((item) => item.id === assignment.class_id)?.name).filter(Boolean).join(', ') || 'Not allocated'}</span><span><strong>Subjects</strong>{subjectAssignments.filter((assignment) => assignment.teacher_id === selectedTeacher.id).map((assignment) => subjects.find((item) => item.id === assignment.subject_id)?.name).filter(Boolean).join(', ') || 'Not allocated'}</span></div>{isAdmin && selectedResponsibilities.length > 0 && <p><strong>Additional responsibilities:</strong> {selectedResponsibilities.map((item) => item.responsibility_type === 'class_teacher' ? `Class Teacher — ${classes.find((schoolClass) => schoolClass.id === item.class_id)?.name ?? 'class'}` : `HOD — ${departments.find((department) => department.id === item.department_id)?.name ?? 'department'}`).join('; ')}</p>}</div>}
           {isAdmin && <div className="staff-document-section">
             <div className="staff-document-heading"><div><FileText size={16} /><strong>Private staff documents</strong></div><span>{documents.length} files · visible to school administrators</span></div>
             <form className="staff-document-upload" onSubmit={(event) => void uploadStaffDocument(event)}><input required type="file" name="staff_document" accept=".pdf,.jpg,.jpeg,.png,.doc,.docx,application/pdf,image/jpeg,image/png,application/msword,application/vnd.openxmlformats-officedocument.wordprocessingml.document" /><button className="button button-quiet" disabled={uploading}><FilePlus2 size={14} />{uploading ? 'Uploading...' : 'Upload document'}</button></form>

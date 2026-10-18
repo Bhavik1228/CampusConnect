@@ -169,7 +169,7 @@ begin
         last_seen_at = timezone('utc', now());
 
   for membership_record in
-    select membership.school_id, membership.role::text as role, school.name,
+    select membership.school_id, membership.role::text as role, school.name, school.logo_path,
       access_settings.enabled,
       access_settings.role_modules -> membership.role::text as role_modules,
       coalesce((platform.global_feature_availability ->> 'mobile_app')::boolean, true) as platform_enabled,
@@ -184,6 +184,7 @@ begin
     result := result || jsonb_build_array(jsonb_build_object(
       'school_id', membership_record.school_id,
       'school_name', membership_record.name,
+      'school_logo_path', membership_record.logo_path,
       'role', membership_record.role,
       'eligible', coalesce(membership_record.enabled, false)
         and membership_record.platform_enabled

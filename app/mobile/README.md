@@ -7,7 +7,8 @@ The Expo app in this folder connects to the existing Campus Connect Supabase pro
 1. From `app/mobile`, copy `.env.example` to `.env`.
 2. Set `EXPO_PUBLIC_SUPABASE_URL` and `EXPO_PUBLIC_SUPABASE_ANON_KEY` to the same Supabase project used by the web application. The anon key is public configuration; never put a service-role key in the app.
 3. Set `EXPO_PUBLIC_WEB_URL` to the production web URL so generated visitor badge QR codes point to the existing protected verification page.
-4. From `app/`, apply pending database migrations to the project:
+4. Create/select the Expo EAS project and set its public project ID as `EXPO_PUBLIC_EAS_PROJECT_ID`. The dynamic Expo config enables EAS Update only when this ID is set.
+5. From `app/`, apply pending database migrations to the project:
 
    ```powershell
    npx supabase db push --project-ref <your-project-ref>
@@ -15,7 +16,7 @@ The Expo app in this folder connects to the existing Campus Connect Supabase pro
 
    Migration `202610160001_android_app_access.sql` creates school-level Android access settings and audit history, registers mobile sessions, and applies backend checks to shared membership, visitor, health, library, student-roster, and notification access. It preserves web sessions. The System Owner can suspend mobile access globally in the existing platform feature controls.
 
-5. In the web app, first enable **Settings → Modules & features** for each mobile service the school intends to use. Then enable **Android app access** in the same settings page and select allowed features for each school role. A role cannot gain permissions the web backend does not already grant it. Visitor, health, library, and notification data stay protected by their existing server authorization.
+6. In the web app, first enable **Settings → Modules & features** for each mobile service the school intends to use. Then enable **Android app access** in the same settings page and select allowed features for each school role. A role cannot gain permissions the web backend does not already grant it. Visitor, health, library, and notification data stay protected by their existing server authorization.
 
 ## Run and build
 
@@ -32,21 +33,37 @@ Run the Android development app with `npm run android` and a configured Android 
 Install the EAS CLI and authenticate, then build an internal test APK:
 
 ```powershell
-npm install --global eas-cli
-eas build --platform android --profile preview
+npx eas-cli@latest login
+npx eas-cli@latest init
+npx eas-cli@latest build --platform android --profile preview
 ```
 
-Build a signed Play Store bundle with:
+Create the first signed distribution APK with:
 
 ```powershell
-eas build --platform android --profile production
+npx eas-cli@latest build --platform android --profile production
 ```
 
-EAS account credentials and Android signing material are managed outside this repository. Do not commit those credentials.
+For remote builds, add `EXPO_PUBLIC_EAS_PROJECT_ID` to the EAS environment used by the build. The project ID is public configuration, not a credential. EAS account credentials and Android signing material are managed outside this repository. Do not commit those credentials.
+
+### School QR downloads and updates
+
+1. Create a **public** Supabase Storage bucket named `mobile-app`, upload the signed production APK as `campus-connect-latest.apk`, and allow enough upload size for the APK. The binary is public to download; do not put secrets or private school records in this bucket.
+2. Set `VITE_ANDROID_APK_URL` in the Vercel project to the stable public URL for that object, and set `VITE_PUBLIC_APP_URL` to the production web-app origin. The APK URL can remain unchanged when a new signed build replaces the same object.
+3. Redeploy the web app. After a school administrator enables Android access, **Settings → Modules & features** displays that school’s download QR. The QR opens `/mobile/install?school=<school-id>`, downloads the APK, and offers an “Open Campus Connect” link that carries the school through sign-in.
+4. Android may ask users to permit their browser to install apps from outside Google Play. This is an Android security prompt and cannot be bypassed by the QR code.
+5. EAS Update can deliver JavaScript, styling, and bundled-asset changes automatically when the app starts; a downloaded compatible update is used on a subsequent launch. Publish to production with:
+
+   ```powershell
+   npx eas-cli@latest update --channel production --message "Describe the change"
+   ```
+
+   Native-code/dependency changes, new permissions, and Expo SDK upgrades require a new signed APK. Upload that APK over the same stable Storage object. In-app updates are not instantaneous while a user is in the middle of a session.
 
 ## Mobile workflows
 
 - Login uses the existing Supabase Auth accounts and secure device storage. Users can choose among school memberships that report mobile eligibility.
+- The shared APK loads the selected school’s configured HTTPS logo in the app; each school does not need a separate APK or launcher icon. The school name and logo are returned with the authenticated school membership.
 - The scanner requests camera access only when opened. It routes visitor badge references, ISBN-10/ISBN-13, library accession codes, and 16-character library return codes to the relevant workflow. Manual entry is available if camera access is denied.
 - Visitor reads and status changes use the existing RLS-protected records and `save_visitor_record` / `transition_visitor_status` RPCs. Badge PDFs contain a QR reference, not visitor personal details in the QR payload.
 - Library metadata lookup uses the same Open Library lookup used by the web app. Catalogue writes, student selection, checkouts, and returns use the current Supabase schema and RPCs. Sticker PDFs use the existing title-level barcode.

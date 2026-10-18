@@ -203,6 +203,14 @@ export function AttendancePage() {
   const readOnlyRegister = session?.status === 'closed' || (session?.status === 'submitted' && !canManage);
 
   useEffect(() => {
+    if (role !== 'teacher') return;
+    const requestedClass = new URLSearchParams(window.location.search).get('class');
+    if (requestedClass && classes.some((schoolClass) => schoolClass.id === requestedClass)) {
+      setClassId(requestedClass);
+    }
+  }, [classes, role]);
+
+  useEffect(() => {
     setTab(canRecord ? 'register' : 'my-attendance');
   }, [activeMembership?.school_id, role, canRecord]);
 

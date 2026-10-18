@@ -1,5 +1,6 @@
 import { useEffect, useState, type FormEvent, type ReactNode } from 'react';
-import { BookOpen, Check, ClipboardCheck, Cloud, Globe, LockKeyhole, MessageSquare, Plus, Puzzle, Save, School, ShieldCheck, Trash2 } from 'lucide-react';
+import { BookOpen, Check, ClipboardCheck, Cloud, Download, Globe, LockKeyhole, MessageSquare, Plus, Puzzle, Save, School, ShieldCheck, Trash2 } from 'lucide-react';
+import QRCode from 'qrcode';
 import { useAuth } from '../contexts/AuthContext';
 import { ErrorState, LoadingState, SuccessMessage } from '../components/Feedback';
 import { requireSupabase } from '../lib/supabase';
@@ -257,12 +258,37 @@ export function SchoolSettingsPage() {
   const [communication, setCommunication] = useState<SchoolCommunicationSettings | null>(null);
   const [modules, setModules] = useState<SchoolModuleSettings | null>(null);
   const [mobileAccess, setMobileAccess] = useState<MobileAccessSettings>(defaultMobileAccess);
+  const [mobileInstallQr, setMobileInstallQr] = useState('');
   const [security, setSecurity] = useState<SchoolSecuritySettings | null>(null);
   const [website, setWebsite] = useState<WebsiteSettings | null>(null);
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState<SettingsTab | null>(null);
   const [error, setError] = useState('');
   const [success, setSuccess] = useState('');
+
+  useEffect(() => {
+    if (!schoolId || !mobileAccess.enabled) {
+      setMobileInstallQr('');
+      return;
+    }
+    let installUrl: URL;
+    try {
+      installUrl = new URL('/mobile/install', import.meta.env.VITE_PUBLIC_APP_URL?.trim() || window.location.origin);
+    } catch (qrError) {
+      setError(qrError instanceof Error ? qrError.message : 'The public app URL is invalid.');
+      return;
+    }
+    installUrl.searchParams.set('school', schoolId);
+    let active = true;
+    void QRCode.toDataURL(installUrl.toString(), { errorCorrectionLevel: 'Q', margin: 2, width: 360 })
+      .then((dataUrl) => {
+        if (active) setMobileInstallQr(dataUrl);
+      })
+      .catch((qrError: unknown) => {
+        if (active) setError(qrError instanceof Error ? qrError.message : 'Could not create the school app QR code.');
+      });
+    return () => { active = false; };
+  }, [schoolId, mobileAccess.enabled]);
 
   useEffect(() => {
     if (!schoolId) return;
@@ -648,6 +674,19 @@ export function SchoolSettingsPage() {
             {canEdit && <Section title="Android app access" detail="Mobile access is disabled until your school administrator enables it. Changes are recorded in the school's access audit history.">
               {!mobileAccess.platform_enabled && <p className="inline-warning" role="status">Android access is currently disabled platform-wide by the System Owner.</p>}
               <Toggle label="Enable the Campus Connect Android app" detail="Disabling this blocks registered Android sessions on their next protected backend request without affecting the web app." checked={mobileAccess.enabled} disabled={!canEdit} onChange={(checked) => setMobileAccess((current) => ({ ...current, enabled: checked }))} />
+              {mobileAccess.enabled && <div className="mobile-install-panel">
+                <div>
+                  <h4>School app download QR code</h4>
+                  <p>Share this QR code with your school community. It opens the official Campus Connect APK download page for this school.</p>
+                  {!import.meta.env.VITE_ANDROID_APK_URL && <p className="inline-warning">The APK download link is not configured yet. Set VITE_ANDROID_APK_URL in the Vercel project after uploading the signed APK to the public mobile-app Supabase Storage bucket.</p>}
+                </div>
+                {mobileInstallQr && <div className="mobile-install-qr">
+                  <img src={mobileInstallQr} alt={`Campus Connect Android app download QR code for ${profile?.name ?? 'this school'}`} />
+                  <a className="button button-quiet" href={mobileInstallQr} download={`campus-connect-${schoolId}-install-qr.png`}>
+                    <Download size={16} aria-hidden="true" /> Download school QR
+                  </a>
+                </div>}
+              </div>}
               <label className="field"><span>Optional app announcement</span><textarea maxLength={1000} rows={3} value={mobileAccess.announcement} disabled={!canEdit} onChange={(event) => setMobileAccess((current) => ({ ...current, announcement: event.target.value }))} placeholder="A short notice shown to mobile app users" /></label>
               <div className="settings-table-wrap">
                 <table className="settings-table">

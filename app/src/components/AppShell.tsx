@@ -47,6 +47,23 @@ const navigation: { title: string; items: { to: string; label: string; icon: Luc
   ] },
 ];
 
+const teacherNavigation: typeof navigation = [
+  { title: 'Teaching', items: [
+    { to: '/dashboard', label: 'My dashboard', icon: LayoutDashboard },
+    { to: '/timetable', label: 'My timetable', icon: CalendarClock, module: 'module_timetable' },
+    { to: '/classes', label: 'My classes', icon: UsersRound },
+    { to: '/subjects', label: 'My subjects', icon: BookMarked },
+    { to: '/attendance', label: 'Attendance', icon: ClipboardCheck, module: 'module_attendance' },
+    { to: '/learning', label: 'Assessments', icon: BookOpenCheck, module: 'module_learning' },
+    { to: '/assignments', label: 'Assignments', icon: ClipboardList, module: 'module_assignments' },
+    { to: '/grades-results', label: 'Grades & results', icon: Award, module: 'module_assessment_results' },
+    { to: '/courses-lessons', label: 'Courses & lessons', icon: Library, module: 'module_learning' },
+    { to: '/learning-materials', label: 'Learning materials', icon: FileStack, module: 'module_learning' },
+    { to: '/calendar', label: 'Calendar', icon: CalendarDays },
+    { to: '/messaging', label: 'Messages', icon: MessageCircle, module: 'module_messaging' },
+  ] },
+];
+
 const pageNames: Record<string, string> = {
   '/dashboard': 'Overview', '/students': 'Students', '/admissions': 'Admissions & enrolment', '/teachers': 'Teachers', '/staff': 'Staff & teachers',
   '/classes': 'Classes', '/subjects': 'Subjects', '/timetable': 'Timetable', '/attendance': 'Attendance',
@@ -62,6 +79,7 @@ export function AppShell() {
   const [mobileOpen, setMobileOpen] = useState(false);
   const [schoolMenuOpen, setSchoolMenuOpen] = useState(false);
   const [logoutError, setLogoutError] = useState('');
+  const [isHeadOfDepartment, setIsHeadOfDepartment] = useState(false);
   const [modules, setModules] = useState<Record<string, boolean> | null>(null);
   const [modulesError, setModulesError] = useState('');
   const [maintenance, setMaintenance] = useState<{ active: boolean; scope: string | null; read_only: boolean; notice: string; ends_at: string | null; emergency: boolean } | null>(null);
@@ -117,6 +135,32 @@ export function AppShell() {
     '/academic-calendar': 'calendar',
   };
   const disabledModule = moduleForPath[modulePath] && modules?.[moduleForPath[modulePath]] === false;
+
+  useEffect(() => {
+    let active = true;
+    setIsHeadOfDepartment(false);
+    if (activeMembership?.role !== 'teacher' || !activeMembership.school_id || !user?.id) {
+      return () => { active = false; };
+    }
+    void (async () => {
+      try {
+        const client = requireSupabase();
+        const { data: teachers, error: teacherError } = await client.from('teacher_profiles')
+          .select('id').eq('school_id', activeMembership.school_id).eq('profile_id', user.id);
+        if (teacherError) throw teacherError;
+        const teacherIds = (teachers ?? []).map((teacher) => teacher.id);
+        if (!teacherIds.length) return;
+        const { data: responsibilities, error: responsibilityError } = await client.from('teacher_responsibilities')
+          .select('id').eq('school_id', activeMembership.school_id)
+          .eq('responsibility_type', 'head_of_department').in('teacher_id', teacherIds);
+        if (responsibilityError) throw responsibilityError;
+        if (active) setIsHeadOfDepartment((responsibilities ?? []).length > 0);
+      } catch (error) {
+        console.error('Could not verify teacher responsibilities for navigation.', error);
+      }
+    })();
+    return () => { active = false; };
+  }, [activeMembership?.role, activeMembership?.school_id, user?.id]);
 
   useEffect(() => {
     let active = true;
@@ -193,12 +237,17 @@ export function AppShell() {
 
   function sidebarContent() {
     const isAccountingRole = ['finance_manager', 'accountant', 'bursar', 'cashier'].includes(activeMembership?.role ?? '');
+    const roleNavigation = activeMembership?.role === 'teacher'
+      ? teacherNavigation.map((group) => group.title === 'Teaching' && isHeadOfDepartment
+        ? { ...group, items: [...group.items, { to: '/staff', label: 'Department staff', icon: BriefcaseBusiness }] }
+        : group)
+      : navigation;
     const visibleNavigation = isRestrictedRole
-      ? navigation.map((group) => ({
+      ? roleNavigation.map((group) => ({
         ...group,
         items: group.items.filter((item) => item.to === (isHealthcareRole ? '/health' : '/visitors')),
       })).filter((group) => group.items.length > 0)
-      : navigation;
+      : roleNavigation;
     return <>
       <div className="sidebar-top">
         <a className="brand" href="/"><span className="brand-mark">{logoUrl ? <img src={logoUrl} alt="" /> : <BookOpenCheck size={20} />}</span><span>{platformName}</span></a>
@@ -220,7 +269,7 @@ export function AppShell() {
         })}
       </nav>
       <div className="sidebar-bottom">
-        {!isRestrictedRole && !isAccountingRole && <NavLink to="/settings" onClick={() => setMobileOpen(false)} className={({ isActive }) => `nav-item${isActive ? ' active' : ''}`}><Settings size={18} strokeWidth={1.8} /><span>Settings</span></NavLink>}
+        {!isRestrictedRole && !isAccountingRole && activeMembership?.role !== 'teacher' && <NavLink to="/settings" onClick={() => setMobileOpen(false)} className={({ isActive }) => `nav-item${isActive ? ' active' : ''}`}><Settings size={18} strokeWidth={1.8} /><span>Settings</span></NavLink>}
         <div className="profile-row"><span className="avatar">{(user?.user_metadata.full_name as string | undefined)?.slice(0, 1).toUpperCase() ?? user?.email?.slice(0, 1).toUpperCase()}</span><span className="profile-copy"><strong>{(user?.user_metadata.full_name as string | undefined) ?? user?.email}</strong><small>{user?.email}</small></span><button className="icon-button" onClick={() => void logout()} aria-label="Sign out"><LogOut size={17} /></button></div>
       </div>
     </>;

@@ -5,8 +5,14 @@ import { useAuth } from '../contexts/AuthContext';
 import { requireSupabase } from '../lib/supabase';
 import type { DashboardSummary } from '../types/database';
 import { EmptyState, ErrorState, LoadingState } from '../components/Feedback';
+import { TeacherDashboardPage } from './TeacherDashboardPage';
 
 export function DashboardPage() {
+  const { activeMembership } = useAuth();
+  return activeMembership?.role === 'teacher' ? <TeacherDashboardPage /> : <SchoolDashboardPage />;
+}
+
+function SchoolDashboardPage() {
   const { activeMembership, user } = useAuth();
   const [summary, setSummary] = useState<DashboardSummary | null>(null);
   const [loading, setLoading] = useState(true);
