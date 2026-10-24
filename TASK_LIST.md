@@ -41,8 +41,8 @@ Status legend:
 - [x] Shared audit infrastructure.
 - [x] Consistent school branding.
 - [x] Accessible interface and keyboard navigation.
-- [ ] Customisable dashboards and saved views.
-- [ ] Platform-wide performance monitoring.
+- [x] Customisable dashboards and saved views.
+- [x] Platform-wide performance monitoring.
 
 ## 2. Roles and Permissions
 

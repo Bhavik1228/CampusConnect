@@ -43,6 +43,19 @@ export function SystemOwnerPage() {
   const [query, setQuery] = useState('');
   const [pendingAction, setPendingAction] = useState('');
 
+  const performanceSummary = useMemo(() => {
+    if (typeof window === 'undefined' || !('performance' in window)) {
+      return { loadMs: null, navigationMs: null, resources: 0, health: 'Monitoring unavailable' };
+    }
+    const navigationEntries = performance.getEntriesByType('navigation') as PerformanceNavigationTiming[];
+    const resourceEntries = performance.getEntriesByType('resource');
+    const navigationTime = navigationEntries[0]?.domContentLoadedEventEnd ?? navigationEntries[0]?.responseEnd ?? null;
+    const totalResources = resourceEntries.length;
+    const loadMs = navigationEntries[0]?.loadEventEnd ?? null;
+    const health = typeof loadMs === 'number' && loadMs <= 2500 ? 'Healthy' : typeof loadMs === 'number' && loadMs <= 5000 ? 'Stable' : 'Slow';
+    return { loadMs, navigationMs: navigationTime, resources: totalResources, health };
+  }, []);
+
   const loadDashboard = useCallback(async (background = false) => {
     if (!user) return;
     if (background) setRefreshing(true);
@@ -123,6 +136,15 @@ export function SystemOwnerPage() {
       </header>
       {error && <ErrorState message={error} />}
       {notice && <p className="inline-success" role="status">{notice}</p>}
+      <section className="content-card system-owner-panel">
+        <div className="system-owner-panel-heading"><div><span className="eyebrow">Operations</span><h2>Platform performance monitor</h2></div><Activity size={17} /></div>
+        <div className="system-owner-stat-grid" aria-label="Platform performance metrics">
+          <article className="system-owner-stat"><span><Activity size={17} /></span><small>Page load</small><strong>{performanceSummary.loadMs == null ? '—' : `${Math.round(performanceSummary.loadMs)} ms`}</strong><p>Current browser session</p></article>
+          <article className="system-owner-stat"><span><RefreshCw size={17} /></span><small>Navigation time</small><strong>{performanceSummary.navigationMs == null ? '—' : `${Math.round(performanceSummary.navigationMs)} ms`}</strong><p>DOM content ready</p></article>
+          <article className="system-owner-stat"><span><Building2 size={17} /></span><small>Resources</small><strong>{performanceSummary.resources.toLocaleString()}</strong><p>Tracked network assets</p></article>
+          <article className="system-owner-stat"><span><Check size={17} /></span><small>Health</small><strong>{performanceSummary.health}</strong><p>Last browser performance snapshot</p></article>
+        </div>
+      </section>
       {!dashboard && !error && <ErrorState message="Platform dashboard data is not available." />}
       {dashboard && <>
         <section className="system-owner-stat-grid" aria-label="Platform statistics">
