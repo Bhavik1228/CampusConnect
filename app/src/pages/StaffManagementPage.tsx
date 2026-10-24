@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useState, type FormEvent } from 'react';
-import { BriefcaseBusiness, Building2, Download, FilePlus2, FileText, GraduationCap, Plus, Save, Search, Trash2, UserRound, X } from 'lucide-react';
+import { BriefcaseBusiness, Building2, Download, FilePlus2, FileText, GraduationCap, MailPlus, Plus, Save, Search, Trash2, UserRound, X } from 'lucide-react';
 import { useAuth } from '../contexts/AuthContext';
 import { ErrorState, LoadingState, SuccessMessage } from '../components/Feedback';
 import { requireSupabase } from '../lib/supabase';
@@ -110,10 +110,13 @@ export function StaffManagementPage() {
   const [query, setQuery] = useState('');
   const [departmentName, setDepartmentName] = useState('');
   const [showCreateForm, setShowCreateForm] = useState(false);
+  const [showTeacherInvite, setShowTeacherInvite] = useState(false);
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
+  const [invitingTeacher, setInvitingTeacher] = useState(false);
   const [uploading, setUploading] = useState(false);
   const [error, setError] = useState('');
+  const [inviteError, setInviteError] = useState('');
   const [success, setSuccess] = useState('');
   const [refreshKey, setRefreshKey] = useState(0);
 
@@ -207,9 +210,46 @@ export function StaffManagementPage() {
     setEditingId('');
     setSelectedId('');
     setForm(emptyForm());
+    setShowTeacherInvite(false);
     setShowCreateForm(true);
     setError('');
     setSuccess('');
+  }
+
+  async function inviteTeacher(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    if (!schoolId || !isAdmin) return;
+    const formElement = event.currentTarget;
+    setInvitingTeacher(true);
+    setInviteError('');
+    setSuccess('');
+    try {
+      const formData = new FormData(formElement);
+      const { data, error: inviteFunctionError } = await requireSupabase().functions.invoke('staff-invite', {
+        body: {
+          schoolId,
+          fullName: String(formData.get('full_name') ?? '').trim(),
+          email: String(formData.get('email') ?? '').trim(),
+          employeeNumber: String(formData.get('employee_number') ?? '').trim(),
+          role: 'teacher',
+        },
+      });
+      if (inviteFunctionError) {
+        const response = inviteFunctionError.context instanceof Response
+          ? await inviteFunctionError.context.json() as { error?: string }
+          : null;
+        throw new Error(response?.error ?? inviteFunctionError.message);
+      }
+      if (data?.error) throw new Error(data.error);
+      formElement.reset();
+      setShowTeacherInvite(false);
+      setSuccess('Teacher invitation sent. After accepting, they can sign in to their teaching dashboard. Assign classes and subjects from the staff profile.');
+      setRefreshKey((key) => key + 1);
+    } catch (inviteError) {
+      setInviteError(errorMessage(inviteError, 'The teacher invitation could not be sent.'));
+    } finally {
+      setInvitingTeacher(false);
+    }
   }
 
   function startEdit(person: StaffProfile) {
@@ -479,10 +519,30 @@ export function StaffManagementPage() {
     <div className="page-stack staff-management-page">
       <header className="page-heading">
         <div><span className="eyebrow">People &amp; organization</span><h1>Staff &amp; teachers</h1><p>Manage employee profiles, teacher qualifications, department assignments, and teaching allocations.</p></div>
-        {isAdmin && <button className="button button-primary" onClick={startCreate}><Plus size={16} />Add staff profile</button>}
+        {isAdmin && <div className="staff-header-actions">
+          <button className="button button-quiet" onClick={() => { setShowCreateForm(false); setShowTeacherInvite((visible) => !visible); setInviteError(''); }}><MailPlus size={16} />Invite teacher</button>
+          <button className="button button-primary" onClick={startCreate}><Plus size={16} />Add staff profile</button>
+        </div>}
       </header>
       {error && <ErrorState message={error} />}
       {success && <SuccessMessage message={success} />}
+
+      {showTeacherInvite && isAdmin && <section className="content-card staff-profile-card teacher-invite-card">
+        <div className="section-heading"><div><span className="eyebrow">Teacher account</span><h2>Invite a teacher</h2></div><button className="icon-button" aria-label="Close teacher invitation form" onClick={() => setShowTeacherInvite(false)}><X size={17} /></button></div>
+        <p className="accounting-help">We’ll email a secure account setup link and connect the account to a teacher profile so the teaching dashboard is available after sign-in.</p>
+        {inviteError && <ErrorState message={inviteError} />}
+        <form onSubmit={(event) => void inviteTeacher(event)}>
+          <div className="staff-form-grid">
+            <label className="field"><span>Full name</span><input name="full_name" required minLength={2} maxLength={120} autoComplete="name" disabled={invitingTeacher} /></label>
+            <label className="field"><span>Work email</span><input name="email" type="email" required maxLength={320} autoComplete="email" disabled={invitingTeacher} /></label>
+            <label className="field"><span>Employee number</span><input name="employee_number" required maxLength={40} disabled={invitingTeacher} /></label>
+          </div>
+          <div className="staff-form-actions">
+            <button className="button button-primary" type="submit" disabled={invitingTeacher}><MailPlus size={14} />{invitingTeacher ? 'Sending invitation…' : 'Send teacher invitation'}</button>
+            <button className="button button-quiet" type="button" onClick={() => setShowTeacherInvite(false)}>Cancel</button>
+          </div>
+        </form>
+      </section>}
 
       <div className="staff-management-layout">
         <section className="content-card staff-directory-card">

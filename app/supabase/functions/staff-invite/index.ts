@@ -6,13 +6,14 @@ const corsHeaders = {
   'Access-Control-Allow-Methods': 'POST, OPTIONS',
 };
 
-const supportedStaffRoles = new Set(['finance_manager', 'accountant', 'bursar', 'cashier', 'nurse', 'doctor', 'secretary']);
+const supportedStaffRoles = new Set(['teacher', 'finance_manager', 'accountant', 'bursar', 'cashier', 'nurse', 'doctor', 'secretary']);
 
 interface InviteRequest {
   schoolId?: unknown;
   fullName?: unknown;
   email?: unknown;
   role?: unknown;
+  employeeNumber?: unknown;
 }
 
 function respond(status: number, body: Record<string, string>) {
@@ -49,6 +50,7 @@ Deno.serve(async (request: Request) => {
     const fullName = typeof payload.fullName === 'string' ? payload.fullName.trim() : '';
     const email = typeof payload.email === 'string' ? payload.email.trim().toLowerCase() : '';
     const role = typeof payload.role === 'string' ? payload.role : '';
+    const employeeNumber = typeof payload.employeeNumber === 'string' ? payload.employeeNumber.trim() : '';
 
     if (!/^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(schoolId)) {
       return respond(400, { error: 'Choose a valid school.' });
@@ -61,6 +63,12 @@ Deno.serve(async (request: Request) => {
     }
     if (!supportedStaffRoles.has(role)) {
       return respond(400, { error: 'Choose a supported staff role.' });
+    }
+    if (role === 'teacher' && fullName.split(/\s+/).length < 2) {
+      return respond(400, { error: 'Enter the teacher’s first and last name.' });
+    }
+    if (role === 'teacher' && (employeeNumber.length < 1 || employeeNumber.length > 40)) {
+      return respond(400, { error: 'Enter an employee number between 1 and 40 characters.' });
     }
 
     const adminClient = createClient(supabaseUrl, serviceRoleKey, {
@@ -75,6 +83,17 @@ Deno.serve(async (request: Request) => {
       .maybeSingle();
     if (membershipCheckError) throw membershipCheckError;
     if (!adminMembership) return respond(403, { error: 'Only a school administrator can invite staff.' });
+
+    if (role === 'teacher') {
+      const { data: existingStaff, error: existingStaffError } = await adminClient
+        .from('staff_profiles')
+        .select('id')
+        .eq('school_id', schoolId)
+        .eq('employee_number', employeeNumber)
+        .maybeSingle();
+      if (existingStaffError) throw existingStaffError;
+      if (existingStaff) return respond(409, { error: 'That employee number is already in use at this school.' });
+    }
 
     const { data: maintenance, error: maintenanceError } = await adminClient.rpc('platform_maintenance_status', {
       target_school: schoolId,
@@ -101,6 +120,65 @@ Deno.serve(async (request: Request) => {
       const { error: cleanupError } = await adminClient.auth.admin.deleteUser(invitation.user.id);
       if (cleanupError) console.error('Campus Connect could not revoke an incomplete staff invitation.', cleanupError.message);
       throw new Error(`The invitation email was sent, but school access could not be created: ${createMembershipError.message}`);
+    }
+
+    if (role === 'teacher') {
+      const [firstName, ...lastNameParts] = fullName.split(/\s+/);
+      let staffProfileId: string | null = null;
+      let teacherProfileId: string | null = null;
+      try {
+        const { data: staffProfile, error: staffProfileError } = await adminClient
+          .from('staff_profiles')
+          .insert({
+            school_id: schoolId,
+            profile_id: invitation.user.id,
+            employee_number: employeeNumber,
+            first_name: firstName,
+            last_name: lastNameParts.join(' '),
+            email,
+            job_title: 'Teacher',
+            employment_status: 'active',
+          })
+          .select('id')
+          .single();
+        if (staffProfileError) throw staffProfileError;
+        staffProfileId = staffProfile.id;
+
+        const { data: teacherProfile, error: teacherProfileError } = await adminClient
+          .from('teacher_profiles')
+          .insert({
+            school_id: schoolId,
+            profile_id: invitation.user.id,
+            staff_profile_id: staffProfileId,
+            first_name: firstName,
+            last_name: lastNameParts.join(' '),
+            email,
+            employee_number: employeeNumber,
+            status: 'active',
+            employment_status: 'active',
+          })
+          .select('id')
+          .single();
+        if (teacherProfileError) throw teacherProfileError;
+        teacherProfileId = teacherProfile.id;
+      } catch (profileError) {
+        const cleanupErrors: string[] = [];
+        if (teacherProfileId) {
+          const { error: teacherCleanupError } = await adminClient.from('teacher_profiles').delete().eq('id', teacherProfileId);
+          if (teacherCleanupError) cleanupErrors.push(teacherCleanupError.message);
+        }
+        if (staffProfileId) {
+          const { error: staffCleanupError } = await adminClient.from('staff_profiles').delete().eq('id', staffProfileId);
+          if (staffCleanupError) cleanupErrors.push(staffCleanupError.message);
+        }
+        const { error: membershipCleanupError } = await adminClient.from('school_memberships')
+          .delete().eq('school_id', schoolId).eq('profile_id', invitation.user.id);
+        if (membershipCleanupError) cleanupErrors.push(membershipCleanupError.message);
+        const { error: userCleanupError } = await adminClient.auth.admin.deleteUser(invitation.user.id);
+        if (userCleanupError) cleanupErrors.push(userCleanupError.message);
+        if (cleanupErrors.length) console.error('Campus Connect could not fully revoke an incomplete teacher invitation.', cleanupErrors);
+        throw new Error(`The invitation email was sent, but the teacher profile could not be created: ${profileError instanceof Error ? profileError.message : 'Unknown error.'}`);
+      }
     }
 
     return respond(201, { status: 'invited' });

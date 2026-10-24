@@ -1863,6 +1863,8 @@ td strong { color: #3e435a; font-weight: 600; }
 }
 
 .staff-management-page { gap: 18px; }
+.staff-header-actions { display: flex; flex-wrap: wrap; justify-content: flex-end; gap: 8px; }
+.teacher-invite-card > .accounting-help { margin: 0 0 12px; }
 .staff-management-layout { display: grid; grid-template-columns: minmax(280px, .78fr) minmax(0, 1.22fr); align-items: start; gap: 15px; }
 .staff-directory-card, .staff-profile-card { min-width: 0; }
 .staff-search { width: 100%; margin-bottom: 11px; }
@@ -1939,6 +1941,7 @@ td strong { color: #3e435a; font-weight: 600; }
 .staff-delete-document { color: #b5515d; }
 @media (max-width: 850px) {
   .staff-management-layout { grid-template-columns: 1fr; }
+  .staff-header-actions { justify-content: flex-start; }
   .staff-directory-list { max-height: 350px; }
 }
 @media (max-width: 500px) {
