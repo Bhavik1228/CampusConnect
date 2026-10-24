@@ -428,8 +428,8 @@ export function SchoolSettingsPage() {
         return;
       }
     }
-    if (section === 'security' && security?.require_mfa && (security.mfa_methods ?? []).length === 0) {
-      setError('Select at least one multi-factor authentication method or disable the MFA requirement.');
+    if (section === 'security' && security?.require_mfa && !security.mfa_methods?.includes('totp')) {
+      setError('Authenticator apps (TOTP) must be allowed to require MFA. Enable authenticator apps or disable the requirement.');
       setSuccess('');
       return;
     }
@@ -924,7 +924,7 @@ export function SchoolSettingsPage() {
 
           {tab === 'security' && security && <form className="content-card settings-form" onSubmit={(event) => void saveSection(event, 'security')}>
             <div className="settings-section-heading"><span className="eyebrow">Protection & governance</span><h2>Security & privacy</h2><p>Set account security standards and school-wide data handling defaults.</p></div>
-            <Section title="Account protection" detail="Session timeouts, password requirements, and account lockout rules.">
+            <Section title="Account protection" detail="Session timeouts, password requirements, account lockout rules, and authenticator-app sign-in verification.">
               <div className="settings-fields">
                 <NumberField label="Session timeout" value={security.session_timeout_minutes} disabled={!canEdit} min={15} max={10080} suffix="minutes" onChange={(value) => value !== null && setSecurity({ ...security, session_timeout_minutes: value })} />
                 <NumberField label="Minimum password length" value={security.password_min_length} disabled={!canEdit} min={6} max={64} suffix="characters" onChange={(value) => value !== null && setSecurity({ ...security, password_min_length: value })} />
@@ -940,7 +940,12 @@ export function SchoolSettingsPage() {
                 <Toggle label="Require numbers" checked={security.password_require_numbers} disabled={!canEdit} onChange={(checked) => setSecurity({ ...security, password_require_numbers: checked })} />
                 <Toggle label="Require symbols" checked={security.password_require_symbols} disabled={!canEdit} onChange={(checked) => setSecurity({ ...security, password_require_symbols: checked })} />
               </div>
-              {security.require_mfa && <div className="settings-feature-grid">{(['totp', 'sms', 'email', 'webauthn'] as const).map((method) => <Toggle key={method} label={`Allow ${method.toUpperCase()}`} checked={security.mfa_methods.includes(method)} disabled={!canEdit} onChange={(checked) => setSecurity({ ...security, mfa_methods: checked ? [...security.mfa_methods, method] : security.mfa_methods.filter((item) => item !== method) })} />)}</div>}
+              {security.require_mfa && <>
+                <div className="settings-feature-grid">
+                  <Toggle label="Allow authenticator apps (TOTP)" checked={security.mfa_methods.includes('totp')} disabled={!canEdit} onChange={(checked) => setSecurity({ ...security, mfa_methods: checked ? [...new Set([...security.mfa_methods, 'totp'])] : security.mfa_methods.filter((item) => item !== 'totp') })} />
+                </div>
+                <p className="settings-readonly">Users can enroll authenticator apps from Account security. SMS, email codes, and security keys are not supported yet.</p>
+              </>}
             </Section>
             <Section title="Session & device management" detail="Review recent sign-in activity and immediately end other active sessions for this school account.">
               <div className="settings-fields">

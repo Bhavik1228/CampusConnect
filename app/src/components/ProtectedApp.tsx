@@ -41,6 +41,8 @@ import { HealthPage } from '../pages/HealthPage';
 import { VisitorsPage } from '../pages/VisitorsPage';
 import { MobileInstallPage } from '../pages/MobileInstallPage';
 import { AutomationsPage } from '../pages/AutomationsPage';
+import { AccountSecurityPage } from '../pages/AccountSecurityPage';
+import { MfaGate } from './MfaGate';
 
 function RouteGate({ authOnly = true, requireMembership = true }: { authOnly?: boolean; requireMembership?: boolean }) {
   const { user, loading, memberships } = useAuth();
@@ -143,6 +145,8 @@ export function ProtectedApp() {
           </Route>
         </Route>
         <Route element={<SchoolWorkspaceGate />}>
+          <Route element={<MfaGate />}>
+          <Route path="/account-security" element={<AccountSecurityPage />} />
           <Route element={<AppShell />}>
           <Route path="/dashboard" element={<DashboardPage />} />
           <Route path="/students" element={<StudentsPage />} />
@@ -173,6 +177,7 @@ export function ProtectedApp() {
           <Route path="/accounting-staff" element={<AccountingStaffPage />} />
           <Route path="/messaging" element={<MessagingPage />} />
           <Route path="/audit-log" element={<AuditLogPage />} />
+          </Route>
           </Route>
         </Route>
       </Route>

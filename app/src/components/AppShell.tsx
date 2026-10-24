@@ -17,6 +17,7 @@ import { requireSupabase } from '../lib/supabase';
 const navigation: { title: string; items: { to: string; label: string; icon: LucideIcon; roles?: AppRole[]; module?: string }[] }[] = [
   { title: 'Workspace', items: [
     { to: '/dashboard', label: 'Overview', icon: LayoutDashboard },
+    { to: '/account-security', label: 'Account security', icon: ShieldCheck },
     { to: '/students', label: 'Students', icon: GraduationCap },
     { to: '/admissions', label: 'Admissions & enrolment', icon: UserRoundPlus, roles: ['school_admin', 'admissions_officer'], module: 'module_admissions' },
     { to: '/staff', label: 'Staff & teachers', icon: BriefcaseBusiness, roles: ['school_admin', 'academic_coordinator', 'teacher', 'hr_staff_administrator'] },
@@ -73,6 +74,7 @@ const pageNames: Record<string, string> = {
   '/learning': 'Learning', '/courses-lessons': 'Courses & lessons', '/learning-materials': 'Learning materials', '/assignments': 'Assignments & homework', '/grades-results': 'Grades & results', '/calendar': 'Calendar', '/academic-calendar': 'Academic calendar', '/settings': 'Settings',
   '/finance': 'Student fees', '/accounting-staff': 'Accounting & specialist staff',
   '/website-management': 'Website content', '/admin-workflows': 'Administrative workflows',
+  '/account-security': 'Account security',
   '/automations': 'Automations',
   '/messaging': 'Messages', '/audit-log': 'Audit log',
   '/library': 'Library', '/health': 'Student health', '/health/report': 'Health report', '/visitors': 'Visitor management',
@@ -94,19 +96,19 @@ export function AppShell() {
   const isSecretaryRole = activeMembership?.role === 'secretary';
   const isRestrictedRole = isHealthcareRole || isSecretaryRole;
   const limitedRolePaths: Partial<Record<AppRole, string[]>> = {
-    auditor: ['/dashboard', '/finance', '/audit-log'],
-    librarian: ['/dashboard', '/library'],
-    accounts_payable_officer: ['/dashboard'],
-    website_editor: ['/dashboard', '/website-management'],
-    website_publisher: ['/dashboard', '/website-management'],
-    admissions_officer: ['/dashboard', '/admissions'],
-    hr_staff_administrator: ['/dashboard', '/staff'],
-    transport_manager: ['/dashboard', '/admin-workflows'],
-    facilities_manager: ['/dashboard', '/admin-workflows'],
-    it_support_technician: ['/dashboard', '/admin-workflows'],
-    safeguarding_officer: ['/dashboard', '/admin-workflows'],
-    procurement_officer: ['/dashboard', '/admin-workflows'],
-    compliance_audit_officer: ['/dashboard', '/admin-workflows', '/audit-log'],
+    auditor: ['/dashboard', '/finance', '/audit-log', '/account-security'],
+    librarian: ['/dashboard', '/library', '/account-security'],
+    accounts_payable_officer: ['/dashboard', '/account-security'],
+    website_editor: ['/dashboard', '/website-management', '/account-security'],
+    website_publisher: ['/dashboard', '/website-management', '/account-security'],
+    admissions_officer: ['/dashboard', '/admissions', '/account-security'],
+    hr_staff_administrator: ['/dashboard', '/staff', '/account-security'],
+    transport_manager: ['/dashboard', '/admin-workflows', '/account-security'],
+    facilities_manager: ['/dashboard', '/admin-workflows', '/account-security'],
+    it_support_technician: ['/dashboard', '/admin-workflows', '/account-security'],
+    safeguarding_officer: ['/dashboard', '/admin-workflows', '/account-security'],
+    procurement_officer: ['/dashboard', '/admin-workflows', '/account-security'],
+    compliance_audit_officer: ['/dashboard', '/admin-workflows', '/audit-log', '/account-security'],
   };
   const rolePaths = limitedRolePaths[activeMembership?.role ?? 'student'];
   const isLimitedRole = rolePaths !== undefined;
