@@ -66,8 +66,8 @@ Status legend:
 Accounts Payable Officer is available as a restricted core role; supplier-payables workflows remain tracked in section 18.3.
 
 ### 2.2 Additional teaching responsibilities
-- [ ] Class Teacher/Form Tutor.
-- [ ] Head of Department.
+- [x] Class Teacher/Form Tutor.
+- [x] Head of Department.
 - [x] Senior Teacher/Academic Coordinator.
 
 ### 2.3 Additional administrative responsibilities
