@@ -12,6 +12,19 @@ type Category = 'academics' | 'attendance' | 'assignments' | 'finance' | 'commun
 type AutomationStatus = 'draft' | 'active' | 'paused' | 'failed' | 'disabled';
 type ActionType = 'notification' | 'announcement';
 type WorkflowTab = 'automations' | 'templates' | 'history';
+type TriggerType = 'schedule' | 'record_created' | 'record_updated' | 'status_changed' | 'date_reached' | 'attendance_event' | 'assignment_deadline' | 'assessment_event' | 'fee_event' | 'admission_event' | 'staff_student_event';
+type TriggerConfig = {
+  frequency?: 'daily' | 'weekly' | 'monthly';
+  time?: string;
+  weekday?: number;
+  day_of_month?: number;
+  source_table?: string;
+  source?: string;
+  event?: string;
+  status?: string;
+  threshold?: number;
+  window_days?: number;
+};
 type Automation = {
   id: string;
   school_id: string;
@@ -19,8 +32,8 @@ type Automation = {
   description: string;
   category: Category;
   status: AutomationStatus;
-  trigger_type: 'schedule';
-  trigger_config: { frequency: 'daily' | 'weekly'; time: string; weekday?: number };
+  trigger_type: TriggerType;
+  trigger_config: TriggerConfig;
   conditions: { weekdays_only?: boolean };
   action_type: ActionType;
   action_config: {
@@ -85,6 +98,31 @@ const weekdays = [
   { value: 3, label: 'Wednesday' }, { value: 4, label: 'Thursday' }, { value: 5, label: 'Friday' },
   { value: 6, label: 'Saturday' },
 ];
+const triggerOptions: { value: TriggerType; label: string }[] = [
+  { value: 'schedule', label: 'Scheduled time' },
+  { value: 'record_created', label: 'Record created' },
+  { value: 'record_updated', label: 'Record updated' },
+  { value: 'status_changed', label: 'Status changed' },
+  { value: 'date_reached', label: 'Date reached' },
+  { value: 'attendance_event', label: 'Attendance event' },
+  { value: 'assignment_deadline', label: 'Assignment deadline' },
+  { value: 'assessment_event', label: 'Assessment event' },
+  { value: 'fee_event', label: 'Fee event' },
+  { value: 'admission_event', label: 'Admission event' },
+  { value: 'staff_student_event', label: 'Staff or student event' },
+];
+const recordSources = [
+  { value: 'students', label: 'Students' },
+  { value: 'staff_profiles', label: 'Staff profiles' },
+  { value: 'assignments', label: 'Assignments' },
+  { value: 'assignment_submissions', label: 'Assignment submissions' },
+  { value: 'attendance_records', label: 'Attendance records' },
+  { value: 'exam_results', label: 'Exam results' },
+  { value: 'learning_assessment_results', label: 'Learning assessment results' },
+  { value: 'student_fee_invoices', label: 'Fee invoices' },
+  { value: 'admission_applications', label: 'Admission applications' },
+];
+const statusSources = recordSources.filter((source) => source.value !== 'exam_results');
 const statusLabels: Record<AutomationStatus, string> = {
   draft: 'Draft', active: 'Active', paused: 'Paused', failed: 'Failed', disabled: 'Disabled',
 };
@@ -187,6 +225,44 @@ function newForm(ownerId: string): WorkflowForm {
 
 function formatDate(value: string | null, timeZone: string) {
   return value ? new Intl.DateTimeFormat(undefined, { dateStyle: 'medium', timeStyle: 'short', timeZone }).format(new Date(value)) : 'Never';
+}
+
+function triggerDescription(automation: Automation) {
+  const { trigger_type: type, trigger_config: config } = automation;
+  if (type === 'schedule') {
+    if (config.frequency === 'weekly') return `Weekly · ${weekdays.find((day) => day.value === config.weekday)?.label ?? 'Day not set'} at ${config.time}`;
+    if (config.frequency === 'monthly') return `Monthly · day ${config.day_of_month ?? 'not set'} at ${config.time}`;
+    return `Daily at ${config.time}`;
+  }
+  if (type === 'record_created' || type === 'record_updated' || type === 'status_changed') {
+    return `${triggerOptions.find((item) => item.value === type)?.label} · ${recordSources.find((item) => item.value === config.source_table)?.label ?? 'Record'}`;
+  }
+  const eventLabels: Record<string, string> = {
+    assignment_deadline: 'Assignment deadline',
+    exam_date: 'Exam date',
+    invoice_due_date: 'Fee invoice due date',
+    recorded: 'Attendance recorded',
+    absence_threshold: `${config.threshold ?? 3} absences in ${config.window_days ?? 7} days`,
+    marks_submitted: 'Marks submitted',
+    assessment_published: 'Assessment completed (results published)',
+    submission_graded: 'Assignment submission graded',
+    payment_recorded: 'Fee payment recorded',
+    invoice_overdue: 'Invoice overdue',
+    submitted: 'Admission submitted',
+    student_created: 'Student profile created',
+    student_status_changed: 'Student status changed',
+    student_enrolled: 'Student enrolled in a class',
+    staff_created: 'Staff profile created',
+    staff_status_changed: 'Staff employment status changed',
+  };
+  if (type === 'date_reached') return eventLabels[config.source ?? ''] ?? 'Date reached';
+  if (type === 'assignment_deadline') return eventLabels.assignment_deadline;
+  return `${triggerOptions.find((item) => item.value === type)?.label} · ${eventLabels[config.event ?? ''] ?? ''}`.trim();
+}
+
+function sameTriggerConfig(left: TriggerConfig, right: TriggerConfig) {
+  const keys = new Set([...Object.keys(left), ...Object.keys(right)] as (keyof TriggerConfig)[]);
+  return [...keys].every((key) => left[key] === right[key]);
 }
 
 function errorText(error: unknown, fallback: string) {
@@ -328,8 +404,28 @@ export function AutomationsPage() {
     if (form.description.length > 1000) return 'Description must be 1,000 characters or fewer.';
     if (!form.owner_id) return 'Choose an automation owner.';
     if (!members.some((member) => member.profile_id === form.owner_id)) return 'The owner must be a member of this school.';
-    if (form.trigger_config.frequency === 'weekly' && form.trigger_config.weekday === undefined) return 'Choose a day of the week.';
-    if (!/^([01]\d|2[0-3]):[0-5]\d$/.test(form.trigger_config.time)) return 'Choose a valid scheduled time.';
+    if (form.trigger_type === 'schedule') {
+      if (!form.trigger_config.frequency || !['daily', 'weekly', 'monthly'].includes(form.trigger_config.frequency)) return 'Choose a supported schedule frequency.';
+      if (form.trigger_config.frequency === 'weekly' && form.trigger_config.weekday === undefined) return 'Choose a day of the week.';
+      if (form.trigger_config.frequency === 'monthly' && !form.trigger_config.day_of_month) return 'Choose a day of the month.';
+      if (!form.trigger_config.time || !/^([01]\d|2[0-3]):[0-5]\d$/.test(form.trigger_config.time)) return 'Choose a valid scheduled time.';
+    } else if (['record_created', 'record_updated', 'status_changed'].includes(form.trigger_type)) {
+      const sources = form.trigger_type === 'status_changed' ? statusSources : recordSources;
+      if (!sources.some((source) => source.value === form.trigger_config.source_table)) return 'Choose a supported record type.';
+    } else if (form.trigger_type === 'date_reached' && !['assignment_deadline', 'exam_date', 'invoice_due_date'].includes(form.trigger_config.source ?? '')) {
+      return 'Choose a supported date source.';
+    } else if (form.trigger_type === 'attendance_event') {
+      if (!['recorded', 'absence_threshold'].includes(form.trigger_config.event ?? '')) return 'Choose a supported attendance event.';
+      if (form.trigger_config.event === 'absence_threshold' && (!form.trigger_config.threshold || form.trigger_config.threshold < 1 || form.trigger_config.threshold > 30 || !form.trigger_config.window_days || form.trigger_config.window_days < 1 || form.trigger_config.window_days > 90)) return 'Set an absence threshold from 1–30 and a window from 1–90 days.';
+    } else if (form.trigger_type === 'assessment_event' && !['marks_submitted', 'assessment_published', 'submission_graded'].includes(form.trigger_config.event ?? '')) {
+      return 'Choose a supported assessment event.';
+    } else if (form.trigger_type === 'fee_event' && !['payment_recorded', 'invoice_overdue'].includes(form.trigger_config.event ?? '')) {
+      return 'Choose a supported fee event.';
+    } else if (form.trigger_type === 'admission_event' && !['submitted', 'status_changed'].includes(form.trigger_config.event ?? '')) {
+      return 'Choose a supported admission event.';
+    } else if (form.trigger_type === 'staff_student_event' && !['student_created', 'student_status_changed', 'staff_created', 'staff_status_changed'].includes(form.trigger_config.event ?? '')) {
+      return 'Choose a supported staff or student event.';
+    }
     if (form.estimated_minutes_saved < 1 || form.estimated_minutes_saved > 240) return 'Time saved must be between 1 and 240 minutes per run.';
     if (form.action_config.title.trim().length < 2 || form.action_config.title.length > 160) return 'Action title must be between 2 and 160 characters.';
     if (form.action_config.body.trim().length < 3 || form.action_config.body.length > 5000) return 'Action message must be between 3 and 5,000 characters.';
@@ -347,9 +443,8 @@ export function AutomationsPage() {
   function matchingAutomation() {
     return automations.find((item) => item.id !== editingId
       && item.status === 'active'
-      && item.trigger_config.frequency === form.trigger_config.frequency
-      && item.trigger_config.time === form.trigger_config.time
-      && item.trigger_config.weekday === form.trigger_config.weekday
+      && item.trigger_type === form.trigger_type
+      && sameTriggerConfig(item.trigger_config, form.trigger_config)
       && item.action_type === form.action_type
       && JSON.stringify(item.action_config) === JSON.stringify(form.action_config));
   }
@@ -369,11 +464,7 @@ export function AutomationsPage() {
         ...form,
         name: form.name.trim(),
         description: form.description.trim(),
-        trigger_config: {
-          frequency: form.trigger_config.frequency,
-          time: form.trigger_config.time,
-          ...(form.trigger_config.frequency === 'weekly' ? { weekday: form.trigger_config.weekday } : {}),
-        },
+        trigger_config: form.trigger_config,
       };
       const result = editingId
         ? await client.from('school_automations').update(payload).eq('id', editingId).eq('school_id', schoolId)
@@ -394,9 +485,8 @@ export function AutomationsPage() {
       const problem = validateAutomation(automation);
       if (problem) { setError(problem); return; }
       const conflict = automations.find((item) => item.id !== automation.id && item.status === 'active'
-        && item.trigger_config.frequency === automation.trigger_config.frequency
-        && item.trigger_config.time === automation.trigger_config.time
-        && item.trigger_config.weekday === automation.trigger_config.weekday
+        && item.trigger_type === automation.trigger_type
+      && sameTriggerConfig(item.trigger_config, automation.trigger_config)
         && item.action_type === automation.action_type
         && JSON.stringify(item.action_config) === JSON.stringify(automation.action_config));
       if (conflict && !window.confirm(`“${conflict.name}” may do the same work at the same time. Resume this workflow anyway?`)) return;
@@ -418,8 +508,11 @@ export function AutomationsPage() {
 
   function validateAutomation(automation: Automation) {
     if (automation.name.trim().length < 2) return 'Add a name before activating this automation.';
-    if (!/^([01]\d|2[0-3]):[0-5]\d$/.test(automation.trigger_config.time)) return 'Set a valid schedule before activating.';
-    if (automation.trigger_config.frequency === 'weekly' && automation.trigger_config.weekday === undefined) return 'Choose a schedule day before activating.';
+    if (automation.trigger_type === 'schedule') {
+      if (!automation.trigger_config.time || !/^([01]\d|2[0-3]):[0-5]\d$/.test(automation.trigger_config.time)) return 'Set a valid schedule before activating.';
+      if (automation.trigger_config.frequency === 'weekly' && automation.trigger_config.weekday === undefined) return 'Choose a schedule day before activating.';
+      if (automation.trigger_config.frequency === 'monthly' && !automation.trigger_config.day_of_month) return 'Choose a schedule day of the month before activating.';
+    }
     if (automation.action_config.title.trim().length < 2 || automation.action_config.body.trim().length < 3) return 'Complete the action title and message before activating.';
     if (automation.action_type === 'notification' && !automation.action_config.recipient_roles?.length) return 'Choose notification recipient roles before activating.';
     if (automation.action_type === 'announcement' && !automation.action_config.audience) return 'Choose an announcement audience before activating.';
@@ -555,16 +648,48 @@ export function AutomationsPage() {
           <div className="automation-builder-section">
             <h3><CalendarClock size={16} />Trigger</h3>
             <div className="automation-form-grid">
-              <label className="field"><span>Run frequency</span><select value={form.trigger_config.frequency} onChange={(event) => setForm((current) => ({ ...current, trigger_config: { ...current.trigger_config, frequency: event.target.value as 'daily' | 'weekly', weekday: event.target.value === 'weekly' ? (current.trigger_config.weekday ?? 1) : undefined } }))} disabled={saving}><option value="daily">Every day</option><option value="weekly">Every week</option></select></label>
-              {form.trigger_config.frequency === 'weekly' && <label className="field"><span>Day</span><select value={form.trigger_config.weekday ?? 1} onChange={(event) => setForm((current) => ({ ...current, trigger_config: { ...current.trigger_config, weekday: Number(event.target.value) } }))} disabled={saving}>{weekdays.map((day) => <option key={day.value} value={day.value}>{day.label}</option>)}</select></label>}
-              <label className="field"><span>School local time</span><input type="time" required value={form.trigger_config.time} onChange={(event) => setForm((current) => ({ ...current, trigger_config: { ...current.trigger_config, time: event.target.value } }))} disabled={saving} /></label>
+              <label className="field"><span>When should it run?</span><select value={form.trigger_type} onChange={(event) => {
+                const triggerType = event.target.value as TriggerType;
+                const config: TriggerConfig = triggerType === 'schedule' ? { frequency: 'daily', time: '08:00' }
+                  : triggerType === 'record_created' || triggerType === 'record_updated' || triggerType === 'status_changed' ? { source_table: 'students' }
+                    : triggerType === 'date_reached' ? { source: 'assignment_deadline' }
+                      : triggerType === 'attendance_event' ? { event: 'recorded' }
+                        : triggerType === 'assessment_event' ? { event: 'marks_submitted' }
+                          : triggerType === 'fee_event' ? { event: 'payment_recorded' }
+                            : triggerType === 'admission_event' ? { event: 'submitted' }
+                              : triggerType === 'staff_student_event' ? { event: 'student_created' } : {};
+                setForm((current) => ({
+                  ...current,
+                  trigger_type: triggerType,
+                  trigger_config: config,
+                  conditions: triggerType === 'schedule' ? current.conditions : { weekdays_only: false },
+                }));
+              }} disabled={saving}>{triggerOptions.map((option) => <option key={option.value} value={option.value}>{option.label}</option>)}</select></label>
+              {form.trigger_type === 'schedule' && <>
+                <label className="field"><span>Repeat</span><select value={form.trigger_config.frequency ?? 'daily'} onChange={(event) => setForm((current) => ({ ...current, trigger_config: { ...current.trigger_config, frequency: event.target.value as 'daily' | 'weekly' | 'monthly', weekday: event.target.value === 'weekly' ? (current.trigger_config.weekday ?? 1) : undefined, day_of_month: event.target.value === 'monthly' ? (current.trigger_config.day_of_month ?? 1) : undefined } }))} disabled={saving}><option value="daily">Daily</option><option value="weekly">Weekly</option><option value="monthly">Monthly</option></select></label>
+                {form.trigger_config.frequency === 'weekly' && <label className="field"><span>Day</span><select value={form.trigger_config.weekday ?? 1} onChange={(event) => setForm((current) => ({ ...current, trigger_config: { ...current.trigger_config, weekday: Number(event.target.value) } }))} disabled={saving}>{weekdays.map((day) => <option key={day.value} value={day.value}>{day.label}</option>)}</select></label>}
+                {form.trigger_config.frequency === 'monthly' && <label className="field"><span>Day of month</span><select value={form.trigger_config.day_of_month ?? 1} onChange={(event) => setForm((current) => ({ ...current, trigger_config: { ...current.trigger_config, day_of_month: Number(event.target.value) } }))} disabled={saving}>{Array.from({ length: 31 }, (_, index) => index + 1).map((day) => <option key={day} value={day}>{day}</option>)}</select></label>}
+                <label className="field"><span>School local time</span><input type="time" required value={form.trigger_config.time ?? '08:00'} onChange={(event) => setForm((current) => ({ ...current, trigger_config: { ...current.trigger_config, time: event.target.value } }))} disabled={saving} /></label>
+              </>}
+              {['record_created', 'record_updated', 'status_changed'].includes(form.trigger_type) && <label className="field"><span>Record type</span><select value={form.trigger_config.source_table ?? 'students'} onChange={(event) => setForm((current) => ({ ...current, trigger_config: { source_table: event.target.value } }))} disabled={saving}>{(form.trigger_type === 'status_changed' ? statusSources : recordSources).map((source) => <option key={source.value} value={source.value}>{source.label}</option>)}</select></label>}
+              {form.trigger_type === 'status_changed' && <label className="field"><span>Only when new status is (optional)</span><input maxLength={40} value={form.trigger_config.status ?? ''} onChange={(event) => setForm((current) => ({ ...current, trigger_config: { ...current.trigger_config, status: event.target.value.trim() || undefined } }))} placeholder="e.g. active, published, accepted" disabled={saving} /></label>}
+              {form.trigger_type === 'date_reached' && <label className="field"><span>Date to watch</span><select value={form.trigger_config.source ?? 'assignment_deadline'} onChange={(event) => setForm((current) => ({ ...current, trigger_config: { source: event.target.value } }))} disabled={saving}><option value="assignment_deadline">Assignment deadline</option><option value="exam_date">Exam date</option><option value="invoice_due_date">Fee invoice due date</option></select></label>}
+              {form.trigger_type === 'attendance_event' && <>
+                <label className="field"><span>Event</span><select value={form.trigger_config.event ?? 'recorded'} onChange={(event) => setForm((current) => ({ ...current, trigger_config: { event: event.target.value, ...(event.target.value === 'absence_threshold' ? { threshold: current.trigger_config.threshold ?? 3, window_days: current.trigger_config.window_days ?? 7 } : {}) } }))} disabled={saving}><option value="recorded">Attendance recorded</option><option value="absence_threshold">Absence threshold reached</option></select></label>
+                {form.trigger_config.event === 'absence_threshold' && <><label className="field"><span>Absent records</span><input type="number" min={1} max={30} value={form.trigger_config.threshold ?? 3} onChange={(event) => setForm((current) => ({ ...current, trigger_config: { ...current.trigger_config, threshold: Number(event.target.value) } }))} disabled={saving} /></label><label className="field"><span>Within how many days?</span><input type="number" min={1} max={90} value={form.trigger_config.window_days ?? 7} onChange={(event) => setForm((current) => ({ ...current, trigger_config: { ...current.trigger_config, window_days: Number(event.target.value) } }))} disabled={saving} /></label></>}
+              </>}
+              {form.trigger_type === 'assignment_deadline' && <p className="automation-token-help">Runs when a published assignment reaches its due date.</p>}
+              {form.trigger_type === 'assessment_event' && <label className="field"><span>Event</span><select value={form.trigger_config.event ?? 'marks_submitted'} onChange={(event) => setForm((current) => ({ ...current, trigger_config: { event: event.target.value } }))} disabled={saving}><option value="marks_submitted">Marks submitted</option><option value="assessment_published">Assessment completed (results published)</option><option value="submission_graded">Assignment submission graded</option></select></label>}
+              {form.trigger_type === 'fee_event' && <label className="field"><span>Event</span><select value={form.trigger_config.event ?? 'payment_recorded'} onChange={(event) => setForm((current) => ({ ...current, trigger_config: { event: event.target.value } }))} disabled={saving}><option value="payment_recorded">Fee payment recorded</option><option value="invoice_overdue">Invoice becomes overdue</option></select></label>}
+              {form.trigger_type === 'admission_event' && <label className="field"><span>Event</span><select value={form.trigger_config.event ?? 'submitted'} onChange={(event) => setForm((current) => ({ ...current, trigger_config: { event: event.target.value } }))} disabled={saving}><option value="submitted">Application submitted</option><option value="status_changed">Application status changed</option></select></label>}
+              {form.trigger_type === 'staff_student_event' && <label className="field"><span>Event</span><select value={form.trigger_config.event ?? 'student_created'} onChange={(event) => setForm((current) => ({ ...current, trigger_config: { event: event.target.value } }))} disabled={saving}><option value="student_created">Student profile created</option><option value="student_status_changed">Student status changed</option><option value="student_enrolled">Student enrolled in a class</option><option value="staff_created">Staff profile created</option><option value="staff_status_changed">Staff employment status changed</option></select></label>}
             </div>
           </div>
 
-          <div className="automation-builder-section">
+          {form.trigger_type === 'schedule' && <div className="automation-builder-section">
             <h3><Check size={16} />Conditions</h3>
             <label className="automation-condition"><input type="checkbox" checked={Boolean(form.conditions.weekdays_only)} onChange={(event) => setForm((current) => ({ ...current, conditions: { ...current.conditions, weekdays_only: event.target.checked } }))} disabled={saving} /><span><strong>Only run on weekdays</strong><small>Weekend runs are recorded as skipped and rescheduled.</small></span></label>
-          </div>
+          </div>}
 
           <div className="automation-builder-section">
             <h3><BellRing size={16} />Action</h3>
@@ -614,7 +739,7 @@ export function AutomationsPage() {
               const busy = actingId === automation.id;
               return <article className="automation-row" key={automation.id}>
                 <div className="automation-row-icon">{automation.action_type === 'announcement' ? <Megaphone size={19} /> : <BellRing size={19} />}</div>
-                <div className="automation-row-main"><div className="automation-row-title"><strong>{automation.name}</strong><span className={`automation-status automation-status-${automation.status}`}>{statusLabels[automation.status]}</span></div><p>{automation.description || 'No description added.'}</p><div className="automation-row-meta"><span>{categoryOptions.find((item) => item.value === automation.category)?.label}</span><span>{automation.trigger_config.frequency === 'daily' ? 'Daily' : `Weekly · ${weekdays.find((day) => day.value === automation.trigger_config.weekday)?.label ?? 'Day not set'}`} at {automation.trigger_config.time}</span><span>Owner: {members.find((member) => member.profile_id === automation.owner_id)?.profile?.full_name || `Member ${automation.owner_id.slice(0, 8)}`}</span><span>Last run: {formatDate(automation.last_run_at, activeMembership?.school.timezone ?? 'UTC')}</span><span>Next: {formatDate(automation.next_run_at, activeMembership?.school.timezone ?? 'UTC')}</span></div></div>
+                <div className="automation-row-main"><div className="automation-row-title"><strong>{automation.name}</strong><span className={`automation-status automation-status-${automation.status}`}>{statusLabels[automation.status]}</span></div><p>{automation.description || 'No description added.'}</p><div className="automation-row-meta"><span>{categoryOptions.find((item) => item.value === automation.category)?.label}</span><span>{triggerDescription(automation)}</span><span>Owner: {members.find((member) => member.profile_id === automation.owner_id)?.profile?.full_name || `Member ${automation.owner_id.slice(0, 8)}`}</span><span>Last run: {formatDate(automation.last_run_at, activeMembership?.school.timezone ?? 'UTC')}</span><span>Next: {automation.trigger_type === 'schedule' ? formatDate(automation.next_run_at, activeMembership?.school.timezone ?? 'UTC') : 'When the event occurs'}</span></div></div>
                 <div className="automation-row-actions">
                   {editable && <button className="icon-button" title="Edit automation" aria-label={`Edit ${automation.name}`} onClick={() => startEdit(automation)}><Pencil size={16} /></button>}
                   {editable && <button className="icon-button" title="Test configuration" aria-label={`Test ${automation.name}`} disabled={busy} onClick={() => void runAutomation(automation, true)}><FlaskConical size={16} /></button>}
