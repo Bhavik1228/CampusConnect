@@ -6,7 +6,10 @@ const corsHeaders = {
   'Access-Control-Allow-Methods': 'POST, OPTIONS',
 };
 
-const supportedStaffRoles = new Set(['teacher', 'finance_manager', 'accountant', 'bursar', 'cashier', 'nurse', 'doctor', 'secretary']);
+const supportedStaffRoles = new Set([
+  'teacher', 'finance_manager', 'accountant', 'bursar', 'cashier',
+  'accounts_payable_officer', 'auditor', 'librarian', 'nurse', 'doctor', 'secretary',
+]);
 
 interface InviteRequest {
   schoolId?: unknown;

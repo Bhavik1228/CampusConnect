@@ -1,4 +1,4 @@
-export type AppRole = 'system_admin' | 'school_admin' | 'academic_coordinator' | 'teacher' | 'student' | 'parent' | 'finance_manager' | 'accountant' | 'bursar' | 'cashier' | 'nurse' | 'doctor' | 'secretary';
+export type AppRole = 'system_admin' | 'school_admin' | 'academic_coordinator' | 'teacher' | 'student' | 'parent' | 'finance_manager' | 'accountant' | 'bursar' | 'cashier' | 'accounts_payable_officer' | 'auditor' | 'librarian' | 'nurse' | 'doctor' | 'secretary';
 
 export interface SchoolMembership {
   school_id: string;

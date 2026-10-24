@@ -68,6 +68,7 @@ interface PaymentAllocation {
 }
 
 const financeRoles: AppRole[] = ['school_admin', 'finance_manager', 'accountant', 'bursar', 'cashier'];
+const financeViewRoles: AppRole[] = [...financeRoles, 'auditor'];
 const managerRoles: AppRole[] = ['school_admin', 'finance_manager', 'accountant', 'bursar'];
 const tabs: { id: FinanceTab; label: string }[] = [
   { id: 'overview', label: 'Overview' },
@@ -103,6 +104,7 @@ export function FinancePage() {
   const { activeMembership, user } = useAuth();
   const schoolId = activeMembership?.school_id;
   const canManage = managerRoles.includes(activeMembership?.role ?? 'student');
+  const canViewFinance = financeViewRoles.includes(activeMembership?.role ?? 'student');
   const canRecordPayment = financeRoles.includes(activeMembership?.role ?? 'student');
   const [tab, setTab] = useState<FinanceTab>('overview');
   const [structures, setStructures] = useState<FeeStructure[]>([]);
@@ -640,7 +642,7 @@ export function FinancePage() {
     }
   }
 
-  if (!canRecordPayment) {
+  if (!canViewFinance) {
     return <div className="page-stack"><div className="page-heading"><div><span className="eyebrow">School finance</span><h1>Student fees</h1><p>Fee management is available to school administrators and accounting staff.</p></div></div><ErrorState message="Your school role does not have access to student fee records." /></div>;
   }
 

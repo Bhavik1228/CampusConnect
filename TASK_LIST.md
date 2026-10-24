@@ -56,12 +56,14 @@ Status legend:
 - [x] Accountant.
 - [x] Bursar/Fees Officer.
 - [x] Cashier.
-- [ ] Accounts Payable Officer.
-- [ ] Auditor/Read-only Reviewer.
-- [ ] Librarian.
+- [x] Accounts Payable Officer.
+- [x] Auditor/Read-only Reviewer.
+- [x] Librarian.
 - [x] Secretary.
 - [x] School Nurse.
 - [x] School Doctor.
+
+Accounts Payable Officer is available as a restricted core role; supplier-payables workflows remain tracked in section 18.3.
 
 ### 2.2 Additional teaching responsibilities
 - [ ] Class Teacher/Form Tutor.

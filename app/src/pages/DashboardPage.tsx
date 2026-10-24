@@ -52,8 +52,13 @@ function SchoolDashboardPage() {
   const [viewsSaving, setViewsSaving] = useState(false);
   const [viewNotice, setViewNotice] = useState('');
   const schoolId = activeMembership?.school_id;
+  const restrictedDashboardRole = ['accounts_payable_officer', 'auditor', 'librarian'].includes(activeMembership?.role ?? '');
   useEffect(() => {
-    if (!schoolId) return;
+    if (!schoolId || restrictedDashboardRole) {
+      setSummary(null);
+      setLoading(false);
+      return;
+    }
     let active = true;
     async function load() {
       setLoading(true);
@@ -79,7 +84,7 @@ function SchoolDashboardPage() {
     }
     void load();
     return () => { active = false; };
-  }, [schoolId]);
+  }, [restrictedDashboardRole, schoolId]);
 
   useEffect(() => {
     setSavedViews([]);
@@ -201,7 +206,7 @@ function SchoolDashboardPage() {
     { label: 'Classes', value: summary?.classes ?? 0, icon: UsersRound, color: 'green' },
   ];
 
-  const quickLinks = [
+  const standardQuickLinks = [
     { to: '/students', label: 'Manage students', icon: GraduationCap },
     { to: '/teachers', label: 'Manage teachers', icon: Users },
     { to: '/classes', label: 'Set up classes', icon: UsersRound },
@@ -210,6 +215,16 @@ function SchoolDashboardPage() {
     ...(['school_admin', 'finance_manager', 'accountant', 'bursar', 'cashier'].includes(activeMembership?.role ?? '') ? [{ to: '/finance', label: 'Student fees', icon: CircleDollarSign }] : []),
     ...(activeMembership?.role === 'school_admin' ? [{ to: '/accounting-staff', label: 'Add accounting staff', icon: UserRoundPlus }] : []),
   ];
+  const quickLinks = activeMembership?.role === 'librarian'
+    ? [{ to: '/library', label: 'Manage the library', icon: BookMarked }]
+    : activeMembership?.role === 'auditor'
+      ? [
+        { to: '/finance', label: 'Review student fee records', icon: CircleDollarSign },
+        { to: '/audit-log', label: 'Review audit history', icon: ClipboardCheck },
+      ]
+      : activeMembership?.role === 'accounts_payable_officer'
+        ? []
+        : standardQuickLinks;
 
   return (
     <div className="page-stack">
@@ -239,16 +254,16 @@ function SchoolDashboardPage() {
           {viewError && <ErrorState message={viewError} />}
           {viewNotice && <p className="inline-success" role="status">{viewNotice}</p>}
         </section>
-        {visibleWidgets.includes('summary_cards') && <section className="stat-grid" aria-label="School summary">{cards.map(({ label, value, icon: Icon, color }) => <article className="stat-card" key={label}><div className="stat-card-top"><span>{label}</span><span className={`stat-icon ${color}`}><Icon size={19} /></span></div><strong>{value.toLocaleString()}</strong><span className="stat-caption">From your school records</span></article>)}</section>}
-        {(visibleWidgets.includes('attendance') || visibleWidgets.includes('quick_links')) && <section className="dashboard-grid">
-          {visibleWidgets.includes('attendance') && <>
+        {!restrictedDashboardRole && visibleWidgets.includes('summary_cards') && <section className="stat-grid" aria-label="School summary">{cards.map(({ label, value, icon: Icon, color }) => <article className="stat-card" key={label}><div className="stat-card-top"><span>{label}</span><span className={`stat-icon ${color}`}><Icon size={19} /></span></div><strong>{value.toLocaleString()}</strong><span className="stat-caption">From your school records</span></article>)}</section>}
+        {((!restrictedDashboardRole && visibleWidgets.includes('attendance')) || visibleWidgets.includes('quick_links')) && <section className="dashboard-grid">
+          {!restrictedDashboardRole && visibleWidgets.includes('attendance') && <>
           <article className="content-card overview-card"><div className="section-heading"><div><span className="eyebrow">Today</span><h2>Attendance overview</h2></div><ClipboardCheck size={19} className="muted-icon" /></div>
             {summary?.attendanceToday ? <div className="attendance-summary"><div className="attendance-donut" style={{ '--attendance': `${Math.round(summary.attendanceToday.present / summary.attendanceToday.total * 100)}%` } as React.CSSProperties}><span>{Math.round(summary.attendanceToday.present / summary.attendanceToday.total * 100)}<small>%</small></span></div><div><strong>{summary.attendanceToday.present} present</strong><p>of {summary.attendanceToday.total} attendance records today</p></div></div> : <EmptyState title="No attendance recorded today" detail="When staff record today's attendance, the summary will appear here." />}
           </article>
           </>}
           {visibleWidgets.includes('quick_links') && <article className="content-card quick-links-card"><div className="section-heading"><div><span className="eyebrow">Get started</span><h2>School management</h2></div></div><div className="quick-links">{quickLinks.map(({ to, label, icon: Icon }) => <Link key={to} to={to}><Icon size={18} /><span>{label}</span><ArrowUpRight size={16} /></Link>)}</div></article>}
         </section>}
-        <section className="content-card dashboard-note"><div className="note-icon"><BookMarked size={18} /></div><div><h2>One connected workspace</h2><p>School records, classes, and academic tools are scoped to your active school. Your data is loaded directly from the configured Supabase project.</p></div></section>
+        <section className="content-card dashboard-note"><div className="note-icon"><BookMarked size={18} /></div><div><h2>{activeMembership?.role === 'accounts_payable_officer' ? 'Accounts payable access' : activeMembership?.role === 'auditor' ? 'Read-only review access' : activeMembership?.role === 'librarian' ? 'Library workspace' : 'One connected workspace'}</h2><p>{activeMembership?.role === 'accounts_payable_officer' ? 'Supplier invoice and payment workflows are not available yet. Your account is restricted to this workspace until those features are released.' : activeMembership?.role === 'auditor' ? 'You can review this school’s finance records and audit history. Your role cannot change or approve records.' : activeMembership?.role === 'librarian' ? 'Use the Library section to manage the catalogue, requests, checkouts, and returns.' : 'School records, classes, and academic tools are scoped to your active school. Your data is loaded directly from the configured Supabase project.'}</p></div></section>
       </>}
     </div>
   );

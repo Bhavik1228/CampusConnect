@@ -39,12 +39,12 @@ const navigation: { title: string; items: { to: string; label: string; icon: Luc
     { to: '/calendar', label: 'Calendar', icon: CalendarDays },
   ] },
   { title: 'Finance', items: [
-    { to: '/finance', label: 'Student fees', icon: CircleDollarSign, roles: ['school_admin', 'finance_manager', 'accountant', 'bursar', 'cashier'], module: 'module_finance' },
-    { to: '/accounting-staff', label: 'Accounting staff', icon: UserRoundPlus, roles: ['school_admin'], module: 'module_finance' },
+    { to: '/finance', label: 'Student fees', icon: CircleDollarSign, roles: ['school_admin', 'finance_manager', 'accountant', 'bursar', 'cashier', 'auditor'], module: 'module_finance' },
+    { to: '/accounting-staff', label: 'Accounting & specialist staff', icon: UserRoundPlus, roles: ['school_admin'], module: 'module_finance' },
   ] },
   { title: 'Communication', items: [
     { to: '/messaging', label: 'Messages', icon: MessageCircle, module: 'module_messaging' },
-    { to: '/audit-log', label: 'Audit log', icon: ShieldCheck, roles: ['school_admin'] },
+    { to: '/audit-log', label: 'Audit log', icon: ShieldCheck, roles: ['school_admin', 'auditor'] },
   ] },
 ];
 
@@ -69,7 +69,7 @@ const pageNames: Record<string, string> = {
   '/dashboard': 'Overview', '/students': 'Students', '/admissions': 'Admissions & enrolment', '/teachers': 'Teachers', '/staff': 'Staff & teachers',
   '/classes': 'Classes', '/subjects': 'Subjects', '/timetable': 'Timetable', '/attendance': 'Attendance',
   '/learning': 'Learning', '/courses-lessons': 'Courses & lessons', '/learning-materials': 'Learning materials', '/assignments': 'Assignments & homework', '/grades-results': 'Grades & results', '/calendar': 'Calendar', '/academic-calendar': 'Academic calendar', '/settings': 'Settings',
-  '/finance': 'Student fees', '/accounting-staff': 'Accounting staff',
+  '/finance': 'Student fees', '/accounting-staff': 'Accounting & specialist staff',
   '/automations': 'Automations',
   '/messaging': 'Messages', '/audit-log': 'Audit log',
   '/library': 'Library', '/health': 'Student health', '/health/report': 'Health report', '/visitors': 'Visitor management',
@@ -90,6 +90,13 @@ export function AppShell() {
   const isHealthcareRole = activeMembership?.role === 'nurse' || activeMembership?.role === 'doctor';
   const isSecretaryRole = activeMembership?.role === 'secretary';
   const isRestrictedRole = isHealthcareRole || isSecretaryRole;
+  const limitedRolePaths: Partial<Record<AppRole, string[]>> = {
+    auditor: ['/dashboard', '/finance', '/audit-log'],
+    librarian: ['/dashboard', '/library'],
+    accounts_payable_officer: ['/dashboard'],
+  };
+  const rolePaths = limitedRolePaths[activeMembership?.role ?? 'student'];
+  const isLimitedRole = rolePaths !== undefined;
   const title = pageNames[location.pathname]
     ?? (location.pathname.startsWith('/health/report/') ? 'Health report' : location.pathname.startsWith('/visitors/verify/') ? 'Badge verification' : 'Workspace');
   const modulePath = location.pathname.startsWith('/health/report/')
@@ -333,7 +340,10 @@ export function AppShell() {
 
   function sidebarContent() {
     const isAccountingRole = ['finance_manager', 'accountant', 'bursar', 'cashier'].includes(activeMembership?.role ?? '');
-    const roleNavigation = activeMembership?.role === 'teacher'
+    const roleNavigation = isLimitedRole
+      ? navigation.map((group) => ({ ...group, items: group.items.filter((item) => rolePaths.includes(item.to)) }))
+        .filter((group) => group.items.length > 0)
+      : activeMembership?.role === 'teacher'
       ? teacherNavigation.map((group) => group.title === 'Teaching' && isHeadOfDepartment
         ? { ...group, items: [...group.items, { to: '/staff', label: 'Department staff', icon: BriefcaseBusiness }] }
         : group)
@@ -349,7 +359,7 @@ export function AppShell() {
         <a className="brand" href="/"><span className="brand-mark">{logoUrl ? <img src={logoUrl} alt="" /> : <BookOpenCheck size={20} />}</span><span>{platformName}</span></a>
         <button className="icon-button mobile-close" onClick={() => setMobileOpen(false)} aria-label="Close navigation"><X size={20} /></button>
       </div>
-      {!isRestrictedRole && <div className="school-picker-wrap">
+      {!isRestrictedRole && !isLimitedRole && <div className="school-picker-wrap">
         <button className="school-picker" onClick={() => setSchoolMenuOpen(!schoolMenuOpen)} aria-expanded={schoolMenuOpen}>
           <span className="school-monogram">{activeMembership?.school.name.slice(0, 1).toUpperCase() ?? 'S'}</span>
           <span className="school-picker-copy"><strong>{activeMembership?.school.name}</strong><small>{activeMembership?.role.replace(/_/g, ' ')}</small></span>
@@ -365,7 +375,7 @@ export function AppShell() {
         })}
       </nav>
       <div className="sidebar-bottom">
-        {!isRestrictedRole && !isAccountingRole && activeMembership?.role !== 'teacher' && <NavLink to="/settings" onClick={() => setMobileOpen(false)} className={({ isActive }) => `nav-item${isActive ? ' active' : ''}`}><Settings size={18} strokeWidth={1.8} /><span>Settings</span></NavLink>}
+        {!isRestrictedRole && !isLimitedRole && !isAccountingRole && activeMembership?.role !== 'teacher' && <NavLink to="/settings" onClick={() => setMobileOpen(false)} className={({ isActive }) => `nav-item${isActive ? ' active' : ''}`}><Settings size={18} strokeWidth={1.8} /><span>Settings</span></NavLink>}
         <div className="profile-row"><span className="avatar">{(user?.user_metadata.full_name as string | undefined)?.slice(0, 1).toUpperCase() ?? user?.email?.slice(0, 1).toUpperCase()}</span><span className="profile-copy"><strong>{(user?.user_metadata.full_name as string | undefined) ?? user?.email}</strong><small>{user?.email}</small></span><button className="icon-button" onClick={() => void logout()} aria-label="Sign out"><LogOut size={17} /></button></div>
       </div>
     </>;
@@ -373,6 +383,7 @@ export function AppShell() {
 
   if (isHealthcareRole && !isHealthRoute) return <Navigate to="/health" replace />;
   if (isSecretaryRole && !isVisitorRoute) return <Navigate to="/visitors" replace />;
+  if (rolePaths && !rolePaths.includes(modulePath)) return <Navigate to="/dashboard" replace />;
 
   return (
     <div className="app-layout">

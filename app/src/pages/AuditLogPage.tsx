@@ -32,7 +32,7 @@ export function AuditLogPage() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
   const [printedAt, setPrintedAt] = useState('');
-  const canView = activeMembership?.role === 'school_admin';
+  const canView = activeMembership?.role === 'school_admin' || activeMembership?.role === 'auditor';
 
   const loadLogs = useCallback(async () => {
     if (!schoolId || !canView) {
@@ -91,7 +91,7 @@ export function AuditLogPage() {
         <div><span className="eyebrow">School administration</span><h1>Audit log</h1><p>Review recorded changes made in this school, including its public website and messaging.</p></div>
         <ShieldCheck size={22} className="muted-icon" />
       </div>
-      {!canView && <ErrorState message="Only this school’s administrator can view its audit history." />}
+      {!canView && <ErrorState message="This school role cannot view its audit history." />}
       {error && <ErrorState message={error} />}
       {canView && <section className="content-card">
         <header className="audit-print-heading">

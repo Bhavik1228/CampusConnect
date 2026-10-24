@@ -5,7 +5,7 @@ import { ErrorState, LoadingState, SuccessMessage } from '../components/Feedback
 import { requireSupabase } from '../lib/supabase';
 import type { AppRole } from '../types/database';
 
-type AccountingRole = Extract<AppRole, 'finance_manager' | 'accountant' | 'bursar' | 'cashier'>;
+type SpecialistRole = Extract<AppRole, 'finance_manager' | 'accountant' | 'bursar' | 'cashier' | 'accounts_payable_officer' | 'auditor' | 'librarian'>;
 
 interface StaffMember {
   profile_id: string;
@@ -14,11 +14,14 @@ interface StaffMember {
   profile: { full_name: string; email: string | null } | null;
 }
 
-const roleDetails: Record<AccountingRole, string> = {
+const roleDetails: Record<SpecialistRole, string> = {
   finance_manager: 'Manage fee structures, invoices, discounts, adjustments, and payments.',
   accountant: 'Manage fee structures, invoices, discounts, adjustments, and payments.',
   bursar: 'Manage fee structures, invoices, discounts, adjustments, and payments.',
   cashier: 'View student fee accounts and record payments and receipts.',
+  accounts_payable_officer: 'Reserved for supplier invoices and payment workflows; student fee records are not available to this role.',
+  auditor: 'Read-only access to school audit history and student finance records; cannot change or approve records.',
+  librarian: 'Manage the library catalogue, book requests, checkouts, and returns.',
 };
 
 const roleLabels: Record<AppRole, string> = {
@@ -32,6 +35,9 @@ const roleLabels: Record<AppRole, string> = {
   accountant: 'Accountant',
   bursar: 'Bursar',
   cashier: 'Cashier',
+  accounts_payable_officer: 'Accounts payable officer',
+  auditor: 'Auditor / read-only reviewer',
+  librarian: 'Librarian',
   nurse: 'School nurse',
   doctor: 'School doctor',
   secretary: 'School secretary',
@@ -47,7 +53,7 @@ export function AccountingStaffPage() {
   const [formError, setFormError] = useState('');
   const [success, setSuccess] = useState('');
   const [refreshKey, setRefreshKey] = useState(0);
-  const [selectedRole, setSelectedRole] = useState<AccountingRole>('accountant');
+  const [selectedRole, setSelectedRole] = useState<SpecialistRole>('accountant');
   const canManage = activeMembership?.role === 'school_admin';
 
   const loadStaff = useCallback(async () => {
@@ -108,7 +114,7 @@ export function AccountingStaffPage() {
   return (
     <div className="page-stack">
       <div className="page-heading">
-        <div><span className="eyebrow">School administration</span><h1>Accounting staff</h1><p>Invite finance team members and assign the access they need.</p></div>
+        <div><span className="eyebrow">School administration</span><h1>Accounting & specialist staff</h1><p>Invite finance, audit, accounts-payable, and library staff with role-appropriate access.</p></div>
       </div>
       {!canManage && <ErrorState message="Only a school administrator can invite accounting staff." />}
       {error && <ErrorState message={error} />}
@@ -121,15 +127,15 @@ export function AccountingStaffPage() {
           <form className="accounting-form" onSubmit={(event) => void inviteStaff(event)}>
             <label className="field"><span>Full name</span><input name="full_name" required minLength={2} maxLength={120} autoComplete="name" disabled={!canManage || saving} /></label>
             <label className="field"><span>Work email</span><input name="email" type="email" required maxLength={320} autoComplete="email" disabled={!canManage || saving} /></label>
-            <label className="field"><span>Accounting role</span><select name="role" value={selectedRole} disabled={!canManage || saving} onChange={(event) => setSelectedRole(event.target.value as AccountingRole)}>{(['finance_manager', 'accountant', 'bursar', 'cashier'] as AccountingRole[]).map((role) => <option key={role} value={role}>{roleLabels[role]}</option>)}</select></label>
+            <label className="field"><span>School role</span><select name="role" value={selectedRole} disabled={!canManage || saving} onChange={(event) => setSelectedRole(event.target.value as SpecialistRole)}>{(Object.keys(roleDetails) as SpecialistRole[]).map((role) => <option key={role} value={role}>{roleLabels[role]}</option>)}</select></label>
             <p className="accounting-role-detail">{roleDetails[selectedRole]}</p>
             <button className="button button-primary" type="submit" disabled={!canManage || saving}><MailPlus size={16} />{saving ? 'Sending invitation…' : 'Invite staff member'}</button>
           </form>
         </article>
         <article className="content-card accounting-roles-card">
           <div className="section-heading"><div><span className="eyebrow">Least-privilege access</span><h2>Role permissions</h2></div><ShieldCheck size={19} className="muted-icon" /></div>
-          {(Object.keys(roleDetails) as AccountingRole[]).map((role) => <div className="accounting-role-row" key={role}><strong>{roleLabels[role]}</strong><span>{roleDetails[role]}</span></div>)}
-          <p className="accounting-help">Accounting roles cannot manage school users or change school settings.</p>
+          {(Object.keys(roleDetails) as SpecialistRole[]).map((role) => <div className="accounting-role-row" key={role}><strong>{roleLabels[role]}</strong><span>{roleDetails[role]}</span></div>)}
+          <p className="accounting-help">Specialist roles cannot manage school users or change school settings. The Accounts Payable Officer role is reserved for the supplier-payables feature set, which is not yet available.</p>
         </article>
       </section>
       <section className="content-card">

@@ -118,7 +118,7 @@ export function LibraryPage() {
   const { activeMembership, user } = useAuth();
   const schoolId = activeMembership?.school_id;
   const role = activeMembership?.role;
-  const canManage = role === 'school_admin' || role === 'academic_coordinator';
+  const canManage = role === 'school_admin' || role === 'academic_coordinator' || role === 'librarian';
   const [books, setBooks] = useState<Book[]>([]);
   const [requests, setRequests] = useState<LibraryRequest[]>([]);
   const [students, setStudents] = useState<StudentOption[]>([]);
