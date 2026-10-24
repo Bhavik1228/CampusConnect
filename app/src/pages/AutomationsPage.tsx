@@ -45,13 +45,12 @@ type Run = {
   id: string;
   automation_id: string;
   status: 'successful' | 'skipped' | 'failed';
-  run_source: 'scheduled' | 'manual' | 'test';
   is_test: boolean;
   started_at: string;
   completed_at: string | null;
   summary: string;
   error_message: string | null;
-  automation: { name: string } | { name: string }[] | null;
+  automation_name: string;
 };
 type WorkflowForm = Omit<Automation, 'id' | 'school_id' | 'created_at' | 'updated_at' | 'last_run_at' | 'next_run_at'>;
 
@@ -186,10 +185,6 @@ function newForm(ownerId: string): WorkflowForm {
   };
 }
 
-function relationName(value: Run['automation']) {
-  return Array.isArray(value) ? value[0]?.name ?? 'Automation' : value?.name ?? 'Automation';
-}
-
 function formatDate(value: string | null, timeZone: string) {
   return value ? new Intl.DateTimeFormat(undefined, { dateStyle: 'medium', timeStyle: 'short', timeZone }).format(new Date(value)) : 'Never';
 }
@@ -229,7 +224,7 @@ export function AutomationsPage() {
       const [automationResult, runResult, memberResult] = await Promise.all([
         client.from('school_automations').select('*').eq('school_id', schoolId).order('updated_at', { ascending: false }),
         client.from('school_automation_runs')
-          .select('id,automation_id,status,run_source,is_test,started_at,completed_at,summary,error_message,automation:school_automations(name)')
+          .select('id,automation_id,status,is_test,started_at,completed_at,summary,error_message')
           .eq('school_id', schoolId).order('started_at', { ascending: false }).limit(250),
         client.from('school_memberships')
           .select('profile_id,role,profile:profiles(full_name,email)')
@@ -238,8 +233,13 @@ export function AutomationsPage() {
       for (const result of [automationResult, runResult, memberResult]) {
         if (result.error) throw result.error;
       }
-      setAutomations((automationResult.data ?? []) as Automation[]);
-      setRuns((runResult.data ?? []) as unknown as Run[]);
+      const loadedAutomations = (automationResult.data ?? []) as Automation[];
+      const automationNames = new Map(loadedAutomations.map((automation) => [automation.id, automation.name]));
+      setAutomations(loadedAutomations);
+      setRuns(((runResult.data ?? []) as Omit<Run, 'automation_name'>[]).map((run) => ({
+        ...run,
+        automation_name: automationNames.get(run.automation_id) ?? 'Deleted automation',
+      })));
       setMembers((memberResult.data ?? []) as unknown as Member[]);
     } catch (loadError) {
       setError(errorText(loadError, 'Could not load school automations.'));
@@ -637,7 +637,7 @@ export function AutomationsPage() {
 
       {tab === 'history' && <section className="content-card automation-history-card">
         <div className="section-heading"><div><span className="eyebrow">Run history</span><h2>Recent activity</h2></div><History size={19} className="muted-icon" /></div>
-        {runs.length === 0 ? <EmptyState title="No runs recorded" detail="Successful, skipped, failed, scheduled, manual, and test runs will appear here." /> : <div className="table-scroll"><table className="automation-history-table"><thead><tr><th>Automation</th><th>Result</th><th>Run type</th><th>Started</th><th>Summary</th></tr></thead><tbody>{runs.map((run) => <tr key={run.id}><td>{relationName(run.automation)}</td><td><span className={`automation-run-status automation-run-${run.status}`}>{run.status}</span></td><td>{run.run_source}</td><td>{formatDate(run.started_at, activeMembership?.school.timezone ?? 'UTC')}</td><td>{run.error_message || run.summary}</td></tr>)}</tbody></table></div>}
+        {runs.length === 0 ? <EmptyState title="No runs recorded" detail="Successful, skipped, failed, scheduled, manual, and test runs will appear here." /> : <div className="table-scroll"><table className="automation-history-table"><thead><tr><th>Automation</th><th>Result</th><th>Run type</th><th>Started</th><th>Summary</th></tr></thead><tbody>{runs.map((run) => <tr key={run.id}><td>{run.automation_name}</td><td><span className={`automation-run-status automation-run-${run.status}`}>{run.status}</span></td><td>{run.is_test ? 'Test' : 'Scheduled / manual'}</td><td>{formatDate(run.started_at, activeMembership?.school.timezone ?? 'UTC')}</td><td>{run.error_message || run.summary}</td></tr>)}</tbody></table></div>}
       </section>}
     </div>
   );
