@@ -31,6 +31,7 @@ interface Application {
   decided_at: string | null;
   registered_student_id: string | null;
   registered_class_id: string | null;
+  assigned_to: string | null;
   updated_at: string;
 }
 interface ApplicationDocument {
@@ -56,6 +57,11 @@ interface SchoolClass {
   name: string;
   grade_level: string | null;
   academic_year_id: string | null;
+}
+interface AdmissionsMember {
+  profile_id: string;
+  role: string;
+  profile: { full_name: string | null; email: string | null } | null;
 }
 interface Counters {
   submitted: number;
@@ -95,12 +101,13 @@ function safeSearch(value: string) {
 export function AdmissionsPage() {
   const { activeMembership } = useAuth();
   const schoolId = activeMembership?.school_id;
-  const isAdmin = activeMembership?.role === 'school_admin';
+  const isAdmin = activeMembership?.role === 'school_admin' || activeMembership?.role === 'admissions_officer';
   const [applications, setApplications] = useState<Application[]>([]);
   const [selectedId, setSelectedId] = useState('');
   const [documents, setDocuments] = useState<ApplicationDocument[]>([]);
   const [history, setHistory] = useState<ApplicationHistory[]>([]);
   const [classes, setClasses] = useState<SchoolClass[]>([]);
+  const [admissionsMembers, setAdmissionsMembers] = useState<AdmissionsMember[]>([]);
   const [counters, setCounters] = useState<Counters>({
     submitted: 0, under_review: 0, accepted: 0, rejected: 0, waitlisted: 0, withdrawn: 0, registered: 0,
   });
@@ -115,6 +122,7 @@ export function AdmissionsPage() {
   const [decisionStatus, setDecisionStatus] = useState<AdmissionStatus>('under_review');
   const [decisionNote, setDecisionNote] = useState('');
   const [placementClassId, setPlacementClassId] = useState('');
+  const [assignedTo, setAssignedTo] = useState('');
   const [refreshKey, setRefreshKey] = useState(0);
   const [total, setTotal] = useState(0);
   const [realtimeState, setRealtimeState] = useState<'connecting' | 'live' | 'offline'>('connecting');
@@ -206,6 +214,25 @@ export function AdmissionsPage() {
 
   useEffect(() => {
     if (!schoolId || !isAdmin) return;
+    let alive = true;
+    void (async () => {
+      try {
+        const { data, error: membersError } = await requireSupabase().from('school_memberships')
+          .select('profile_id,role,profile:profiles(full_name,email)')
+          .eq('school_id', schoolId)
+          .in('role', ['school_admin', 'admissions_officer'])
+          .order('created_at');
+        if (membersError) throw membersError;
+        if (alive) setAdmissionsMembers((data ?? []) as unknown as AdmissionsMember[]);
+      } catch (loadError) {
+        if (alive) setError(loadError instanceof Error ? loadError.message : 'Could not load admissions staff.');
+      }
+    })();
+    return () => { alive = false; };
+  }, [isAdmin, schoolId]);
+
+  useEffect(() => {
+    if (!schoolId || !isAdmin) return;
     setRealtimeState('connecting');
     const channel = requireSupabase().channel(`admissions-${schoolId}`)
       .on('postgres_changes', {
@@ -269,6 +296,7 @@ export function AdmissionsPage() {
         setDecisionStatus(application?.status === 'submitted' ? 'under_review' : application?.status ?? 'under_review');
         setDecisionNote(application?.decision_note ?? '');
         setPlacementClassId(application?.registered_class_id ?? '');
+        setAssignedTo(application?.assigned_to ?? '');
       } catch (loadError) {
         if (alive) setError(loadError instanceof Error ? loadError.message : 'Could not load application documents or history.');
       } finally {
@@ -296,6 +324,27 @@ export function AdmissionsPage() {
       setRefreshKey((current) => current + 1);
     } catch (reviewError) {
       setError(reviewError instanceof Error ? reviewError.message : 'Could not update this application.');
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  async function assignApplication(value: string) {
+    if (!selected) return;
+    setSaving(true);
+    setError('');
+    setSuccess('');
+    try {
+      const { error: assignError } = await requireSupabase().rpc('assign_admission_application', {
+        target_application: selected.id,
+        target_assignee: value || null,
+      });
+      if (assignError) throw assignError;
+      setAssignedTo(value);
+      setSuccess('Application assignment updated.');
+      setRefreshKey((current) => current + 1);
+    } catch (assignError) {
+      setError(assignError instanceof Error ? assignError.message : 'Could not assign this application.');
     } finally {
       setSaving(false);
     }
@@ -336,7 +385,7 @@ export function AdmissionsPage() {
     }
   }
 
-  if (!isAdmin) return <div className="page-stack"><div className="page-heading"><div><span className="eyebrow">School administration</span><h1>Admissions & enrolment</h1></div></div><ErrorState message="Only this school’s administrator can review and register admissions." /></div>;
+  if (!isAdmin) return <div className="page-stack"><div className="page-heading"><div><span className="eyebrow">School administration</span><h1>Admissions & enrolment</h1></div></div><ErrorState message="Your school role cannot review or register admissions." /></div>;
 
   return (
     <div className="page-stack admissions-page">
@@ -401,6 +450,9 @@ export function AdmissionsPage() {
                   <dt>Phone</dt><dd><a href={`tel:${selected.guardian_phone}`}>{selected.guardian_phone}</a></dd>
                 </dl></section>
               </div>
+              <label className="field"><span>Assigned admissions staff</span><select value={assignedTo} disabled={saving} onChange={(event) => void assignApplication(event.target.value)}>
+                <option value="">Unassigned</option>{admissionsMembers.map((member) => <option key={member.profile_id} value={member.profile_id}>{member.profile?.full_name || member.profile?.email || member.profile_id} · {member.role.replace(/_/g, ' ')}</option>)}
+              </select></label>
               {selected.notes && <section className="admissions-notes"><h3>Applicant notes</h3><p>{selected.notes}</p></section>}
               <section className="admissions-documents"><h3>Supporting documents <span>{documents.length}</span></h3>
                 {documents.length ? <div className="admissions-document-list">{documents.map((document) => <button type="button" key={document.id} onClick={() => void openDocument(document)}><span><strong>{document.file_name}</strong><small>{Math.ceil(document.file_size / 1024)} KB · {displayTimestamp(document.uploaded_at)}</small></span><ExternalLink size={15} /></button>)}</div> : <p className="admissions-muted">No documents were attached to this application.</p>}

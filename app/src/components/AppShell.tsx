@@ -1,7 +1,7 @@
 import { useEffect, useState } from 'react';
 import { Navigate, NavLink, Outlet, useLocation, useNavigate } from 'react-router-dom';
 import {
-  BookCopy, BookMarked, BookOpenCheck, BookOpenText, CalendarDays, Check, ChevronDown, ClipboardList, Library, Workflow,
+  BookCopy, BookMarked, BookOpenCheck, BookOpenText, CalendarDays, Check, ChevronDown, ClipboardList, Library, Workflow, Globe,
   ChevronLeft, ClipboardCheck, GraduationCap, LayoutDashboard, LogOut, Menu,
   Settings, UsersRound, X, CalendarClock, CircleDollarSign, UserRoundPlus,
   Award, BriefcaseBusiness, FileStack, HeartPulse, ClipboardPlus,
@@ -18,8 +18,10 @@ const navigation: { title: string; items: { to: string; label: string; icon: Luc
   { title: 'Workspace', items: [
     { to: '/dashboard', label: 'Overview', icon: LayoutDashboard },
     { to: '/students', label: 'Students', icon: GraduationCap },
-    { to: '/admissions', label: 'Admissions & enrolment', icon: UserRoundPlus, roles: ['school_admin'], module: 'module_admissions' },
-    { to: '/staff', label: 'Staff & teachers', icon: BriefcaseBusiness, roles: ['school_admin', 'academic_coordinator', 'teacher'] },
+    { to: '/admissions', label: 'Admissions & enrolment', icon: UserRoundPlus, roles: ['school_admin', 'admissions_officer'], module: 'module_admissions' },
+    { to: '/staff', label: 'Staff & teachers', icon: BriefcaseBusiness, roles: ['school_admin', 'academic_coordinator', 'teacher', 'hr_staff_administrator'] },
+    { to: '/website-management', label: 'Website content', icon: Globe, roles: ['school_admin', 'website_editor', 'website_publisher'] },
+    { to: '/admin-workflows', label: 'Administrative workflows', icon: BriefcaseBusiness, roles: ['school_admin', 'transport_manager', 'facilities_manager', 'it_support_technician', 'safeguarding_officer', 'procurement_officer', 'compliance_audit_officer'] },
     { to: '/automations', label: 'Automations', icon: Workflow, roles: ['school_admin', 'academic_coordinator'], module: 'module_automations' },
     { to: '/classes', label: 'Classes', icon: UsersRound },
     { to: '/subjects', label: 'Subjects', icon: BookMarked },
@@ -44,7 +46,7 @@ const navigation: { title: string; items: { to: string; label: string; icon: Luc
   ] },
   { title: 'Communication', items: [
     { to: '/messaging', label: 'Messages', icon: MessageCircle, module: 'module_messaging' },
-    { to: '/audit-log', label: 'Audit log', icon: ShieldCheck, roles: ['school_admin', 'auditor'] },
+    { to: '/audit-log', label: 'Audit log', icon: ShieldCheck, roles: ['school_admin', 'auditor', 'compliance_audit_officer'] },
   ] },
 ];
 
@@ -70,6 +72,7 @@ const pageNames: Record<string, string> = {
   '/classes': 'Classes', '/subjects': 'Subjects', '/timetable': 'Timetable', '/attendance': 'Attendance',
   '/learning': 'Learning', '/courses-lessons': 'Courses & lessons', '/learning-materials': 'Learning materials', '/assignments': 'Assignments & homework', '/grades-results': 'Grades & results', '/calendar': 'Calendar', '/academic-calendar': 'Academic calendar', '/settings': 'Settings',
   '/finance': 'Student fees', '/accounting-staff': 'Accounting & specialist staff',
+  '/website-management': 'Website content', '/admin-workflows': 'Administrative workflows',
   '/automations': 'Automations',
   '/messaging': 'Messages', '/audit-log': 'Audit log',
   '/library': 'Library', '/health': 'Student health', '/health/report': 'Health report', '/visitors': 'Visitor management',
@@ -94,6 +97,16 @@ export function AppShell() {
     auditor: ['/dashboard', '/finance', '/audit-log'],
     librarian: ['/dashboard', '/library'],
     accounts_payable_officer: ['/dashboard'],
+    website_editor: ['/dashboard', '/website-management'],
+    website_publisher: ['/dashboard', '/website-management'],
+    admissions_officer: ['/dashboard', '/admissions'],
+    hr_staff_administrator: ['/dashboard', '/staff'],
+    transport_manager: ['/dashboard', '/admin-workflows'],
+    facilities_manager: ['/dashboard', '/admin-workflows'],
+    it_support_technician: ['/dashboard', '/admin-workflows'],
+    safeguarding_officer: ['/dashboard', '/admin-workflows'],
+    procurement_officer: ['/dashboard', '/admin-workflows'],
+    compliance_audit_officer: ['/dashboard', '/admin-workflows', '/audit-log'],
   };
   const rolePaths = limitedRolePaths[activeMembership?.role ?? 'student'];
   const isLimitedRole = rolePaths !== undefined;

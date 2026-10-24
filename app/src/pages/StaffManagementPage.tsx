@@ -3,8 +3,33 @@ import { BriefcaseBusiness, Building2, Download, FilePlus2, FileText, Graduation
 import { useAuth } from '../contexts/AuthContext';
 import { ErrorState, LoadingState, SuccessMessage } from '../components/Feedback';
 import { requireSupabase } from '../lib/supabase';
+import type { AppRole } from '../types/database';
 
 type EmploymentStatus = 'active' | 'on_leave' | 'inactive' | 'terminated';
+type InvitableRole = Exclude<AppRole, 'system_admin' | 'school_admin' | 'academic_coordinator' | 'student' | 'parent'>;
+const invitableRoles: { value: InvitableRole; label: string }[] = [
+  { value: 'teacher', label: 'Teacher' },
+  { value: 'finance_manager', label: 'Finance manager' },
+  { value: 'accountant', label: 'Accountant' },
+  { value: 'bursar', label: 'Bursar / fees officer' },
+  { value: 'cashier', label: 'Cashier' },
+  { value: 'accounts_payable_officer', label: 'Accounts payable officer' },
+  { value: 'auditor', label: 'Auditor / read-only reviewer' },
+  { value: 'librarian', label: 'Librarian' },
+  { value: 'website_editor', label: 'Website editor' },
+  { value: 'website_publisher', label: 'Website publisher' },
+  { value: 'admissions_officer', label: 'Admissions officer' },
+  { value: 'hr_staff_administrator', label: 'HR / staff administrator' },
+  { value: 'transport_manager', label: 'Transport manager' },
+  { value: 'facilities_manager', label: 'Facilities manager' },
+  { value: 'it_support_technician', label: 'IT support technician' },
+  { value: 'safeguarding_officer', label: 'Safeguarding officer' },
+  { value: 'procurement_officer', label: 'Procurement officer' },
+  { value: 'compliance_audit_officer', label: 'Compliance / audit officer' },
+  { value: 'nurse', label: 'School nurse' },
+  { value: 'doctor', label: 'School doctor' },
+  { value: 'secretary', label: 'Secretary' },
+];
 type StaffProfile = {
   id: string;
   profile_id: string | null;
@@ -95,6 +120,8 @@ export function StaffManagementPage() {
   const { activeMembership, user } = useAuth();
   const schoolId = activeMembership?.school_id;
   const isAdmin = activeMembership?.role === 'school_admin';
+  const isHrStaffAdmin = activeMembership?.role === 'hr_staff_administrator';
+  const canManageDirectory = isAdmin || isHrStaffAdmin;
   const [responsibilities, setResponsibilities] = useState<TeacherResponsibility[]>([]);
   const [staff, setStaff] = useState<StaffProfile[]>([]);
   const [teachers, setTeachers] = useState<TeacherProfile[]>([]);
@@ -111,6 +138,7 @@ export function StaffManagementPage() {
   const [departmentName, setDepartmentName] = useState('');
   const [showCreateForm, setShowCreateForm] = useState(false);
   const [showTeacherInvite, setShowTeacherInvite] = useState(false);
+  const [inviteRole, setInviteRole] = useState<InvitableRole>('teacher');
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [invitingTeacher, setInvitingTeacher] = useState(false);
@@ -134,7 +162,9 @@ export function StaffManagementPage() {
         client.from('subjects').select('id,name,department_id').eq('school_id', schoolId).order('name'),
         client.from('teacher_class_assignments').select('teacher_id,class_id').eq('school_id', schoolId),
         client.from('teacher_subjects').select('teacher_id,subject_id').eq('school_id', schoolId),
-        client.from('teacher_responsibilities').select('teacher_id,responsibility_type,class_id,department_id').eq('school_id', schoolId),
+        isHrStaffAdmin
+          ? Promise.resolve({ data: [], error: null })
+          : client.from('teacher_responsibilities').select('teacher_id,responsibility_type,class_id,department_id').eq('school_id', schoolId),
       ]);
       for (const response of [staffResult, teacherResult, departmentResult, classResult, subjectResult, classAssignmentsResult, subjectAssignmentsResult, responsibilityResult]) {
         if (response.error) throw response.error;
@@ -153,7 +183,7 @@ export function StaffManagementPage() {
     } finally {
       setLoading(false);
     }
-  }, [schoolId]);
+  }, [isHrStaffAdmin, schoolId]);
 
   useEffect(() => { void load(); }, [load, refreshKey]);
 
@@ -169,22 +199,22 @@ export function StaffManagementPage() {
   }, [teachers, responsibilities, user?.id]);
   const isHod = hodDepartmentIds.size > 0;
   const visibleSubjects = isAdmin ? subjects : subjects.filter((subject) => subject.department_id && hodDepartmentIds.has(subject.department_id));
-  const visibleDepartments = isAdmin ? departments : departments.filter((department) => hodDepartmentIds.has(department.id));
+  const visibleDepartments = canManageDirectory ? departments : departments.filter((department) => hodDepartmentIds.has(department.id));
   const visibleStaff = staff.filter((person) => {
     const department = departments.find((item) => item.id === person.department_id)?.name ?? '';
     const needle = query.trim().toLowerCase();
-    const withinDepartment = isAdmin || (person.department_id !== null && hodDepartmentIds.has(person.department_id));
+    const withinDepartment = canManageDirectory || (person.department_id !== null && hodDepartmentIds.has(person.department_id));
     return withinDepartment && (!needle || `${person.first_name} ${person.last_name} ${person.employee_number} ${person.email ?? ''} ${person.job_title} ${department}`.toLowerCase().includes(needle));
   });
   const selectedStaff = staff.find((person) => person.id === selectedId) ?? null;
   const selectedTeacher = selectedStaff ? teacherByStaffId.get(selectedStaff.id) ?? null : null;
-  const canEditSelectedStaff = isAdmin || Boolean(selectedStaff?.department_id && hodDepartmentIds.has(selectedStaff.department_id));
+  const canEditSelectedStaff = canManageDirectory || Boolean(selectedStaff?.department_id && hodDepartmentIds.has(selectedStaff.department_id));
   const selectedResponsibilities = selectedTeacher
     ? responsibilities.filter((item) => item.teacher_id === selectedTeacher.id)
     : [];
 
   useEffect(() => {
-    if (!schoolId || !selectedId || !isAdmin) {
+    if (!schoolId || !selectedId || (!isAdmin && !isHrStaffAdmin)) {
       setDocuments([]);
       return;
     }
@@ -204,7 +234,7 @@ export function StaffManagementPage() {
     }
     void loadDocuments();
     return () => { alive = false; };
-  }, [schoolId, selectedId, isAdmin, refreshKey]);
+  }, [schoolId, selectedId, isAdmin, isHrStaffAdmin, refreshKey]);
 
   function startCreate() {
     setEditingId('');
@@ -231,7 +261,7 @@ export function StaffManagementPage() {
           fullName: String(formData.get('full_name') ?? '').trim(),
           email: String(formData.get('email') ?? '').trim(),
           employeeNumber: String(formData.get('employee_number') ?? '').trim(),
-          role: 'teacher',
+          role: inviteRole,
         },
       });
       if (inviteFunctionError) {
@@ -243,7 +273,9 @@ export function StaffManagementPage() {
       if (data?.error) throw new Error(data.error);
       formElement.reset();
       setShowTeacherInvite(false);
-      setSuccess('Teacher invitation sent. After accepting, they can sign in to their teaching dashboard. Assign classes and subjects from the staff profile.');
+      setSuccess(inviteRole === 'teacher'
+        ? 'Teacher invitation sent. After accepting, they can sign in to their teaching dashboard. Assign classes and subjects from the staff profile.'
+        : `${invitableRoles.find((role) => role.value === inviteRole)?.label ?? 'Staff'} invitation sent. The role has access only to its authorized school workspace.`);
       setRefreshKey((key) => key + 1);
     } catch (inviteError) {
       setInviteError(errorMessage(inviteError, 'The teacher invitation could not be sent.'));
@@ -267,7 +299,7 @@ export function StaffManagementPage() {
       employment_status: person.employment_status,
       hire_date: person.hire_date,
       qualifications: teacher?.qualifications ?? '',
-      is_teacher: Boolean(teacher),
+      is_teacher: isAdmin && Boolean(teacher),
       class_ids: teacher ? classAssignments.filter((item) => item.teacher_id === teacher.id).map((item) => item.class_id as string) : [],
       subject_ids: teacher ? subjectAssignments
         .filter((item) => item.teacher_id === teacher.id && (isAdmin || visibleSubjects.some((subject) => subject.id === item.subject_id)))
@@ -315,7 +347,7 @@ export function StaffManagementPage() {
       if (staffResponse.error) throw staffResponse.error;
       const savedStaff = staffResponse.data as StaffProfile;
       const existingTeacher = teacherByStaffId.get(savedStaff.id);
-      let teacherId = existingTeacher?.id ?? '';
+      let teacherId = isAdmin ? existingTeacher?.id ?? '' : '';
       if (form.is_teacher) {
         const teacherPayload = {
           school_id: schoolId,
@@ -333,7 +365,7 @@ export function StaffManagementPage() {
           : await client.from('teacher_profiles').insert(teacherPayload).select('id').single();
         if (teacherResponse.error) throw teacherResponse.error;
         teacherId = teacherResponse.data.id;
-      } else if (existingTeacher) {
+      } else if (existingTeacher && isAdmin) {
         const { error: teacherDeleteError } = await client.from('teacher_profiles').delete()
           .eq('id', existingTeacher.id).eq('school_id', schoolId);
         if (teacherDeleteError) throw teacherDeleteError;
@@ -519,8 +551,8 @@ export function StaffManagementPage() {
     <div className="page-stack staff-management-page">
       <header className="page-heading">
         <div><span className="eyebrow">People &amp; organization</span><h1>Staff &amp; teachers</h1><p>Manage employee profiles, teacher qualifications, department assignments, and teaching allocations.</p></div>
-        {isAdmin && <div className="staff-header-actions">
-          <button className="button button-quiet" onClick={() => { setShowCreateForm(false); setShowTeacherInvite((visible) => !visible); setInviteError(''); }}><MailPlus size={16} />Invite teacher</button>
+        {canManageDirectory && <div className="staff-header-actions">
+          {isAdmin && <button className="button button-quiet" onClick={() => { setShowCreateForm(false); setShowTeacherInvite((visible) => !visible); setInviteError(''); }}><MailPlus size={16} />Invite staff</button>}
           <button className="button button-primary" onClick={startCreate}><Plus size={16} />Add staff profile</button>
         </div>}
       </header>
@@ -528,17 +560,18 @@ export function StaffManagementPage() {
       {success && <SuccessMessage message={success} />}
 
       {showTeacherInvite && isAdmin && <section className="content-card staff-profile-card teacher-invite-card">
-        <div className="section-heading"><div><span className="eyebrow">Teacher account</span><h2>Invite a teacher</h2></div><button className="icon-button" aria-label="Close teacher invitation form" onClick={() => setShowTeacherInvite(false)}><X size={17} /></button></div>
-        <p className="accounting-help">We’ll email a secure account setup link and connect the account to a teacher profile so the teaching dashboard is available after sign-in.</p>
+        <div className="section-heading"><div><span className="eyebrow">School account</span><h2>Invite a staff member</h2></div><button className="icon-button" aria-label="Close staff invitation form" onClick={() => setShowTeacherInvite(false)}><X size={17} /></button></div>
+        <p className="accounting-help">We’ll send a secure account setup link, assign the selected school role, and create a staff directory profile.</p>
         {inviteError && <ErrorState message={inviteError} />}
         <form onSubmit={(event) => void inviteTeacher(event)}>
           <div className="staff-form-grid">
             <label className="field"><span>Full name</span><input name="full_name" required minLength={2} maxLength={120} autoComplete="name" disabled={invitingTeacher} /></label>
             <label className="field"><span>Work email</span><input name="email" type="email" required maxLength={320} autoComplete="email" disabled={invitingTeacher} /></label>
-            <label className="field"><span>Employee number</span><input name="employee_number" required maxLength={40} disabled={invitingTeacher} /></label>
+            <label className="field"><span>School role</span><select value={inviteRole} disabled={invitingTeacher} onChange={(event) => setInviteRole(event.target.value as InvitableRole)}>{invitableRoles.map((role) => <option key={role.value} value={role.value}>{role.label}</option>)}</select></label>
+            <label className="field"><span>Employee number{inviteRole !== 'teacher' ? ' (optional)' : ''}</span><input name="employee_number" required={inviteRole === 'teacher'} maxLength={40} disabled={invitingTeacher} /></label>
           </div>
           <div className="staff-form-actions">
-            <button className="button button-primary" type="submit" disabled={invitingTeacher}><MailPlus size={14} />{invitingTeacher ? 'Sending invitation…' : 'Send teacher invitation'}</button>
+            <button className="button button-primary" type="submit" disabled={invitingTeacher}><MailPlus size={14} />{invitingTeacher ? 'Sending invitation…' : 'Send staff invitation'}</button>
             <button className="button button-quiet" type="button" onClick={() => setShowTeacherInvite(false)}>Cancel</button>
           </div>
         </form>
@@ -558,7 +591,7 @@ export function StaffManagementPage() {
                 <span className={`staff-status staff-status-${person.employment_status}`}>{STATUS_LABELS[person.employment_status]}</span>
               </button>;
             })}
-          </div> : <div className="staff-empty"><UserRound size={22} /><strong>{query ? 'No matching staff' : 'No staff profiles yet'}</strong><span>{isAdmin ? 'Add staff profiles to create your school directory.' : isHod ? 'No staff profiles are assigned to your departments.' : 'Your school staff will appear here.'}</span></div>}
+          </div> : <div className="staff-empty"><UserRound size={22} /><strong>{query ? 'No matching staff' : 'No staff profiles yet'}</strong><span>{canManageDirectory ? 'Add staff profiles to create your school directory.' : isHod ? 'No staff profiles are assigned to your departments.' : 'Your school staff will appear here.'}</span></div>}
           {isAdmin && <div className="staff-department-manager">
             <div><Building2 size={15} /><strong>Departments</strong></div>
             <form onSubmit={(event) => void addDepartment(event)}><input required maxLength={80} value={departmentName} onChange={(event) => setDepartmentName(event.target.value)} placeholder="New department name" /><button className="button button-quiet" disabled={saving}><Plus size={13} />Add</button></form>
@@ -566,7 +599,7 @@ export function StaffManagementPage() {
           </div>}
         </section>
 
-        {showCreateForm && (isAdmin || (editingId && canEditSelectedStaff)) ? <section className="content-card staff-profile-card">
+        {showCreateForm && (canManageDirectory || (editingId && canEditSelectedStaff)) ? <section className="content-card staff-profile-card">
           <div className="section-heading"><div><span className="eyebrow">{editingId ? 'Update staff record' : 'New staff record'}</span><h2>{editingId ? 'Edit staff profile' : 'Add staff profile'}</h2></div><button className="icon-button" aria-label="Close staff form" onClick={() => setShowCreateForm(false)}><X size={17} /></button></div>
           <form onSubmit={(event) => void saveStaff(event)}>
             <div className="staff-form-grid">
@@ -576,7 +609,7 @@ export function StaffManagementPage() {
               <label className="field"><span>Last name</span><input required maxLength={80} value={form.last_name} onChange={(event) => setForm((current) => ({ ...current, last_name: event.target.value }))} /></label>
               <label className="field"><span>Email</span><input type="email" maxLength={254} value={form.email ?? ''} onChange={(event) => setForm((current) => ({ ...current, email: event.target.value || null }))} /></label>
               <label className="field"><span>Phone</span><input type="tel" maxLength={40} value={form.phone ?? ''} onChange={(event) => setForm((current) => ({ ...current, phone: event.target.value || null }))} /></label>
-              <label className="field"><span>Department</span><select value={form.department_id ?? ''} disabled={!isAdmin} onChange={(event) => setForm((current) => ({ ...current, department_id: event.target.value || null }))}>{isAdmin && <option value="">No department</option>}{visibleDepartments.map((department) => <option key={department.id} value={department.id}>{department.name}</option>)}</select></label>
+              <label className="field"><span>Department</span><select value={form.department_id ?? ''} disabled={!canManageDirectory} onChange={(event) => setForm((current) => ({ ...current, department_id: event.target.value || null }))}>{canManageDirectory && <option value="">No department</option>}{visibleDepartments.map((department) => <option key={department.id} value={department.id}>{department.name}</option>)}</select></label>
               <label className="field"><span>Employment status</span><select value={form.employment_status} onChange={(event) => setForm((current) => ({ ...current, employment_status: event.target.value as EmploymentStatus }))}>{Object.entries(STATUS_LABELS).map(([status, label]) => <option key={status} value={status}>{label}</option>)}</select></label>
               <label className="field"><span>Hire date</span><input type="date" value={form.hire_date ?? ''} onChange={(event) => setForm((current) => ({ ...current, hire_date: event.target.value || null }))} /></label>
             </div>
@@ -598,15 +631,15 @@ export function StaffManagementPage() {
           <div className="section-heading"><div><span className="eyebrow">{selectedStaff.employee_number}</span><h2>{selectedStaff.first_name} {selectedStaff.last_name}</h2></div>{canEditSelectedStaff && <button className="button button-quiet" onClick={() => startEdit(selectedStaff)}><Save size={14} />Edit profile</button>}</div>
           <div className="staff-profile-facts">
             <div><span>Job title</span><strong>{selectedStaff.job_title || (selectedTeacher ? 'Teacher' : 'Staff member')}</strong></div>
-            <div><span>Department</span>{isAdmin ? <select value={selectedStaff.department_id ?? ''} aria-label="Staff department assignment" onChange={(event) => void saveDepartmentAssignment(selectedStaff.id, event.target.value)}><option value="">No department</option>{departments.map((department) => <option key={department.id} value={department.id}>{department.name}</option>)}</select> : <strong>{departments.find((item) => item.id === selectedStaff.department_id)?.name ?? 'Not assigned'}</strong>}</div>
+            <div><span>Department</span>{canManageDirectory ? <select value={selectedStaff.department_id ?? ''} aria-label="Staff department assignment" onChange={(event) => void saveDepartmentAssignment(selectedStaff.id, event.target.value)}><option value="">No department</option>{departments.map((department) => <option key={department.id} value={department.id}>{department.name}</option>)}</select> : <strong>{departments.find((item) => item.id === selectedStaff.department_id)?.name ?? 'Not assigned'}</strong>}</div>
             <div><span>Employment</span><strong className={`staff-status staff-status-${selectedStaff.employment_status}`}>{STATUS_LABELS[selectedStaff.employment_status]}</strong></div>
             <div><span>Hire date</span><strong>{selectedStaff.hire_date ? new Date(`${selectedStaff.hire_date}T00:00:00`).toLocaleDateString() : 'Not recorded'}</strong></div>
             <div><span>Email</span><strong>{selectedStaff.email || 'Not recorded'}</strong></div>
             <div><span>Phone</span><strong>{selectedStaff.phone || 'Not recorded'}</strong></div>
           </div>
           {selectedTeacher && <div className="staff-teacher-detail"><h3><GraduationCap size={16} />Teacher details</h3><p>{selectedTeacher.qualifications || 'No qualifications recorded.'}</p><div><span><strong>Classes</strong>{classAssignments.filter((assignment) => assignment.teacher_id === selectedTeacher.id).map((assignment) => classes.find((item) => item.id === assignment.class_id)?.name).filter(Boolean).join(', ') || 'Not allocated'}</span><span><strong>Subjects</strong>{subjectAssignments.filter((assignment) => assignment.teacher_id === selectedTeacher.id).map((assignment) => subjects.find((item) => item.id === assignment.subject_id)?.name).filter(Boolean).join(', ') || 'Not allocated'}</span></div>{isAdmin && selectedResponsibilities.length > 0 && <p><strong>Additional responsibilities:</strong> {selectedResponsibilities.map((item) => item.responsibility_type === 'class_teacher' ? `Class Teacher — ${classes.find((schoolClass) => schoolClass.id === item.class_id)?.name ?? 'class'}` : `HOD — ${departments.find((department) => department.id === item.department_id)?.name ?? 'department'}`).join('; ')}</p>}</div>}
-          {isAdmin && <div className="staff-document-section">
-            <div className="staff-document-heading"><div><FileText size={16} /><strong>Private staff documents</strong></div><span>{documents.length} files · visible to school administrators</span></div>
+          {canManageDirectory && <div className="staff-document-section">
+            <div className="staff-document-heading"><div><FileText size={16} /><strong>Private staff documents</strong></div><span>{documents.length} files · visible to authorized HR administrators</span></div>
             <form className="staff-document-upload" onSubmit={(event) => void uploadStaffDocument(event)}><input required type="file" name="staff_document" accept=".pdf,.jpg,.jpeg,.png,.doc,.docx,application/pdf,image/jpeg,image/png,application/msword,application/vnd.openxmlformats-officedocument.wordprocessingml.document" /><button className="button button-quiet" disabled={uploading}><FilePlus2 size={14} />{uploading ? 'Uploading...' : 'Upload document'}</button></form>
             {documents.length > 0 && <div className="staff-document-list">{documents.map((document) => <article key={document.id}><span><FileText size={15} /><strong>{document.file_name}</strong><small>{(document.file_size / 1024 / 1024).toFixed(2)} MB · {new Date(document.created_at).toLocaleDateString()}</small></span><button className="icon-button" title="Download securely" aria-label={`Download ${document.file_name}`} onClick={() => void downloadStaffDocument(document)}><Download size={14} /></button><button className="icon-button staff-delete-document" title="Delete document" aria-label={`Delete ${document.file_name}`} onClick={() => void deleteStaffDocument(document)}><Trash2 size={14} /></button></article>)}</div>}
           </div>}

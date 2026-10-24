@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react';
-import { ArrowUpRight, BookMarked, CalendarDays, ClipboardCheck, GraduationCap, Save, Trash2, Users, UsersRound, CircleDollarSign, UserRoundPlus } from 'lucide-react';
+import { ArrowUpRight, BookMarked, CalendarDays, ClipboardCheck, GraduationCap, Globe, Save, Trash2, Users, UsersRound, CircleDollarSign, UserRoundPlus } from 'lucide-react';
 import { Link } from 'react-router-dom';
 import { useAuth } from '../contexts/AuthContext';
 import { requireSupabase } from '../lib/supabase';
@@ -52,7 +52,11 @@ function SchoolDashboardPage() {
   const [viewsSaving, setViewsSaving] = useState(false);
   const [viewNotice, setViewNotice] = useState('');
   const schoolId = activeMembership?.school_id;
-  const restrictedDashboardRole = ['accounts_payable_officer', 'auditor', 'librarian'].includes(activeMembership?.role ?? '');
+  const restrictedDashboardRole = [
+    'accounts_payable_officer', 'auditor', 'librarian', 'website_editor', 'website_publisher',
+    'admissions_officer', 'hr_staff_administrator', 'transport_manager', 'facilities_manager',
+    'it_support_technician', 'safeguarding_officer', 'procurement_officer', 'compliance_audit_officer',
+  ].includes(activeMembership?.role ?? '');
   useEffect(() => {
     if (!schoolId || restrictedDashboardRole) {
       setSummary(null);
@@ -224,6 +228,17 @@ function SchoolDashboardPage() {
       ]
       : activeMembership?.role === 'accounts_payable_officer'
         ? []
+        : activeMembership?.role === 'website_editor' || activeMembership?.role === 'website_publisher'
+          ? [{ to: '/website-management', label: 'Manage website content', icon: Globe }]
+          : activeMembership?.role === 'admissions_officer'
+            ? [{ to: '/admissions', label: 'Review admission applications', icon: GraduationCap }]
+            : activeMembership?.role === 'hr_staff_administrator'
+              ? [{ to: '/staff', label: 'Manage staff records', icon: Users }]
+              : ['transport_manager', 'facilities_manager', 'it_support_technician', 'safeguarding_officer', 'procurement_officer', 'compliance_audit_officer'].includes(activeMembership?.role ?? '')
+                ? [
+                  { to: '/admin-workflows', label: 'Open operational workflows', icon: ClipboardCheck },
+                  ...(activeMembership?.role === 'compliance_audit_officer' ? [{ to: '/audit-log', label: 'Review audit history', icon: ClipboardCheck }] : []),
+                ]
         : standardQuickLinks;
 
   return (
@@ -263,7 +278,7 @@ function SchoolDashboardPage() {
           </>}
           {visibleWidgets.includes('quick_links') && <article className="content-card quick-links-card"><div className="section-heading"><div><span className="eyebrow">Get started</span><h2>School management</h2></div></div><div className="quick-links">{quickLinks.map(({ to, label, icon: Icon }) => <Link key={to} to={to}><Icon size={18} /><span>{label}</span><ArrowUpRight size={16} /></Link>)}</div></article>}
         </section>}
-        <section className="content-card dashboard-note"><div className="note-icon"><BookMarked size={18} /></div><div><h2>{activeMembership?.role === 'accounts_payable_officer' ? 'Accounts payable access' : activeMembership?.role === 'auditor' ? 'Read-only review access' : activeMembership?.role === 'librarian' ? 'Library workspace' : 'One connected workspace'}</h2><p>{activeMembership?.role === 'accounts_payable_officer' ? 'Supplier invoice and payment workflows are not available yet. Your account is restricted to this workspace until those features are released.' : activeMembership?.role === 'auditor' ? 'You can review this school’s finance records and audit history. Your role cannot change or approve records.' : activeMembership?.role === 'librarian' ? 'Use the Library section to manage the catalogue, requests, checkouts, and returns.' : 'School records, classes, and academic tools are scoped to your active school. Your data is loaded directly from the configured Supabase project.'}</p></div></section>
+        <section className="content-card dashboard-note"><div className="note-icon"><BookMarked size={18} /></div><div><h2>{activeMembership?.role === 'accounts_payable_officer' ? 'Accounts payable access' : activeMembership?.role === 'auditor' ? 'Read-only review access' : activeMembership?.role === 'librarian' ? 'Library workspace' : activeMembership?.role === 'website_editor' || activeMembership?.role === 'website_publisher' ? 'Website content access' : activeMembership?.role === 'admissions_officer' ? 'Admissions workspace' : activeMembership?.role === 'hr_staff_administrator' ? 'HR workspace' : ['transport_manager', 'facilities_manager', 'it_support_technician', 'safeguarding_officer', 'procurement_officer', 'compliance_audit_officer'].includes(activeMembership?.role ?? '') ? 'Operational workflow access' : 'One connected workspace'}</h2><p>{activeMembership?.role === 'accounts_payable_officer' ? 'Supplier invoice and payment workflows are not available yet. Your account is restricted to this workspace until those features are released.' : activeMembership?.role === 'auditor' ? 'You can review this school’s finance records and audit history. Your role cannot change or approve records.' : activeMembership?.role === 'librarian' ? 'Use the Library section to manage the catalogue, requests, checkouts, and returns.' : activeMembership?.role === 'website_editor' ? 'Create and submit website content drafts. Only a website publisher or school administrator can publish changes.' : activeMembership?.role === 'website_publisher' ? 'Review submitted school website drafts and publish approved content.' : activeMembership?.role === 'admissions_officer' ? 'Review, assign, and register admissions applications for your school.' : activeMembership?.role === 'hr_staff_administrator' ? 'Manage staff directory records and private staff documents. School membership and platform roles remain controlled by school administrators.' : activeMembership?.role === 'safeguarding_officer' ? 'Manage confidential safeguarding concerns and referrals. Access is limited to your school’s safeguarding workspace.' : ['transport_manager', 'facilities_manager', 'it_support_technician', 'procurement_officer', 'compliance_audit_officer'].includes(activeMembership?.role ?? '') ? 'Manage only your assigned operational domain and review its status history.' : 'School records, classes, and academic tools are scoped to your active school. Your data is loaded directly from the configured Supabase project.'}</p></div></section>
       </>}
     </div>
   );

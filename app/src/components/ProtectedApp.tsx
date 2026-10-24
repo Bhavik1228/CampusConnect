@@ -26,6 +26,8 @@ import { MessagingPage } from '../pages/MessagingPage';
 import { AuditLogPage } from '../pages/AuditLogPage';
 import { AdmissionsPage } from '../pages/AdmissionsPage';
 import { StudentsPage } from '../pages/StudentsPage';
+import { AdministrativeWorkflowsPage } from '../pages/AdministrativeWorkflowsPage';
+import { WebsiteManagementPage } from '../pages/WebsiteManagementPage';
 import { CoursesLessonsPage } from '../pages/CoursesLessonsPage';
 import { LearningMaterialsPage } from '../pages/LearningMaterialsPage';
 import { AssignmentsPage } from '../pages/AssignmentsPage';
@@ -147,6 +149,8 @@ export function ProtectedApp() {
           <Route path="/admissions" element={<AdmissionsPage />} />
           <Route path="/teachers" element={<DirectoryPage kind="teachers" />} />
           <Route path="/staff" element={<StaffManagementPage />} />
+          <Route path="/website-management" element={<WebsiteManagementPage />} />
+          <Route path="/admin-workflows" element={<AdministrativeWorkflowsPage />} />
           <Route path="/automations" element={<AutomationsPage />} />
           <Route path="/classes" element={<DirectoryPage kind="classes" />} />
           <Route path="/subjects" element={<DirectoryPage kind="subjects" />} />

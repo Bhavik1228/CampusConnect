@@ -8,7 +8,10 @@ const corsHeaders = {
 
 const supportedStaffRoles = new Set([
   'teacher', 'finance_manager', 'accountant', 'bursar', 'cashier',
-  'accounts_payable_officer', 'auditor', 'librarian', 'nurse', 'doctor', 'secretary',
+  'accounts_payable_officer', 'auditor', 'librarian',
+  'website_editor', 'website_publisher', 'admissions_officer', 'hr_staff_administrator',
+  'transport_manager', 'facilities_manager', 'it_support_technician', 'safeguarding_officer',
+  'procurement_officer', 'compliance_audit_officer', 'nurse', 'doctor', 'secretary',
 ]);
 
 interface InviteRequest {
@@ -70,6 +73,9 @@ Deno.serve(async (request: Request) => {
     if (role === 'teacher' && fullName.split(/\s+/).length < 2) {
       return respond(400, { error: 'Enter the teacher’s first and last name.' });
     }
+    if (role !== 'teacher' && employeeNumber.length > 40) {
+      return respond(400, { error: 'Employee number must be at most 40 characters.' });
+    }
     if (role === 'teacher' && (employeeNumber.length < 1 || employeeNumber.length > 40)) {
       return respond(400, { error: 'Enter an employee number between 1 and 40 characters.' });
     }
@@ -87,7 +93,7 @@ Deno.serve(async (request: Request) => {
     if (membershipCheckError) throw membershipCheckError;
     if (!adminMembership) return respond(403, { error: 'Only a school administrator can invite staff.' });
 
-    if (role === 'teacher') {
+    if (employeeNumber) {
       const { data: existingStaff, error: existingStaffError } = await adminClient
         .from('staff_profiles')
         .select('id')
@@ -181,6 +187,26 @@ Deno.serve(async (request: Request) => {
         if (userCleanupError) cleanupErrors.push(userCleanupError.message);
         if (cleanupErrors.length) console.error('Campus Connect could not fully revoke an incomplete teacher invitation.', cleanupErrors);
         throw new Error(`The invitation email was sent, but the teacher profile could not be created: ${profileError instanceof Error ? profileError.message : 'Unknown error.'}`);
+      }
+    } else {
+      const [firstName, ...lastNameParts] = fullName.split(/\s+/);
+      const { error: staffProfileError } = await adminClient.from('staff_profiles').insert({
+        school_id: schoolId,
+        profile_id: invitation.user.id,
+        employee_number: employeeNumber || `CC-${invitation.user.id.replace(/-/g, '').slice(0, 12)}`,
+        first_name: firstName,
+        last_name: lastNameParts.join(' ') || firstName,
+        email,
+        job_title: role.replace(/_/g, ' '),
+        employment_status: 'active',
+      });
+      if (staffProfileError) {
+        const { error: membershipCleanupError } = await adminClient.from('school_memberships')
+          .delete().eq('school_id', schoolId).eq('profile_id', invitation.user.id);
+        const { error: userCleanupError } = await adminClient.auth.admin.deleteUser(invitation.user.id);
+        if (membershipCleanupError) console.error('Campus Connect could not revoke an incomplete specialist invitation.', membershipCleanupError.message);
+        if (userCleanupError) console.error('Campus Connect could not delete an incomplete specialist invitation.', userCleanupError.message);
+        throw new Error(`The invitation email was sent, but the staff profile could not be created: ${staffProfileError.message}`);
       }
     }
 

@@ -71,16 +71,16 @@ Accounts Payable Officer is available as a restricted core role; supplier-payabl
 - [x] Senior Teacher/Academic Coordinator.
 
 ### 2.3 Additional administrative responsibilities
-- [ ] Website Editor.
-- [ ] Website Publisher.
-- [ ] Admissions Officer.
-- [ ] HR/Staff Administrator.
-- [ ] Transport Manager.
-- [ ] Facilities Manager.
-- [ ] IT Support Technician.
-- [ ] Safeguarding Officer.
-- [ ] Procurement Officer.
-- [ ] Compliance/Audit Officer.
+- [x] Website Editor.
+- [x] Website Publisher.
+- [x] Admissions Officer.
+- [x] HR/Staff Administrator.
+- [x] Transport Manager.
+- [x] Facilities Manager.
+- [x] IT Support Technician.
+- [x] Safeguarding Officer.
+- [x] Procurement Officer.
+- [x] Compliance/Audit Officer.
 
 ### 2.4 Permission management
 - [ ] Assign roles to users.
