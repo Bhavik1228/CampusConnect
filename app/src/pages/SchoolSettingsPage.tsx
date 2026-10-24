@@ -102,6 +102,13 @@ interface SchoolCampus {
   updated_at: string;
 }
 
+function isMissingSchemaError(error: { status?: number; code?: string; message?: string } | null | undefined) {
+  if (!error) return false;
+  const code = error.code ?? '';
+  const message = error.message ?? '';
+  return error.status === 404 || ['PGRST116', '42P01', '42703', '42704'].includes(code) || /does not exist|not found/i.test(message);
+}
+
 type SettingsTab = 'profile' | 'campuses' | 'academics' | 'attendance' | 'portals' | 'modules' | 'security' | 'website' | 'storage';
 type MobileModule = 'visitors' | 'library' | 'health' | 'notifications';
 interface MobileAccessSettings {
@@ -261,7 +268,7 @@ function Section({ title, detail, children }: { title: string; detail?: string; 
 }
 
 export function SchoolSettingsPage() {
-  const { activeMembership, refreshMemberships, user } = useAuth();
+  const { activeMembership, refreshMemberships, session, user } = useAuth();
   const schoolId = activeMembership?.school_id;
   const canEdit = activeMembership?.role === 'school_admin';
   const canViewStorage = canEdit || activeMembership?.role === 'academic_coordinator' || activeMembership?.role === 'teacher';
@@ -276,6 +283,7 @@ export function SchoolSettingsPage() {
   const [mobileAccess, setMobileAccess] = useState<MobileAccessSettings>(defaultMobileAccess);
   const [mobileInstallQr, setMobileInstallQr] = useState('');
   const [security, setSecurity] = useState<SchoolSecuritySettings | null>(null);
+  const [securityEvents, setSecurityEvents] = useState<Array<{ action: string; created_at: string; actor_name: string | null; metadata?: { outcome?: string } }>>([]);
   const [website, setWebsite] = useState<WebsiteSettings | null>(null);
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState<SettingsTab | null>(null);
@@ -327,21 +335,12 @@ export function SchoolSettingsPage() {
           client.from('school_websites').select('*').eq('school_id', activeSchoolId).maybeSingle(),
         ]);
         const resultError = [schoolResult, campusResult, academicResult, attendanceResult, statusResult, communicationResult, moduleResult, securityResult, websiteResult].find((result) => result.error)?.error;
-        if (resultError && !['PGRST116', '42P01', '42703'].includes(resultError.code ?? '')) throw resultError;
+        if (resultError && !isMissingSchemaError(resultError)) throw resultError;
         const school = schoolResult.data;
         if (active && school) {
-          const campusRows = campusResult.error ? [{
-            id: crypto.randomUUID(),
-            school_id: activeSchoolId,
-            name: school.name,
-            code: 'MAIN',
-            address: school.address ?? null,
-            is_primary: true,
-            allow_cross_campus_admin: false,
-            created_by: user?.id ?? null,
-            created_at: new Date().toISOString(),
-            updated_at: new Date().toISOString(),
-          }] : (campusResult.data ?? [] as SchoolCampus[]);
+          const campusRows = campusResult.error && isMissingSchemaError(campusResult.error)
+            ? []
+            : (campusResult.data ?? [] as SchoolCampus[]);
           setProfile(school as SchoolProfile);
           setCampuses(campusRows as SchoolCampus[]);
           setAcademics(academicResult.data as SchoolAcademicPolicies);
@@ -486,7 +485,10 @@ export function SchoolSettingsPage() {
         );
         if (campusSaveError) {
           localStorage.setItem(`campus-connect-school-campuses-${schoolId}`, JSON.stringify(sanitizedCampuses));
-          throw new Error(`Campuses were saved locally, but the campus table is not available in the current database: ${campusSaveError.message}`);
+          if (isMissingSchemaError(campusSaveError)) {
+            throw new Error('The campus table is missing from the live Supabase database. Run the migration 202610240002_school_campuses.sql in the remote project before saving campus settings.');
+          }
+          throw new Error(`Campuses were saved locally, but the campus table could not be saved: ${campusSaveError.message}`);
         }
         localStorage.setItem(`campus-connect-school-campuses-${schoolId}`, JSON.stringify(sanitizedCampuses));
         setCampuses(sanitizedCampuses);
@@ -529,6 +531,59 @@ export function SchoolSettingsPage() {
       setError(saveError instanceof Error ? saveError.message : 'Could not save school settings.');
     } finally {
       setSaving(null);
+    }
+  }
+
+  useEffect(() => {
+    if (!schoolId || !canEdit) {
+      setSecurityEvents([]);
+      return;
+    }
+    let ignore = false;
+    const loadSecurityEvents = async () => {
+      try {
+        const client = requireSupabase();
+        const { data, error } = await client.from('audit_logs')
+          .select('action, created_at, actor_id, metadata')
+          .eq('school_id', schoolId)
+          .in('action', ['login', 'password_change', 'role_change', 'data_export', 'bulk_delete'])
+          .order('created_at', { ascending: false })
+          .limit(5);
+        if (error) throw error;
+        const actorIds = [...new Set((data ?? []).flatMap((event) => event.actor_id ? [event.actor_id] : []))];
+        let actorNames = new Map<string, string>();
+        if (actorIds.length > 0) {
+          const { data: profiles, error: profileError } = await client.from('profiles')
+            .select('id, full_name')
+            .in('id', actorIds);
+          if (profileError) throw profileError;
+          actorNames = new Map((profiles ?? []).map((profile) => [profile.id, profile.full_name || 'User']));
+        }
+        if (!ignore) {
+          setSecurityEvents((data ?? []).map((event) => ({
+            action: event.action,
+            created_at: event.created_at,
+            actor_name: event.actor_id ? actorNames.get(event.actor_id) ?? 'Unknown user' : 'System',
+            metadata: event.metadata ?? undefined,
+          })));
+        }
+      } catch {
+        if (!ignore) setSecurityEvents([]);
+      }
+    };
+    void loadSecurityEvents();
+    return () => {
+      ignore = true;
+    };
+  }, [canEdit, schoolId]);
+
+  async function signOutOtherSessions() {
+    try {
+      const { error } = await requireSupabase().auth.signOut({ scope: 'others' });
+      if (error) throw error;
+      setSuccess('Signed out of other devices and browser sessions.');
+    } catch (signOutError) {
+      setError(signOutError instanceof Error ? signOutError.message : 'Could not sign out other sessions.');
     }
   }
 
@@ -873,6 +928,19 @@ export function SchoolSettingsPage() {
                 <Toggle label="Require symbols" checked={security.password_require_symbols} disabled={!canEdit} onChange={(checked) => setSecurity({ ...security, password_require_symbols: checked })} />
               </div>
               {security.require_mfa && <div className="settings-feature-grid">{(['totp', 'sms', 'email', 'webauthn'] as const).map((method) => <Toggle key={method} label={`Allow ${method.toUpperCase()}`} checked={security.mfa_methods.includes(method)} disabled={!canEdit} onChange={(checked) => setSecurity({ ...security, mfa_methods: checked ? [...security.mfa_methods, method] : security.mfa_methods.filter((item) => item !== method) })} />)}</div>}
+            </Section>
+            <Section title="Session & device management" detail="Review recent sign-in activity and immediately end other active sessions for this school account.">
+              <div className="settings-fields">
+                <TextField label="Current session owner" value={user?.email ?? session?.user?.email ?? 'Unknown account'} disabled maxLength={255} onChange={() => undefined} />
+                <TextField label="Current session expiry" value={session?.expires_at ? new Date(session.expires_at * 1000).toLocaleString() : 'Not available'} disabled maxLength={255} onChange={() => undefined} />
+              </div>
+              <div className="settings-feature-grid">
+                <button type="button" className="button button-quiet" onClick={() => void signOutOtherSessions()} disabled={!canEdit}>Sign out of other devices</button>
+              </div>
+              {securityEvents.length > 0 && <div className="settings-audit-list">
+                <h4>Recent security events</h4>
+                {securityEvents.map((event) => <p key={`${event.action}-${event.created_at}`}><strong>{event.action.replace(/_/g, ' ')}</strong> · {event.actor_name} · {new Date(event.created_at).toLocaleString()}</p>)}
+              </div>}
             </Section>
             <Section title="Privacy & data lifecycle" detail="Set data retention, exports, graduation anonymization, and privacy mode.">
               <div className="settings-fields">

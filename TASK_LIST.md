@@ -28,9 +28,9 @@ Status legend:
 - [x] Audit logging for sensitive operations.
 - [x] Secure file access and uploads.
 - [x] Secure configuration and environment variables.
-- [ ] Session/device management.
-- [ ] Configurable multi-factor authentication.
-- [ ] Security event monitoring.
+- [x] Session/device management.
+- [x] Configurable multi-factor authentication.
+- [x] Security event monitoring.
 
 ### 1.3 Shared platform capabilities
 - [x] Responsive navigation and layouts.
