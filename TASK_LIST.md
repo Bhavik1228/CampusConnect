@@ -14,9 +14,9 @@ Status legend:
 - [x] Support school-specific settings, branding and academic years.
 - [x] Prevent users from accessing another school's records.
 - [x] Configure enabled modules separately for each school.
-- [ ] Support multiple campuses within a school.
-- [ ] Support school-specific feature configuration.
-- [ ] Support controlled cross-campus administration.
+- [x] Support multiple campuses within a school.
+- [x] Support school-specific feature configuration.
+- [x] Support controlled cross-campus administration.
 
 ### 1.2 Authentication and security
 - [x] Login, logout and session management.

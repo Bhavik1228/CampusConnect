@@ -89,7 +89,20 @@ interface AttendanceStatus {
   sort_order: number;
 }
 
-type SettingsTab = 'profile' | 'academics' | 'attendance' | 'portals' | 'modules' | 'security' | 'website' | 'storage';
+interface SchoolCampus {
+  id: string;
+  school_id: string;
+  name: string;
+  code: string | null;
+  address: string | null;
+  is_primary: boolean;
+  allow_cross_campus_admin: boolean;
+  created_by: string | null;
+  created_at: string;
+  updated_at: string;
+}
+
+type SettingsTab = 'profile' | 'campuses' | 'academics' | 'attendance' | 'portals' | 'modules' | 'security' | 'website' | 'storage';
 type MobileModule = 'visitors' | 'library' | 'health' | 'notifications';
 interface MobileAccessSettings {
   enabled: boolean;
@@ -136,6 +149,7 @@ const defaultMobileAccess: MobileAccessSettings = {
 };
 const tabs: { id: SettingsTab; label: string; icon: typeof School; description: string }[] = [
   { id: 'profile', label: 'School profile', icon: School, description: 'Identity, branding, contact details, and student records.' },
+  { id: 'campuses', label: 'Campuses', icon: School, description: 'Set up campus records, primary campus selection, and controlled site administration.' },
   { id: 'academics', label: 'Academics', icon: BookOpen, description: 'Grading scales, assessment, terms, reporting, and timetables.' },
   { id: 'attendance', label: 'Attendance', icon: ClipboardCheck, description: 'Registers, thresholds, absence rules, and family notifications.' },
   { id: 'portals', label: 'Portals & communication', icon: MessageSquare, description: 'Family and student portal access, email, and notifications.' },
@@ -253,6 +267,7 @@ export function SchoolSettingsPage() {
   const canViewStorage = canEdit || activeMembership?.role === 'academic_coordinator' || activeMembership?.role === 'teacher';
   const [tab, setTab] = useState<SettingsTab>('profile');
   const [profile, setProfile] = useState<SchoolProfile | null>(null);
+  const [campuses, setCampuses] = useState<SchoolCampus[]>([]);
   const [academics, setAcademics] = useState<SchoolAcademicPolicies | null>(null);
   const [attendance, setAttendance] = useState<AttendanceSettings | null>(null);
   const [attendanceStatuses, setAttendanceStatuses] = useState<AttendanceStatus[]>([]);
@@ -300,8 +315,9 @@ export function SchoolSettingsPage() {
       setError('');
       try {
         const client = requireSupabase();
-        const [schoolResult, academicResult, attendanceResult, statusResult, communicationResult, moduleResult, securityResult, websiteResult] = await Promise.all([
+        const [schoolResult, campusResult, academicResult, attendanceResult, statusResult, communicationResult, moduleResult, securityResult, websiteResult] = await Promise.all([
           client.from('schools').select('name, timezone, contact_email, contact_phone, address, website, logo_path, primary_color, secondary_color, motto, established_year, school_type, accreditation, student_id_prefix, student_id_format, default_language').eq('id', activeSchoolId).single(),
+          client.from('school_campuses').select('*').eq('school_id', activeSchoolId).order('is_primary', { ascending: false }).order('name'),
           client.from('school_academic_policies').select('*').eq('school_id', activeSchoolId).single(),
           client.from('attendance_settings').select('school_id, default_session_type, late_after, require_complete_register, allow_parent_explanations, notify_on_absence, notify_on_late, attendance_target_percent, attendance_warning_percent, repeated_absence_threshold, consecutive_absence_threshold, auto_lock_after_days, late_to_absence_after_minutes, attendance_calculation_basis, excused_counts_as_present').eq('school_id', activeSchoolId).single(),
           client.from('attendance_status_settings').select('status, label, enabled, counts_as_present, sort_order').eq('school_id', activeSchoolId).order('sort_order'),
@@ -310,11 +326,24 @@ export function SchoolSettingsPage() {
           client.from('school_security_settings').select('*').eq('school_id', activeSchoolId).single(),
           client.from('school_websites').select('*').eq('school_id', activeSchoolId).maybeSingle(),
         ]);
-        const resultError = [schoolResult, academicResult, attendanceResult, statusResult, communicationResult, moduleResult, securityResult, websiteResult].find((result) => result.error)?.error;
-        if (resultError) throw resultError;
+        const resultError = [schoolResult, campusResult, academicResult, attendanceResult, statusResult, communicationResult, moduleResult, securityResult, websiteResult].find((result) => result.error)?.error;
+        if (resultError && !['PGRST116', '42P01', '42703'].includes(resultError.code ?? '')) throw resultError;
         const school = schoolResult.data;
         if (active && school) {
+          const campusRows = campusResult.error ? [{
+            id: crypto.randomUUID(),
+            school_id: activeSchoolId,
+            name: school.name,
+            code: 'MAIN',
+            address: school.address ?? null,
+            is_primary: true,
+            allow_cross_campus_admin: false,
+            created_by: user?.id ?? null,
+            created_at: new Date().toISOString(),
+            updated_at: new Date().toISOString(),
+          }] : (campusResult.data ?? [] as SchoolCampus[]);
           setProfile(school as SchoolProfile);
+          setCampuses(campusRows as SchoolCampus[]);
           setAcademics(academicResult.data as SchoolAcademicPolicies);
           setAttendance(attendanceResult.data as AttendanceSettings);
           setAttendanceStatuses((statusResult.data ?? []) as AttendanceStatus[]);
@@ -397,6 +426,11 @@ export function SchoolSettingsPage() {
       setSuccess('');
       return;
     }
+    if (!schoolId) {
+      setError('No active school is selected.');
+      setSuccess('');
+      return;
+    }
     setSaving(section);
     setError('');
     setSuccess('');
@@ -421,6 +455,41 @@ export function SchoolSettingsPage() {
         } catch (refreshError) {
           setError(`School profile was saved, but the workspace list could not refresh: ${refreshError instanceof Error ? refreshError.message : 'Refresh failed.'}`);
         }
+      } else if (section === 'campuses') {
+        if (campuses.length === 0) throw new Error('Add at least one campus before saving.');
+        const sanitizedCampuses: SchoolCampus[] = campuses
+          .filter((campus) => campus.name.trim().length > 0)
+          .map((campus, index, list) => {
+            const hasPrimary = list.some((item) => item.is_primary);
+            return {
+              ...campus,
+              school_id: schoolId,
+              name: campus.name.trim(),
+              code: campus.code?.trim() || null,
+              address: campus.address?.trim() || null,
+              is_primary: hasPrimary ? campus.is_primary : index === 0,
+              allow_cross_campus_admin: Boolean(campus.allow_cross_campus_admin),
+              created_by: campus.created_by ?? user?.id ?? null,
+              updated_at: new Date().toISOString(),
+            };
+          });
+        if (sanitizedCampuses.length === 0) throw new Error('Each campus needs a name before it can be saved.');
+        if (!sanitizedCampuses.some((campus) => campus.is_primary)) sanitizedCampuses[0].is_primary = true;
+        const { error: campusSaveError } = await requireSupabase().from('school_campuses').upsert(
+          sanitizedCampuses.map((campus) => ({
+            ...campus,
+            school_id: schoolId,
+            created_by: campus.created_by ?? user?.id ?? null,
+            updated_at: new Date().toISOString(),
+          })),
+          { onConflict: 'id' },
+        );
+        if (campusSaveError) {
+          localStorage.setItem(`campus-connect-school-campuses-${schoolId}`, JSON.stringify(sanitizedCampuses));
+          throw new Error(`Campuses were saved locally, but the campus table is not available in the current database: ${campusSaveError.message}`);
+        }
+        localStorage.setItem(`campus-connect-school-campuses-${schoolId}`, JSON.stringify(sanitizedCampuses));
+        setCampuses(sanitizedCampuses);
       } else if (section === 'academics' && academics) {
         await persist('school_academic_policies', academics);
       } else if (section === 'attendance' && attendance) {
@@ -533,6 +602,63 @@ export function SchoolSettingsPage() {
               </div>
             </Section>
             {saveButton('profile')}
+          </form>}
+
+          {tab === 'campuses' && <form className="content-card settings-form" onSubmit={(event) => void saveSection(event, 'campuses')}>
+            <div className="settings-section-heading"><span className="eyebrow">School structure</span><h2>Campuses</h2><p>Configure each campus within your school, mark the primary site, and control whether campus managers can oversee other campuses.</p></div>
+            <Section title="Campus records" detail="Each campus can have its own contact details and operational identity while remaining inside the same school workspace.">
+              <div className="settings-campuses-list">
+                {campuses.length === 0 ? (
+                  <p className="inline-warning">No campuses have been configured yet. Add the first campus below.</p>
+                ) : (
+                  campuses.map((campus, index) => (
+                    <div key={campus.id || `campus-${index}`} className="settings-campus-card">
+                      <div className="settings-fields settings-fields-spaced">
+                        <TextField label="Campus name" value={campus.name} disabled={!canEdit} maxLength={120} onChange={(value) => setCampuses((current) => current.map((item, itemIndex) => itemIndex === index ? { ...item, name: value } : item))} />
+                        <TextField label="Campus code" value={campus.code ?? ''} disabled={!canEdit} maxLength={30} placeholder="MAIN" onChange={(value) => setCampuses((current) => current.map((item, itemIndex) => itemIndex === index ? { ...item, code: value || null } : item))} />
+                        <TextField label="Campus address" value={campus.address ?? ''} disabled={!canEdit} maxLength={255} onChange={(value) => setCampuses((current) => current.map((item, itemIndex) => itemIndex === index ? { ...item, address: value || null } : item))} />
+                      </div>
+                      <div className="settings-feature-grid">
+                        <Toggle
+                          label="Primary campus"
+                          checked={campus.is_primary}
+                          disabled={!canEdit || campus.is_primary}
+                          onChange={(checked) => setCampuses((current) => current.map((item, itemIndex) => itemIndex === index ? { ...item, is_primary: checked } : { ...item, is_primary: false }))}
+                        />
+                        <Toggle label="Allow cross-campus administration" checked={campus.allow_cross_campus_admin} disabled={!canEdit} onChange={(checked) => setCampuses((current) => current.map((item, itemIndex) => itemIndex === index ? { ...item, allow_cross_campus_admin: checked } : item))} />
+                      </div>
+                      <div className="settings-campus-actions">
+                        <button type="button" className="button button-quiet" disabled={!canEdit || campuses.length === 1} onClick={() => setCampuses((current) => current.filter((_, itemIndex) => itemIndex !== index))}>Remove campus</button>
+                      </div>
+                    </div>
+                  ))
+                )}
+              </div>
+              {canEdit && (
+                <button
+                  type="button"
+                  className="button button-quiet"
+                  onClick={() => setCampuses((current) => [
+                    ...current,
+                    {
+                      id: crypto.randomUUID(),
+                      school_id: schoolId ?? '',
+                      name: profile?.name ? `${profile.name} Campus ${current.length + 1}` : `Campus ${current.length + 1}`,
+                      code: `C${current.length + 1}`,
+                      address: profile?.address ?? null,
+                      is_primary: current.length === 0,
+                      allow_cross_campus_admin: false,
+                      created_by: user?.id ?? null,
+                      created_at: new Date().toISOString(),
+                      updated_at: new Date().toISOString(),
+                    },
+                  ])}
+                >
+                  <Plus size={14} /> Add campus
+                </button>
+              )}
+            </Section>
+            {saveButton('campuses')}
           </form>}
 
           {tab === 'academics' && academics && <form className="content-card settings-form" onSubmit={(event) => void saveSection(event, 'academics')}>
