@@ -182,6 +182,7 @@ const moduleGroups: { title: string; description: string; options: [keyof School
     ['module_assignments', 'Assignments'], ['module_announcements', 'Announcements'], ['module_events', 'Events'],
     ['module_messaging', 'Messaging'], ['module_directory', 'School directory'], ['module_calendar', 'Calendar'],
     ['module_reports', 'Reports'], ['module_settings', 'School settings'],
+    ['module_automations', 'Automations'],
   ] },
   { title: 'Academic workflows', description: 'Enable additional teaching, assessment, and student-support tools.', options: [
     ['module_leave_management', 'Leave management'], ['module_parent_explanations', 'Parent absence explanations'],

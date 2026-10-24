@@ -1,7 +1,7 @@
 import { useEffect, useState } from 'react';
 import { Navigate, NavLink, Outlet, useLocation, useNavigate } from 'react-router-dom';
 import {
-  BookCopy, BookMarked, BookOpenCheck, BookOpenText, CalendarDays, Check, ChevronDown, ClipboardList, Library,
+  BookCopy, BookMarked, BookOpenCheck, BookOpenText, CalendarDays, Check, ChevronDown, ClipboardList, Library, Workflow,
   ChevronLeft, ClipboardCheck, GraduationCap, LayoutDashboard, LogOut, Menu,
   Settings, UsersRound, X, CalendarClock, CircleDollarSign, UserRoundPlus,
   Award, BriefcaseBusiness, FileStack, HeartPulse, ClipboardPlus,
@@ -20,6 +20,7 @@ const navigation: { title: string; items: { to: string; label: string; icon: Luc
     { to: '/students', label: 'Students', icon: GraduationCap },
     { to: '/admissions', label: 'Admissions & enrolment', icon: UserRoundPlus, roles: ['school_admin'], module: 'module_admissions' },
     { to: '/staff', label: 'Staff & teachers', icon: BriefcaseBusiness, roles: ['school_admin', 'academic_coordinator', 'teacher'] },
+    { to: '/automations', label: 'Automations', icon: Workflow, roles: ['school_admin', 'academic_coordinator'], module: 'module_automations' },
     { to: '/classes', label: 'Classes', icon: UsersRound },
     { to: '/subjects', label: 'Subjects', icon: BookMarked },
   ] },
@@ -69,6 +70,7 @@ const pageNames: Record<string, string> = {
   '/classes': 'Classes', '/subjects': 'Subjects', '/timetable': 'Timetable', '/attendance': 'Attendance',
   '/learning': 'Learning', '/courses-lessons': 'Courses & lessons', '/learning-materials': 'Learning materials', '/assignments': 'Assignments & homework', '/grades-results': 'Grades & results', '/calendar': 'Calendar', '/academic-calendar': 'Academic calendar', '/settings': 'Settings',
   '/finance': 'Student fees', '/accounting-staff': 'Accounting staff',
+  '/automations': 'Automations',
   '/messaging': 'Messages', '/audit-log': 'Audit log',
   '/library': 'Library', '/health': 'Student health', '/health/report': 'Health report', '/visitors': 'Visitor management',
 };
@@ -106,6 +108,7 @@ export function AppShell() {
     '/grades-results': 'module_assessment_results',
     '/finance': 'module_finance',
     '/accounting-staff': 'module_finance',
+    '/automations': 'module_automations',
     '/messaging': 'module_messaging',
     '/library': 'module_library',
     '/health': 'module_health',
@@ -122,6 +125,7 @@ export function AppShell() {
     '/grades-results': 'grades',
     '/finance': 'finance',
     '/accounting-staff': 'finance',
+    '/automations': 'communication',
     '/messaging': 'messaging',
     '/library': 'library',
     '/health': 'health',
@@ -174,7 +178,7 @@ export function AppShell() {
           isRestrictedRole
             ? client.rpc(isHealthcareRole ? 'health_access_enabled' : 'visitor_access_enabled', { target_school: activeMembership.school_id })
             : client.from('school_module_settings')
-              .select('module_admissions,module_attendance,module_timetable,module_learning,module_assignments,module_assessment_results,module_finance,module_messaging,module_library,module_health,module_visitors')
+              .select('module_admissions,module_attendance,module_timetable,module_learning,module_assignments,module_assessment_results,module_finance,module_messaging,module_library,module_health,module_visitors,module_automations')
               .eq('school_id', activeMembership.school_id)
               .maybeSingle(),
           client.rpc('platform_maintenance_status', {

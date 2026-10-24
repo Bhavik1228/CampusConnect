@@ -38,6 +38,7 @@ import { LibraryPage, PublicLibraryBookPage } from '../pages/LibraryPage';
 import { HealthPage } from '../pages/HealthPage';
 import { VisitorsPage } from '../pages/VisitorsPage';
 import { MobileInstallPage } from '../pages/MobileInstallPage';
+import { AutomationsPage } from '../pages/AutomationsPage';
 
 function RouteGate({ authOnly = true, requireMembership = true }: { authOnly?: boolean; requireMembership?: boolean }) {
   const { user, loading, memberships } = useAuth();
@@ -146,6 +147,7 @@ export function ProtectedApp() {
           <Route path="/admissions" element={<AdmissionsPage />} />
           <Route path="/teachers" element={<DirectoryPage kind="teachers" />} />
           <Route path="/staff" element={<StaffManagementPage />} />
+          <Route path="/automations" element={<AutomationsPage />} />
           <Route path="/classes" element={<DirectoryPage kind="classes" />} />
           <Route path="/subjects" element={<DirectoryPage kind="subjects" />} />
           <Route path="/timetable" element={<TimetableDashboardPage />} />

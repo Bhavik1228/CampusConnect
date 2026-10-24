@@ -124,6 +124,7 @@ export interface SchoolModuleSettings {
   module_calendar: boolean;
   module_reports: boolean;
   module_settings: boolean;
+  module_automations: boolean;
   module_leave_management: boolean;
   module_parent_explanations: boolean;
   module_correction_requests: boolean;
