@@ -95,13 +95,42 @@ Deno.serve(async (request: Request) => {
     if (payload.action === 'dashboard') {
       const { data, error } = await serviceClient.rpc('platform_owner_dashboard');
       if (error) throw error;
+      const { data: performanceRows, error: performanceError } = await serviceClient
+        .from('platform_performance_metrics')
+        .select('metric_name, metric_value')
+        .gte('created_at', new Date(Date.now() - 7 * 24 * 60 * 60 * 1000).toISOString())
+        .order('created_at', { ascending: false })
+        .limit(5000);
+      if (performanceError) throw performanceError;
+      const performanceMetrics = ['lcp', 'inp', 'cls'].map((metricName) => {
+        const values = (performanceRows ?? [])
+          .filter((row) => row.metric_name === metricName)
+          .map((row) => Number(row.metric_value))
+          .filter((value) => Number.isFinite(value) && value >= 0)
+          .sort((left, right) => left - right);
+        return {
+          name: metricName,
+          count: values.length,
+          p75: values.length ? values[Math.ceil(values.length * 0.75) - 1] : null,
+        };
+      });
       const managedStorageConfigured = Boolean(
         Deno.env.get('R2_ACCOUNT_ID')
         && Deno.env.get('R2_BUCKET_NAME')
         && Deno.env.get('R2_ACCESS_KEY_ID')
         && Deno.env.get('R2_SECRET_ACCESS_KEY'),
       );
-      return respond(200, { dashboard: { ...data, managedStorageConfigured } });
+      return respond(200, {
+        dashboard: {
+          ...data,
+          managedStorageConfigured,
+          performance: {
+            windowDays: 7,
+            sampleCount: performanceRows?.length ?? 0,
+            metrics: performanceMetrics,
+          },
+        },
+      });
     }
 
     if (payload.action === 'maintenance-dashboard') {

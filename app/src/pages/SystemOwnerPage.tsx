@@ -23,6 +23,11 @@ type Dashboard = {
   recentActivity: { id: string; action: string; target_type: string; target_id: string | null; details: Record<string, unknown>; created_at: string; actor_name: string | null }[];
   storageRequests: { id: string; school_id: string; school_name: string; requested_by: string; requester_name: string | null; requester_email: string | null; message: string; status: string; created_at: string }[];
   alerts: { schoolsWithoutAdmin: number; suspendedSchools: number };
+  performance: {
+    windowDays: number;
+    sampleCount: number;
+    metrics: { name: string; count: number; p75: number | null }[];
+  };
 };
 
 function formatLabel(value: string) {
@@ -42,19 +47,6 @@ export function SystemOwnerPage() {
   const [notice, setNotice] = useState('');
   const [query, setQuery] = useState('');
   const [pendingAction, setPendingAction] = useState('');
-
-  const performanceSummary = useMemo(() => {
-    if (typeof window === 'undefined' || !('performance' in window)) {
-      return { loadMs: null, navigationMs: null, resources: 0, health: 'Monitoring unavailable' };
-    }
-    const navigationEntries = performance.getEntriesByType('navigation') as PerformanceNavigationTiming[];
-    const resourceEntries = performance.getEntriesByType('resource');
-    const navigationTime = navigationEntries[0]?.domContentLoadedEventEnd ?? navigationEntries[0]?.responseEnd ?? null;
-    const totalResources = resourceEntries.length;
-    const loadMs = navigationEntries[0]?.loadEventEnd ?? null;
-    const health = typeof loadMs === 'number' && loadMs <= 2500 ? 'Healthy' : typeof loadMs === 'number' && loadMs <= 5000 ? 'Stable' : 'Slow';
-    return { loadMs, navigationMs: navigationTime, resources: totalResources, health };
-  }, []);
 
   const loadDashboard = useCallback(async (background = false) => {
     if (!user) return;
@@ -87,6 +79,12 @@ export function SystemOwnerPage() {
     const needle = query.trim().toLocaleLowerCase();
     return (dashboard?.recentSchools ?? []).filter((school) => !needle || school.name.toLocaleLowerCase().includes(needle));
   }, [dashboard?.recentSchools, query]);
+  const getPerformanceMetric = (name: string) => dashboard?.performance.metrics.find((metric) => metric.name === name);
+  const formatPerformanceMetric = (name: string) => {
+    const metric = getPerformanceMetric(name);
+    if (!metric || metric.p75 === null) return '—';
+    return name === 'cls' ? metric.p75.toFixed(3) : `${Math.round(metric.p75)} ms`;
+  };
 
   async function setSchoolStatus(schoolId: string, status: 'active' | 'suspended') {
     setPendingAction(schoolId);
@@ -137,13 +135,14 @@ export function SystemOwnerPage() {
       {error && <ErrorState message={error} />}
       {notice && <p className="inline-success" role="status">{notice}</p>}
       <section className="content-card system-owner-panel">
-        <div className="system-owner-panel-heading"><div><span className="eyebrow">Operations</span><h2>Platform performance monitor</h2></div><Activity size={17} /></div>
+        <div className="system-owner-panel-heading"><div><span className="eyebrow">Operations · last {dashboard?.performance.windowDays ?? 7} days</span><h2>Platform performance monitor</h2><p>Aggregated browser experience metrics across participating school workspaces.</p></div><Activity size={17} /></div>
         <div className="system-owner-stat-grid" aria-label="Platform performance metrics">
-          <article className="system-owner-stat"><span><Activity size={17} /></span><small>Page load</small><strong>{performanceSummary.loadMs == null ? '—' : `${Math.round(performanceSummary.loadMs)} ms`}</strong><p>Current browser session</p></article>
-          <article className="system-owner-stat"><span><RefreshCw size={17} /></span><small>Navigation time</small><strong>{performanceSummary.navigationMs == null ? '—' : `${Math.round(performanceSummary.navigationMs)} ms`}</strong><p>DOM content ready</p></article>
-          <article className="system-owner-stat"><span><Building2 size={17} /></span><small>Resources</small><strong>{performanceSummary.resources.toLocaleString()}</strong><p>Tracked network assets</p></article>
-          <article className="system-owner-stat"><span><Check size={17} /></span><small>Health</small><strong>{performanceSummary.health}</strong><p>Last browser performance snapshot</p></article>
+          <article className="system-owner-stat"><span><Activity size={17} /></span><small>Samples received</small><strong>{(dashboard?.performance.sampleCount ?? 0).toLocaleString()}</strong><p>Up to 5,000 recent records</p></article>
+          <article className="system-owner-stat"><span><RefreshCw size={17} /></span><small>LCP · p75</small><strong>{formatPerformanceMetric('lcp')}</strong><p>{getPerformanceMetric('lcp')?.count ?? 0} samples</p></article>
+          <article className="system-owner-stat"><span><Building2 size={17} /></span><small>INP · p75</small><strong>{formatPerformanceMetric('inp')}</strong><p>{getPerformanceMetric('inp')?.count ?? 0} samples</p></article>
+          <article className="system-owner-stat"><span><Check size={17} /></span><small>CLS · p75</small><strong>{formatPerformanceMetric('cls')}</strong><p>{getPerformanceMetric('cls')?.count ?? 0} samples</p></article>
         </div>
+        {dashboard && dashboard.performance.sampleCount === 0 && <p className="system-owner-muted">No performance samples have been recorded yet. Metrics appear after school users close or leave a workspace session.</p>}
       </section>
       {!dashboard && !error && <ErrorState message="Platform dashboard data is not available." />}
       {dashboard && <>

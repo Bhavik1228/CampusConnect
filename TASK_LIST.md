@@ -47,26 +47,26 @@ Status legend:
 ## 2. Roles and Permissions
 
 ### 2.1 Core roles
-- [ ] System Owner.
-- [ ] School Admin.
-- [ ] Teacher.
-- [ ] Student.
-- [ ] Parent/Guardian.
-- [ ] Finance Manager.
-- [ ] Accountant.
-- [ ] Bursar/Fees Officer.
-- [ ] Cashier.
+- [x] System Owner.
+- [x] School Admin.
+- [x] Teacher.
+- [x] Student.
+- [x] Parent/Guardian.
+- [x] Finance Manager.
+- [x] Accountant.
+- [x] Bursar/Fees Officer.
+- [x] Cashier.
 - [ ] Accounts Payable Officer.
 - [ ] Auditor/Read-only Reviewer.
 - [ ] Librarian.
-- [ ] Secretary.
-- [ ] School Nurse.
-- [ ] School Doctor.
+- [x] Secretary.
+- [x] School Nurse.
+- [x] School Doctor.
 
 ### 2.2 Additional teaching responsibilities
 - [ ] Class Teacher/Form Tutor.
 - [ ] Head of Department.
-- [ ] Senior Teacher/Academic Coordinator.
+- [x] Senior Teacher/Academic Coordinator.
 
 ### 2.3 Additional administrative responsibilities
 - [ ] Website Editor.

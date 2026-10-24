@@ -229,6 +229,98 @@ export function AppShell() {
     };
   }, [activeMembership?.school_id, location.pathname]);
 
+  useEffect(() => {
+    const targetSchoolId = activeMembership?.school_id;
+    if (!targetSchoolId || !user?.id || typeof PerformanceObserver === 'undefined') return;
+
+    let largestContentfulPaint = 0;
+    let cumulativeLayoutShift = 0;
+    let interactionToNextPaint = 0;
+    let hasLayoutShift = false;
+    let hasInteraction = false;
+    let disposed = false;
+    let persisting = false;
+    let persistAgain = false;
+    let persistTimer: number | undefined;
+    const sessionId = crypto.randomUUID();
+    const observers: { observer: PerformanceObserver; consume: (entry: PerformanceEntry) => void }[] = [];
+
+    const observe = (type: string, consume: (entry: PerformanceEntry) => void) => {
+      if (!PerformanceObserver.supportedEntryTypes.includes(type)) return;
+      const observer = new PerformanceObserver((list) => {
+        list.getEntries().forEach(consume);
+        schedulePersist();
+      });
+      observer.observe({ type, buffered: true });
+      observers.push({ observer, consume });
+    };
+
+    observe('largest-contentful-paint', (entry) => {
+      largestContentfulPaint = Math.max(largestContentfulPaint, entry.startTime);
+    });
+    observe('layout-shift', (entry) => {
+      const shift = entry as PerformanceEntry & { value: number; hadRecentInput: boolean };
+      if (!shift.hadRecentInput) {
+        cumulativeLayoutShift += shift.value;
+        hasLayoutShift = true;
+      }
+    });
+    observe('event', (entry) => {
+      const event = entry as PerformanceEntry & { interactionId?: number };
+      if ((event.interactionId ?? 0) > 0) {
+        interactionToNextPaint = Math.max(interactionToNextPaint, entry.duration);
+        hasInteraction = true;
+      }
+    });
+
+    const persistMetrics = async () => {
+      if (persisting) {
+        persistAgain = true;
+        return;
+      }
+      observers.forEach(({ observer, consume }) => observer.takeRecords().forEach(consume));
+      if (persistTimer !== undefined) {
+        window.clearTimeout(persistTimer);
+        persistTimer = undefined;
+      }
+      const metrics = [
+        ...(largestContentfulPaint > 0 ? [{ school_id: targetSchoolId, profile_id: user.id, session_id: sessionId, metric_name: 'lcp', metric_value: largestContentfulPaint }] : []),
+        ...(hasLayoutShift ? [{ school_id: targetSchoolId, profile_id: user.id, session_id: sessionId, metric_name: 'cls', metric_value: cumulativeLayoutShift }] : []),
+        ...(hasInteraction ? [{ school_id: targetSchoolId, profile_id: user.id, session_id: sessionId, metric_name: 'inp', metric_value: interactionToNextPaint }] : []),
+      ];
+      if (metrics.length === 0) return;
+      persisting = true;
+      try {
+        const { error } = await requireSupabase().from('platform_performance_metrics').upsert(metrics, {
+          onConflict: 'school_id,profile_id,session_id,metric_name',
+        });
+        if (error) throw error;
+      } catch (error) {
+        console.error('Could not record platform performance metrics.', error);
+      } finally {
+        persisting = false;
+        if (persistAgain) {
+          persistAgain = false;
+          void persistMetrics();
+        }
+      }
+    };
+
+    function schedulePersist() {
+      if (disposed) return;
+      if (persistTimer !== undefined) window.clearTimeout(persistTimer);
+      persistTimer = window.setTimeout(() => { void persistMetrics(); }, 1500);
+    }
+
+    window.addEventListener('pagehide', persistMetrics);
+    return () => {
+      disposed = true;
+      void persistMetrics();
+      window.removeEventListener('pagehide', persistMetrics);
+      observers.forEach(({ observer }) => observer.disconnect());
+    };
+  }, [activeMembership?.school_id, user?.id]);
+
   async function logout() {
     setLogoutError('');
     try {
