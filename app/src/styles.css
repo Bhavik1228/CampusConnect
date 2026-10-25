@@ -2328,6 +2328,16 @@ td strong { color: #3e435a; font-weight: 600; }
 .student-history li > span { display: grid; gap: 4px; padding-left: 4px; }
 .student-history strong { color: #4a5067; font-size: 9px; text-transform: capitalize; }
 .student-history small { color: #858b9e; font-size: 8px; }
+.student-completeness-track { height: 8px; overflow: hidden; border-radius: 10px; background: #eeedf5; }
+.student-completeness-track > span { display: block; height: 100%; border-radius: inherit; background: linear-gradient(90deg, #8174dc, #3aa47a); transition: width .2s ease; }
+.student-completeness-list { display: grid; grid-template-columns: repeat(auto-fit, minmax(145px, 1fr)); gap: 6px 10px; margin: 10px 0 0; padding: 0; list-style: none; }
+.student-completeness-list li { color: #a15c5c; font-size: 8px; }
+.student-completeness-list li.complete { color: #398568; }
+.student-merge-section { display: grid; gap: 9px; }
+.student-merge-section .field { margin: 0; }
+.student-merge-section .button { justify-self: start; }
+.student-correction-reason { margin-top: 7px; padding: 11px; border: 1px solid #ebe8f7; border-radius: 9px; background: #faf9ff; }
+.student-correction-reason > span small { display: block; margin-top: 3px; color: #888da0; font-size: 8px; font-weight: 400; }
 .student-form-modal { width: min(100%, 620px); }
 .student-form-modal .modal-form { display: grid; gap: 1px; }
 .student-form-subheading { margin: 8px 0 10px; padding-top: 11px; border-top: 1px solid #eff0f4; color: #454b62; font-size: 11px; }

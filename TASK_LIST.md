@@ -106,10 +106,10 @@ Accounts Payable Officer is available as a restricted core role; supplier-payabl
 - [x] Detect duplicate student records.
 - [x] Maintain student status and enrolment history.
 - [x] Control access to confidential student information.
-- [ ] Provide a consolidated student timeline.
-- [ ] Support academic-year history.
-- [ ] Provide profile completeness checks.
-- [ ] Support controlled record correction and merge workflows.
+- [x] Provide a consolidated student timeline.
+- [x] Support academic-year history.
+- [x] Provide profile completeness checks.
+- [x] Support controlled record correction and merge workflows.
 
 ## 4. School, Academic Structure and Calendar
 - [x] School and campus profiles.

@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useState, type FormEvent } from 'react';
-import { ArrowDownToLine, FileText, Plus, Search, ShieldCheck, UserRound, X } from 'lucide-react';
+import { ArrowDownToLine, CalendarDays, FileText, GitMerge, Plus, Search, ShieldCheck, UserRound, X } from 'lucide-react';
 import { useAuth } from '../contexts/AuthContext';
 import { EmptyState, ErrorState, LoadingState } from '../components/Feedback';
 import { requireSupabase } from '../lib/supabase';
@@ -9,7 +9,7 @@ type StudentStatus = 'active' | 'inactive' | 'graduated' | 'transferred' | 'with
 type StudentRow = {
   id: string; school_id: string; student_number: string; first_name: string; last_name: string;
   email: string | null; date_of_birth: string | null; status: StudentStatus; class_id: string | null;
-  school_classes: { name: string } | null;
+  merged_into_student_id: string | null; school_classes: { name: string } | null;
 };
 type PrivateProfile = {
   phone: string | null; address: string | null; city: string | null; region: string | null;
@@ -27,6 +27,13 @@ type LifecycleRecord = {
 type StudentDocument = {
   id: string; file_name: string; storage_path: string; content_type: string;
   file_size: number; created_at: string;
+};
+type AcademicYearRecord = {
+  id: string; academic_year_id: string; class_id: string; enrolled_at: string; ended_at: string | null;
+};
+type StudentAuditEvent = {
+  id: number; event_type: 'correction' | 'merge'; related_student_id: string | null;
+  reason: string; created_at: string;
 };
 
 const documentTypes = new Set([
@@ -54,6 +61,9 @@ export function StudentsPage() {
   const [contacts, setContacts] = useState<EmergencyContact[]>([]);
   const [history, setHistory] = useState<LifecycleRecord[]>([]);
   const [documents, setDocuments] = useState<StudentDocument[]>([]);
+  const [academicHistory, setAcademicHistory] = useState<AcademicYearRecord[]>([]);
+  const [auditEvents, setAuditEvents] = useState<StudentAuditEvent[]>([]);
+  const [academicYears, setAcademicYears] = useState<{ id: string; name: string }[]>([]);
   const [loading, setLoading] = useState(true);
   const [detailLoading, setDetailLoading] = useState(false);
   const [error, setError] = useState('');
@@ -64,6 +74,9 @@ export function StudentsPage() {
   const [formError, setFormError] = useState('');
   const [success, setSuccess] = useState('');
   const [refreshKey, setRefreshKey] = useState(0);
+  const [mergeCandidateId, setMergeCandidateId] = useState('');
+  const [mergeReason, setMergeReason] = useState('');
+  const [merging, setMerging] = useState(false);
 
   const loadStudents = useCallback(async () => {
     if (!schoolId) return;
@@ -76,8 +89,8 @@ export function StudentsPage() {
           const allStudents: StudentRow[] = [];
           for (let offset = 0; ; offset += 500) {
             const { data, error: pageError } = await client.from('students')
-              .select('id,school_id,student_number,first_name,last_name,email,date_of_birth,status,class_id,school_classes(name)')
-              .eq('school_id', schoolId).order('last_name').order('first_name')
+              .select('id,school_id,student_number,first_name,last_name,email,date_of_birth,status,class_id,merged_into_student_id,school_classes(name)')
+              .eq('school_id', schoolId).is('merged_into_student_id', null).order('last_name').order('first_name')
               .range(offset, offset + 499);
             if (pageError) throw pageError;
             const page = (data ?? []) as unknown as StudentRow[];
@@ -111,13 +124,15 @@ export function StudentsPage() {
       setContacts([]);
       setHistory([]);
       setDocuments([]);
+      setAcademicHistory([]);
+      setAuditEvents([]);
       return;
     }
     setDetailLoading(true);
     setError('');
     try {
       const client = requireSupabase();
-      const [profileResult, contactResult, historyResult, documentResult] = await Promise.all([
+      const [profileResult, contactResult, historyResult, documentResult, academicResult, auditResult, yearResult] = await Promise.all([
         client.from('student_private_profiles')
           .select('phone,address,city,region,postal_code,country,gender,nationality,admission_date')
           .eq('school_id', schoolId).eq('student_id', selectedStudent.id).maybeSingle(),
@@ -132,15 +147,30 @@ export function StudentsPage() {
           .select('id,file_name,storage_path,content_type,file_size,created_at')
           .eq('school_id', schoolId).eq('student_id', selectedStudent.id)
           .order('created_at', { ascending: false }),
+        client.from('student_academic_year_history')
+          .select('id,academic_year_id,class_id,enrolled_at,ended_at')
+          .eq('school_id', schoolId).eq('student_id', selectedStudent.id)
+          .order('enrolled_at', { ascending: false }),
+        client.from('student_record_audit_events')
+          .select('id,event_type,related_student_id,reason,created_at')
+          .eq('school_id', schoolId).eq('student_id', selectedStudent.id)
+          .order('created_at', { ascending: false }).limit(50),
+        client.from('academic_years').select('id,name').eq('school_id', schoolId),
       ]);
       if (profileResult.error) throw profileResult.error;
       if (contactResult.error) throw contactResult.error;
       if (historyResult.error) throw historyResult.error;
       if (documentResult.error) throw documentResult.error;
+      if (academicResult.error) throw academicResult.error;
+      if (auditResult.error) throw auditResult.error;
+      if (yearResult.error) throw yearResult.error;
       setProfile(profileResult.data as PrivateProfile | null);
       setContacts((contactResult.data ?? []) as EmergencyContact[]);
       setHistory((historyResult.data ?? []) as LifecycleRecord[]);
       setDocuments((documentResult.data ?? []) as StudentDocument[]);
+      setAcademicHistory((academicResult.data ?? []) as AcademicYearRecord[]);
+      setAuditEvents((auditResult.data ?? []) as StudentAuditEvent[]);
+      setAcademicYears((yearResult.data ?? []) as { id: string; name: string }[]);
     } catch (loadError) {
       setError(loadError instanceof Error ? loadError.message : 'Could not load the student profile.');
     } finally {
@@ -158,6 +188,57 @@ export function StudentsPage() {
         .toLowerCase().includes(needle));
   }, [students, query]);
 
+  const completenessChecks = useMemo(() => selectedStudent ? [
+    { label: 'Student identifier', complete: Boolean(selectedStudent.student_number) },
+    { label: 'First and last name', complete: Boolean(selectedStudent.first_name && selectedStudent.last_name) },
+    { label: 'Date of birth', complete: Boolean(selectedStudent.date_of_birth) },
+    { label: 'Class enrolment', complete: Boolean(selectedStudent.class_id) },
+    { label: 'Email address', complete: Boolean(selectedStudent.email) },
+    { label: 'Phone number', complete: Boolean(profile?.phone) },
+    { label: 'Home address', complete: Boolean(profile?.address && profile?.city && profile?.country) },
+    { label: 'Admission date', complete: Boolean(profile?.admission_date) },
+    { label: 'Gender', complete: Boolean(profile?.gender) },
+    { label: 'Nationality', complete: Boolean(profile?.nationality) },
+    { label: 'Emergency contact', complete: contacts.length > 0 },
+    { label: 'Supporting document', complete: documents.length > 0 },
+  ] : [], [contacts.length, documents.length, profile, selectedStudent]);
+  const completenessPercent = completenessChecks.length
+    ? Math.round(completenessChecks.filter((item) => item.complete).length / completenessChecks.length * 100)
+    : 0;
+  const timelineEvents = useMemo(() => [
+    ...history.map((record) => ({
+      id: `lifecycle-${record.id}`,
+      date: record.event_date,
+      title: record.event_type.replace(/_/g, ' '),
+      detail: [record.previous_status || record.new_status
+        ? `${record.previous_status ? statusLabels[record.previous_status] : '—'} → ${record.new_status ? statusLabels[record.new_status] : '—'}`
+        : '', record.previous_class_id || record.new_class_id
+        ? `Class: ${classes.find((schoolClass) => schoolClass.id === record.previous_class_id)?.name ?? '—'} → ${classes.find((schoolClass) => schoolClass.id === record.new_class_id)?.name ?? '—'}`
+        : '', record.reason, record.destination_school ? `Destination: ${record.destination_school}` : '']
+        .filter(Boolean).join(' · '),
+    })),
+    ...academicHistory.map((record) => ({
+      id: `year-${record.id}`,
+      date: record.enrolled_at,
+      title: `Academic year: ${academicYears.find((year) => year.id === record.academic_year_id)?.name ?? 'Unknown year'}`,
+      detail: `${classes.find((schoolClass) => schoolClass.id === record.class_id)?.name ?? 'Class unavailable'}${record.ended_at ? ` · ended ${record.ended_at}` : ' · current enrolment'}`,
+    })),
+    ...documents.map((document) => ({
+      id: `document-${document.id}`,
+      date: document.created_at,
+      title: 'Document uploaded',
+      detail: document.file_name,
+    })),
+    ...auditEvents.map((event) => ({
+      id: `audit-${event.id}`,
+      date: event.created_at,
+      title: event.event_type === 'merge' ? 'Student records merged' : 'Record correction',
+      detail: event.reason,
+    })),
+  ].sort((left, right) => new Date(right.date).getTime() - new Date(left.date).getTime()), [
+    academicHistory, academicYears, auditEvents, classes, documents, history,
+  ]);
+
   async function saveStudent(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
     if (!schoolId) return;
@@ -166,7 +247,7 @@ export function StudentsPage() {
     setFormError('');
     setSuccess('');
     try {
-      const result = await requireSupabase().rpc('save_student_record', {
+      const result = await requireSupabase().rpc('save_student_record_controlled', {
         target_school: schoolId,
         target_student: selectedStudent?.id ?? null,
         student_data: {
@@ -195,6 +276,7 @@ export function StudentsPage() {
           emergency_contact_2_relationship: data.get('emergency_contact_2_relationship'),
           emergency_contact_2_phone: data.get('emergency_contact_2_phone'),
           emergency_contact_2_email: data.get('emergency_contact_2_email'),
+          correction_reason: data.get('correction_reason'),
         },
       });
       if (result.error) throw result.error;
@@ -289,6 +371,37 @@ export function StudentsPage() {
     }
   }
 
+  async function mergeStudentRecords() {
+    if (!schoolId || !selectedStudent || !mergeCandidateId || !mergeReason.trim()) return;
+    const duplicate = students.find((student) => student.id === mergeCandidateId);
+    if (!duplicate) {
+      setError('Choose an active student record to merge.');
+      return;
+    }
+    if (!window.confirm(`Merge ${duplicate.first_name} ${duplicate.last_name} (${duplicate.student_number}) into ${selectedStudent.first_name} ${selectedStudent.last_name} (${selectedStudent.student_number})? This will move linked records and archive the duplicate; it cannot be undone.`)) return;
+    setMerging(true);
+    setError('');
+    setSuccess('');
+    try {
+      const { error: mergeError } = await requireSupabase().rpc('merge_student_records', {
+        target_school: schoolId,
+        survivor_student: selectedStudent.id,
+        duplicate_student: duplicate.id,
+        merge_reason: mergeReason.trim(),
+      });
+      if (mergeError) throw mergeError;
+      setMergeCandidateId('');
+      setMergeReason('');
+      setSelectedId(selectedStudent.id);
+      setSuccess(`Merged ${duplicate.student_number} into ${selectedStudent.student_number}. The archived record remains in the audit history.`);
+      setRefreshKey((current) => current + 1);
+    } catch (mergeError) {
+      setError(mergeError instanceof Error ? mergeError.message : 'Could not merge these student records.');
+    } finally {
+      setMerging(false);
+    }
+  }
+
   function openForm() {
     setFormError('');
     setShowForm(true);
@@ -326,6 +439,11 @@ export function StudentsPage() {
               </div>
               {detailLoading ? <LoadingState label="Loading student details…" /> : canManage ? <>
                 <section className="student-info-section">
+                  <h3>Profile completeness <span className="student-section-count">{completenessPercent}%</span></h3>
+                  <div className="student-completeness-track" role="progressbar" aria-label="Student profile completeness" aria-valuenow={completenessPercent} aria-valuemin={0} aria-valuemax={100}><span style={{ width: `${completenessPercent}%` }} /></div>
+                  <ul className="student-completeness-list">{completenessChecks.map((item) => <li key={item.label} className={item.complete ? 'complete' : ''}>{item.complete ? 'Complete' : 'Missing'} · {item.label}</li>)}</ul>
+                </section>
+                <section className="student-info-section">
                   <h3><UserRound size={16} /> Personal and contact information</h3>
                   <dl className="student-profile-grid">
                     <dt>Email</dt><dd>{selectedStudent.email || '—'}</dd>
@@ -352,14 +470,28 @@ export function StudentsPage() {
                   </div>)}</div> : <p className="student-empty-inline">No documents uploaded.</p>}
                 </section>
                 <section className="student-info-section">
-                  <h3><ShieldCheck size={16} /> Enrolment and status history</h3>
-                  {history.length ? <ol className="student-history">{history.map((record) => <li key={record.id}>
-                    <span><strong>{record.event_type.replace(/_/g, ' ')}</strong><small>{new Date(`${record.event_date}T00:00:00`).toLocaleDateString()}{record.previous_status || record.new_status ? ` · ${record.previous_status ? statusLabels[record.previous_status] : '—'} → ${record.new_status ? statusLabels[record.new_status] : '—'}` : ''}</small>
-                      {record.destination_school && <small>Destination: {record.destination_school}</small>}
-                      {record.reason && <small>{record.reason}</small>}
-                      {(record.previous_class_id || record.new_class_id) && <small>Class: {classes.find((item) => item.id === record.previous_class_id)?.name ?? '—'} → {classes.find((item) => item.id === record.new_class_id)?.name ?? '—'}</small>}
+                  <h3><CalendarDays size={16} /> Academic-year history</h3>
+                  {academicHistory.length ? <ol className="student-history">{academicHistory.map((record) => <li key={record.id}>
+                    <span><strong>{academicYears.find((year) => year.id === record.academic_year_id)?.name ?? 'Unknown academic year'}</strong>
+                      <small>{classes.find((item) => item.id === record.class_id)?.name ?? 'Class unavailable'} · enrolled {new Date(`${record.enrolled_at}T00:00:00`).toLocaleDateString()}{record.ended_at ? ` · ended ${new Date(`${record.ended_at}T00:00:00`).toLocaleDateString()}` : ' · current'}</small>
                     </span>
-                  </li>)}</ol> : <p className="student-empty-inline">No history has been recorded.</p>}
+                  </li>)}</ol> : <p className="student-empty-inline">No academic-year enrolments have been recorded yet.</p>}
+                </section>
+                <section className="student-info-section">
+                  <h3><ShieldCheck size={16} /> Student timeline</h3>
+                  {timelineEvents.length ? <ol className="student-history">{timelineEvents.map((item) => <li key={item.id}>
+                    <span><strong>{item.title}</strong><small>{new Date(`${item.date.slice(0, 10)}T00:00:00`).toLocaleDateString()}</small>{item.detail && <small>{item.detail}</small>}</span>
+                  </li>)}</ol> : <p className="student-empty-inline">No student events have been recorded.</p>}
+                </section>
+                <section className="student-info-section student-merge-section">
+                  <h3><GitMerge size={16} /> Merge duplicate student record</h3>
+                  <p className="student-privacy-note">The selected student remains the surviving record. Linked records move to it; the duplicate is retained as an archived reference. Conflicting unique attendance or assessment records must be resolved first.</p>
+                  <label className="field"><span>Duplicate to merge into this student</span><select value={mergeCandidateId} onChange={(event) => setMergeCandidateId(event.target.value)} disabled={merging}>
+                    <option value="">Choose a student record</option>
+                    {students.filter((student) => student.id !== selectedStudent.id).map((student) => <option key={student.id} value={student.id}>{student.first_name} {student.last_name} · {student.student_number}</option>)}
+                  </select></label>
+                  <label className="field"><span>Merge reason</span><textarea value={mergeReason} onChange={(event) => setMergeReason(event.target.value)} rows={2} maxLength={1000} required disabled={merging} /></label>
+                  <button className="button button-secondary" type="button" onClick={() => void mergeStudentRecords()} disabled={merging || !mergeCandidateId || mergeReason.trim().length < 3}>{merging ? 'Merging…' : 'Review and merge records'}</button>
                 </section>
               </> : <section className="student-info-section">
                 <h3>Student information</h3>
@@ -388,6 +520,7 @@ export function StudentsPage() {
             <div className="form-row"><label className="field"><span>Contact 2 name</span><input name="emergency_contact_2_name" maxLength={120} defaultValue={contacts[1]?.contact_name ?? ''} /></label><label className="field"><span>Relationship</span><input name="emergency_contact_2_relationship" maxLength={60} defaultValue={contacts[1]?.relationship ?? ''} /></label></div>
             <div className="form-row"><label className="field"><span>Contact 2 phone</span><input name="emergency_contact_2_phone" type="tel" maxLength={40} defaultValue={contacts[1]?.phone ?? ''} /></label><label className="field"><span>Contact 2 email</span><input name="emergency_contact_2_email" type="email" maxLength={254} defaultValue={contacts[1]?.email ?? ''} /></label></div>
             {selectedStudent && <><h3 className="student-form-subheading">Transfer or withdrawal details</h3><label className="field"><span>Reason <small>(required for transfer or withdrawal)</small></span><textarea name="movement_reason" rows={2} maxLength={1000} /></label><label className="field"><span>Destination school <small>(required for transfer)</small></span><input name="destination_school" maxLength={200} /></label></>}
+            {selectedStudent && <label className="field student-correction-reason"><span>Correction reason <small>(required and recorded in the student audit trail)</small></span><textarea name="correction_reason" rows={2} minLength={3} maxLength={1000} required /></label>}
             <div className="settings-actions"><button className="button button-secondary" type="button" onClick={() => setShowForm(false)}>Cancel</button><button className="button button-primary" type="submit" disabled={saving}>{saving ? 'Saving…' : selectedStudent ? 'Save changes' : 'Add student'}</button></div>
           </form>
         </section>
