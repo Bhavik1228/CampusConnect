@@ -18,6 +18,7 @@ const navigation: { title: string; items: { to: string; label: string; icon: Luc
   { title: 'Workspace', items: [
     { to: '/dashboard', label: 'Overview', icon: LayoutDashboard },
     { to: '/account-security', label: 'Account security', icon: ShieldCheck },
+    { to: '/permissions', label: 'Roles & permissions', icon: ShieldCheck, roles: ['school_admin'] },
     { to: '/students', label: 'Students', icon: GraduationCap },
     { to: '/admissions', label: 'Admissions & enrolment', icon: UserRoundPlus, roles: ['school_admin', 'admissions_officer'], module: 'module_admissions' },
     { to: '/staff', label: 'Staff & teachers', icon: BriefcaseBusiness, roles: ['school_admin', 'academic_coordinator', 'teacher', 'hr_staff_administrator'] },
@@ -75,6 +76,7 @@ const pageNames: Record<string, string> = {
   '/finance': 'Student fees', '/accounting-staff': 'Accounting & specialist staff',
   '/website-management': 'Website content', '/admin-workflows': 'Administrative workflows',
   '/account-security': 'Account security',
+  '/permissions': 'Roles & permissions',
   '/automations': 'Automations',
   '/messaging': 'Messages', '/audit-log': 'Audit log',
   '/library': 'Library', '/health': 'Student health', '/health/report': 'Health report', '/visitors': 'Visitor management',
@@ -88,6 +90,7 @@ export function AppShell() {
   const [logoutError, setLogoutError] = useState('');
   const [isHeadOfDepartment, setIsHeadOfDepartment] = useState(false);
   const [modules, setModules] = useState<Record<string, boolean> | null>(null);
+  const [permissionSummary, setPermissionSummary] = useState<Record<string, Record<string, boolean>> | null>(null);
   const [modulesError, setModulesError] = useState('');
   const [maintenance, setMaintenance] = useState<{ active: boolean; scope: string | null; read_only: boolean; notice: string; ends_at: string | null; emergency: boolean } | null>(null);
   const navigate = useNavigate();
@@ -136,6 +139,35 @@ export function AppShell() {
     '/health': 'module_health',
     '/visitors': 'module_visitors',
   };
+  const permissionModuleForPath: Record<string, string> = {
+    '/students': 'students',
+    '/admissions': 'admissions',
+    '/staff': 'staff',
+    '/teachers': 'staff',
+    '/website-management': 'website',
+    '/admin-workflows': 'administrative_workflows',
+    '/automations': 'academics',
+    '/classes': 'academics',
+    '/subjects': 'academics',
+    '/academic-calendar': 'academics',
+    '/timetable': 'timetable',
+    '/attendance': 'attendance',
+    '/learning': 'learning',
+    '/courses-lessons': 'learning',
+    '/learning-materials': 'learning',
+    '/assignments': 'assignments',
+    '/grades-results': 'assessment_results',
+    '/calendar': 'academics',
+    '/finance': 'finance',
+    '/accounting-staff': 'finance',
+    '/library': 'library',
+    '/health': 'health',
+    '/visitors': 'visitors',
+    '/messaging': 'messaging',
+    '/audit-log': 'audit',
+  };
+  const permissionModule = permissionModuleForPath[modulePath];
+  const permissionDenied = Boolean(permissionModule && permissionSummary?.[permissionModule]?.access === false);
   const maintenanceModuleForPath: Record<string, string> = {
     '/admissions': 'admissions',
     '/timetable': 'timetable',
@@ -226,6 +258,32 @@ export function AppShell() {
     })();
     return () => { active = false; };
   }, [activeMembership?.school_id, location.pathname, isHealthcareRole, isRestrictedRole]);
+
+  useEffect(() => {
+    let active = true;
+    if (!activeMembership?.school_id) {
+      setPermissionSummary(null);
+      return () => { active = false; };
+    }
+    setPermissionSummary(null);
+    setModulesError('');
+    void (async () => {
+      try {
+        const { data, error } = await requireSupabase().rpc('get_school_permission_summary', {
+          target_school: activeMembership.school_id,
+        });
+        if (error) throw error;
+        if (!data || typeof data !== 'object' || Array.isArray(data)) {
+          throw new Error('The school permission summary returned an invalid response.');
+        }
+        if (active) setPermissionSummary(data as Record<string, Record<string, boolean>>);
+      } catch (error) {
+        console.error('Could not load school permission summary.', error);
+        if (active) setModulesError(error instanceof Error ? error.message : 'Could not load school permissions.');
+      }
+    })();
+    return () => { active = false; };
+  }, [activeMembership?.school_id]);
 
   useEffect(() => {
     if (!activeMembership) return;
@@ -385,7 +443,8 @@ export function AppShell() {
       <nav className="side-navigation" aria-label="Main navigation">
         {visibleNavigation.map((group) => {
           const items = group.items.filter((item) => (!item.roles || item.roles.includes(activeMembership?.role ?? 'student'))
-            && (!item.module || modules?.[item.module] !== false));
+            && (!item.module || modules?.[item.module] !== false)
+            && (!permissionModuleForPath[item.to] || permissionSummary?.[permissionModuleForPath[item.to]]?.access !== false));
           return items.length ? <div className="nav-group" key={group.title}><span className="nav-label">{group.title}</span>{items.map(({ to, label, icon: Icon }) => <NavLink key={to} to={to} onClick={() => setMobileOpen(false)} className={({ isActive }) => `nav-item${isActive ? ' active' : ''}`}><Icon size={18} strokeWidth={1.8} /><span>{label}</span></NavLink>)}</div> : null;
         })}
       </nav>
@@ -399,6 +458,7 @@ export function AppShell() {
   if (isHealthcareRole && !isHealthRoute) return <Navigate to="/health" replace />;
   if (isSecretaryRole && !isVisitorRoute) return <Navigate to="/visitors" replace />;
   if (rolePaths && !rolePaths.includes(modulePath)) return <Navigate to="/dashboard" replace />;
+  if (location.pathname === '/permissions' && activeMembership?.role !== 'school_admin') return <Navigate to="/dashboard" replace />;
 
   return (
     <div className="app-layout">
@@ -413,7 +473,17 @@ export function AppShell() {
           {maintenance?.active && <aside className="platform-maintenance-notice" role="status">{maintenance.notice || maintenanceNotice || 'Maintenance is in progress.'}{maintenance.read_only ? ' This workspace is read-only; changes are temporarily disabled.' : ''}{maintenance.ends_at ? ` Scheduled until ${new Date(maintenance.ends_at).toLocaleString()}.` : ''}</aside>}
           {!maintenance?.active && maintenanceNotice && <aside className="platform-maintenance-notice" role="status">{maintenanceNotice}</aside>}
           {logoutError && <ErrorState message={logoutError} />}
-          {modulesError ? <ErrorState message={modulesError} /> : modules === null || maintenance === null ? <LoadingState label="Loading school features…" /> : maintenance.active && !maintenance.read_only ? <section className="content-card school-maintenance-block"><span className="brand-mark"><ShieldCheck size={20} /></span><span className="eyebrow">Maintenance in progress</span><h1>{maintenance.emergency ? 'Emergency maintenance' : 'This workspace is temporarily unavailable'}</h1><p>{maintenance.notice || maintenanceNotice || 'Campus Connect is undergoing maintenance. Please try again later.'}</p>{maintenance.ends_at && <small>Scheduled to end {new Date(maintenance.ends_at).toLocaleString()}.</small>}<button className="button button-quiet" onClick={() => void logout()}><LogOut size={14} /> Sign out</button></section> : disabledModule ? <section className="content-card system-owner-panel"><h2>This feature is unavailable</h2><p className="system-owner-muted">This module is disabled for your school by platform or school settings.</p></section> : <Outlet />}
+          {permissionDenied
+            ? <section className="content-card"><ErrorState message="Your current role permissions do not allow access to this module. Contact a school administrator if you need access." /></section>
+            : modulesError
+              ? <ErrorState message={modulesError} />
+              : modules === null || maintenance === null
+                ? <LoadingState label="Loading school features…" />
+                : maintenance.active && !maintenance.read_only
+                  ? <section className="content-card school-maintenance-block"><span className="brand-mark"><ShieldCheck size={20} /></span><span className="eyebrow">Maintenance in progress</span><h1>{maintenance.emergency ? 'Emergency maintenance' : 'This workspace is temporarily unavailable'}</h1><p>{maintenance.notice || maintenanceNotice || 'Campus Connect is undergoing maintenance. Please try again later.'}</p>{maintenance.ends_at && <small>Scheduled to end {new Date(maintenance.ends_at).toLocaleString()}.</small>}<button className="button button-quiet" onClick={() => void logout()}><LogOut size={14} /> Sign out</button></section>
+                  : disabledModule
+                    ? <section className="content-card system-owner-panel"><h2>This feature is unavailable</h2><p className="system-owner-muted">This module is disabled for your school by platform or school settings.</p></section>
+                    : <Outlet />}
         </div>
         <footer className="workspace-footer"><span>Campus Connect</span><span>School information & learning management</span></footer>
       </main>

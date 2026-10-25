@@ -83,15 +83,15 @@ Accounts Payable Officer is available as a restricted core role; supplier-payabl
 - [x] Compliance/Audit Officer.
 
 ### 2.4 Permission management
-- [ ] Assign roles to users.
-- [ ] Configure role-specific module access.
-- [ ] Configure create, view, edit, delete and approve permissions.
-- [ ] Restrict users to assigned classes, departments and schools.
-- [ ] Prevent school users from granting themselves platform-level privileges.
-- [ ] Record permission changes.
-- [ ] Configure custom roles.
-- [ ] Support temporary delegated permissions.
-- [ ] Preview permissions before applying them.
+- [x] Assign roles to users.
+- [x] Configure role-specific module access.
+- [x] Configure create, view, edit, delete and approve permissions.
+- [x] Restrict users to assigned classes, departments and schools.
+- [x] Prevent school users from granting themselves platform-level privileges.
+- [x] Record permission changes.
+- [x] Configure custom roles.
+- [x] Support temporary delegated permissions.
+- [x] Preview permissions before applying them.
 
 ## 3. Student Information Management
 - [x] Create and edit student profiles.
