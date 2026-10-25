@@ -157,7 +157,7 @@ export function LibraryPage() {
       if (!canManage && user?.id) requestQuery = requestQuery.eq('requester_id', user.id);
       const [bookResult, websiteResult, requestResult] = await Promise.all([
         client.from('school_books').select('*').eq('school_id', schoolId).order('title'),
-        client.from('school_websites').select('slug,enabled,public_library_enabled').eq('school_id', schoolId).maybeSingle(),
+        client.rpc('get_school_library_publication_settings', { target_school: schoolId }),
         requestQuery,
       ]);
       if (bookResult.error) throw bookResult.error;
