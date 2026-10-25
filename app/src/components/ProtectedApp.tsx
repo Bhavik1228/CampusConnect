@@ -44,6 +44,7 @@ import { AutomationsPage } from '../pages/AutomationsPage';
 import { AccountSecurityPage } from '../pages/AccountSecurityPage';
 import { MfaGate } from './MfaGate';
 import { PermissionsManagementPage } from '../pages/PermissionsManagementPage';
+import { AcademicPlanningPage } from '../pages/AcademicPlanningPage';
 
 function RouteGate({ authOnly = true, requireMembership = true }: { authOnly?: boolean; requireMembership?: boolean }) {
   const { user, loading, memberships } = useAuth();
@@ -59,13 +60,20 @@ async function checkSystemOwner() {
   const { data, error } = await requireSupabase().functions.invoke('system-owner-admin', {
     body: { action: 'check' },
   });
-  if (error) throw error;
+  if (error) {
+    const status = error.context instanceof Response ? error.context.status : null;
+    if (status === 401) {
+      throw new Error('System-owner verification returned HTTP 401. Sign out and back in. If it continues, verify the function is deployed to this Supabase project and the project credentials match.');
+    }
+    throw error;
+  }
   return data?.authorized === true;
 }
 
 function SchoolWorkspaceGate() {
   const { user, loading, memberships } = useAuth();
   const [access, setAccess] = useState<'checking' | 'school' | 'owner' | 'error'>('checking');
+  const [accessError, setAccessError] = useState('Could not verify platform access. School workspace access is paused until verification succeeds.');
   const [retry, setRetry] = useState(0);
 
   useEffect(() => {
@@ -79,13 +87,16 @@ function SchoolWorkspaceGate() {
       .then((isOwner) => { if (active) setAccess(isOwner ? 'owner' : 'school'); })
       .catch((error: unknown) => {
         console.error('Could not verify access to the school workspace.', error);
-        if (active) setAccess('error');
+        if (active) {
+          setAccessError(error instanceof Error ? error.message : 'Could not verify platform access. School workspace access is paused until verification succeeds.');
+          setAccess('error');
+        }
       });
     return () => { active = false; };
   }, [user, retry]);
 
   if (loading || access === 'checking') return <div className="full-screen-loading"><LoadingState label="Verifying workspace access…" /></div>;
-  if (access === 'error') return <main className="config-page"><div className="config-card"><ErrorState message="Could not verify platform access. School workspace access is paused until verification succeeds." /><button className="button button-primary" onClick={() => setRetry((value) => value + 1)}>Retry verification</button></div></main>;
+  if (access === 'error') return <main className="config-page"><div className="config-card"><ErrorState message={accessError} /><button className="button button-primary" onClick={() => setRetry((value) => value + 1)}>Retry verification</button></div></main>;
   if (access === 'owner') return <Navigate to="/system-owner" replace />;
   if (user && memberships.length === 0) return <SchoolSetup />;
   return <Outlet />;
@@ -150,6 +161,7 @@ export function ProtectedApp() {
           <Route path="/account-security" element={<AccountSecurityPage />} />
           <Route element={<AppShell />}>
           <Route path="/permissions" element={<PermissionsManagementPage />} />
+          <Route path="/academic-planning" element={<AcademicPlanningPage />} />
           <Route path="/dashboard" element={<DashboardPage />} />
           <Route path="/students" element={<StudentsPage />} />
           <Route path="/admissions" element={<AdmissionsPage />} />

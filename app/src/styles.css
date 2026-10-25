@@ -2338,6 +2338,43 @@ td strong { color: #3e435a; font-weight: 600; }
 .student-merge-section .button { justify-self: start; }
 .student-correction-reason { margin-top: 7px; padding: 11px; border: 1px solid #ebe8f7; border-radius: 9px; background: #faf9ff; }
 .student-correction-reason > span small { display: block; margin-top: 3px; color: #888da0; font-size: 8px; font-weight: 400; }
+.academic-planning-section { display: grid; gap: 13px; }
+.academic-planning-section > .section-heading { margin-bottom: 0; }
+.academic-planning-section > .settings-readonly { margin: 0; line-height: 1.6; }
+.academic-combination-form, .academic-rollover-form, .academic-promotion-filters { display: grid; grid-template-columns: repeat(auto-fit, minmax(190px, 1fr)); align-items: end; gap: 11px; }
+.academic-combination-form > .field, .academic-rollover-form > .field, .academic-promotion-filters > .field { min-width: 0; }
+.academic-selection-limits { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 10px; }
+.academic-subject-options { grid-column: 1 / -1; display: grid; grid-template-columns: repeat(auto-fit, minmax(205px, 1fr)); gap: 6px 12px; max-height: 260px; overflow: auto; margin: 0; padding: 12px; border: 1px solid #ececf3; border-radius: 9px; }
+.academic-subject-options legend { padding: 0 5px; color: #4d5369; font-size: 10px; font-weight: 700; }
+.academic-subject-option { display: flex; min-width: 0; align-items: center; justify-content: space-between; gap: 10px; padding: 5px 1px; color: #71778d; font-size: 9px; }
+.academic-subject-option > label:first-child, .academic-subject-required { display: inline-flex; min-width: 0; align-items: center; gap: 7px; }
+.academic-subject-option > label:first-child { flex: 1; }
+.academic-subject-option > label:first-child span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.academic-subject-required { flex: none; font-size: 8px; }
+.academic-subject-options input { accent-color: var(--purple); }
+.academic-form-actions { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; }
+.academic-combination-list, .academic-conflict-list, .academic-roster-list { display: grid; gap: 7px; }
+.academic-combination-list article { display: flex; align-items: center; justify-content: space-between; gap: 12px; padding: 10px 11px; border: 1px solid #efeff5; border-radius: 8px; }
+.academic-combination-list article > div { display: grid; min-width: 0; gap: 4px; }
+.academic-combination-actions { display: flex; flex: none; gap: 5px; }
+.academic-combination-list strong, .academic-roster-list strong { color: #4d5369; font-size: 10px; }
+.academic-combination-list small, .academic-roster-list small { color: #9297a8; font-size: 8px; line-height: 1.5; }
+.academic-preview-panel { display: grid; gap: 8px; padding: 12px; border: 1px solid #e9e7f7; border-radius: 9px; background: #fbfaff; }
+.academic-preview-panel > strong { color: #4b5067; font-size: 10px; }
+.academic-preview-panel > span, .academic-preview-panel > small { color: #81869a; font-size: 9px; line-height: 1.5; }
+.academic-conflict { display: flex; align-items: flex-start; gap: 7px; margin: 0; color: #aa555c; font-size: 9px; line-height: 1.5; }
+.academic-conflict svg, .academic-conflict-list > article > svg { flex: none; color: #c06b45; }
+.academic-success { display: flex; align-items: center; gap: 7px; margin: 0; color: #398568; font-size: 9px; }
+.academic-promotion-filters { max-width: 680px; }
+.academic-roster-list { max-height: 410px; overflow: auto; padding: 1px; }
+.academic-roster-list > label { display: flex; align-items: center; justify-content: space-between; gap: 12px; padding: 8px 9px; border: 1px solid #efeff5; border-radius: 8px; }
+.academic-roster-list > label > span { display: grid; gap: 3px; }
+.academic-roster-list select { min-width: min(42%, 220px); }
+.academic-conflict-year { max-width: 350px; }
+.academic-conflict-list article { display: flex; align-items: flex-start; gap: 8px; padding: 10px; border: 1px solid #f0e8dc; border-radius: 8px; background: #fffcf7; }
+.academic-conflict-list article > span { display: grid; gap: 4px; }
+.academic-conflict-list strong { color: #6e5b48; font-size: 9px; text-transform: capitalize; }
+.academic-conflict-list small { color: #887966; font-size: 9px; line-height: 1.5; }
 .student-form-modal { width: min(100%, 620px); }
 .student-form-modal .modal-form { display: grid; gap: 1px; }
 .student-form-subheading { margin: 8px 0 10px; padding-top: 11px; border-top: 1px solid #eff0f4; color: #454b62; font-size: 11px; }
@@ -2355,6 +2392,9 @@ td strong { color: #3e435a; font-weight: 600; }
   .student-upload-form { grid-template-columns: 1fr; }
   .student-upload-form > small { grid-column: auto; }
   .student-form-modal .form-row { grid-template-columns: 1fr; gap: 0; }
+  .academic-selection-limits { grid-template-columns: 1fr; }
+  .academic-roster-list > label { align-items: flex-start; flex-direction: column; }
+  .academic-roster-list select { width: 100%; }
 }
 /* School library catalogue and public barcode destinations */
 .library-heading-actions, .library-book-actions, .library-form-actions, .library-select-toolbar, .library-section-heading, .library-request-summary, .library-toolbar, .library-isbn-fetch { display: flex; align-items: center; gap: 9px; }

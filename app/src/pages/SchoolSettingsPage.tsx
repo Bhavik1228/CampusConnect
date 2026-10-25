@@ -4,6 +4,7 @@ import QRCode from 'qrcode';
 import { useAuth } from '../contexts/AuthContext';
 import { ErrorState, LoadingState, SuccessMessage } from '../components/Feedback';
 import { requireSupabase } from '../lib/supabase';
+import { normalizeTimeZone } from '../lib/timezone';
 import { StorageConnectionsPanel } from './StorageConnectionsPanel';
 import type {
   AppRole,
@@ -448,10 +449,12 @@ export function SchoolSettingsPage() {
     setSuccess('');
     try {
       if (section === 'profile' && profile) {
+        const timezone = normalizeTimeZone(profile.timezone);
+        if (!timezone) throw new Error('Enter a valid IANA time zone or UTC offset, such as Africa/Nairobi or GMT +03:00.');
         const { data, error: saveError } = await requireSupabase().from('schools').update({
           ...profile,
           name: profile.name.trim(),
-          timezone: profile.timezone.trim(),
+          timezone,
           contact_email: profile.contact_email?.trim() || null,
           contact_phone: profile.contact_phone?.trim() || null,
           address: profile.address?.trim() || null,

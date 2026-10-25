@@ -6,6 +6,7 @@ import {
 import { useAuth } from '../contexts/AuthContext';
 import { EmptyState, ErrorState, LoadingState, SuccessMessage } from '../components/Feedback';
 import { requireSupabase } from '../lib/supabase';
+import { resolveTimeZone } from '../lib/timezone';
 import type { AppRole } from '../types/database';
 
 type Category = 'academics' | 'attendance' | 'assignments' | 'finance' | 'communication' | 'health' | 'library' | 'events' | 'administration' | 'other';
@@ -349,7 +350,7 @@ export function AutomationsPage() {
   }, [automations, search, statusFilter, categoryFilter]);
 
   const todayRuns = useMemo(() => {
-    const timeZone = activeMembership?.school.timezone ?? 'UTC';
+    const timeZone = resolveTimeZone(activeMembership?.school.timezone);
     const today = new Intl.DateTimeFormat('en-CA', { timeZone }).format(new Date());
     return runs.filter((run) => new Intl.DateTimeFormat('en-CA', { timeZone }).format(new Date(run.started_at)) === today);
   }, [runs, activeMembership?.school.timezone]);
@@ -752,7 +753,7 @@ export function AutomationsPage() {
               const busy = actingId === automation.id;
               return <article className="automation-row" key={automation.id}>
                 <div className="automation-row-icon">{automation.action_type === 'announcement' ? <Megaphone size={19} /> : <BellRing size={19} />}</div>
-                <div className="automation-row-main"><div className="automation-row-title"><strong>{automation.name}</strong><span className={`automation-status automation-status-${automation.status}`}>{statusLabels[automation.status]}</span></div><p>{automation.description || 'No description added.'}</p><div className="automation-row-meta"><span>{categoryOptions.find((item) => item.value === automation.category)?.label}</span><span>{triggerDescription(automation)}</span><span>Owner: {members.find((member) => member.profile_id === automation.owner_id)?.profile?.full_name || `Member ${automation.owner_id.slice(0, 8)}`}</span><span>Last run: {formatDate(automation.last_run_at, activeMembership?.school.timezone ?? 'UTC')}</span><span>Next: {automation.trigger_type === 'schedule' ? formatDate(automation.next_run_at, activeMembership?.school.timezone ?? 'UTC') : 'When the event occurs'}</span></div></div>
+                <div className="automation-row-main"><div className="automation-row-title"><strong>{automation.name}</strong><span className={`automation-status automation-status-${automation.status}`}>{statusLabels[automation.status]}</span></div><p>{automation.description || 'No description added.'}</p><div className="automation-row-meta"><span>{categoryOptions.find((item) => item.value === automation.category)?.label}</span><span>{triggerDescription(automation)}</span><span>Owner: {members.find((member) => member.profile_id === automation.owner_id)?.profile?.full_name || `Member ${automation.owner_id.slice(0, 8)}`}</span><span>Last run: {formatDate(automation.last_run_at, resolveTimeZone(activeMembership?.school.timezone))}</span><span>Next: {automation.trigger_type === 'schedule' ? formatDate(automation.next_run_at, resolveTimeZone(activeMembership?.school.timezone)) : 'When the event occurs'}</span></div></div>
                 <div className="automation-row-actions">
                   {editable && <button className="icon-button" title="Edit automation" aria-label={`Edit ${automation.name}`} onClick={() => startEdit(automation)}><Pencil size={16} /></button>}
                   {editable && <button className="icon-button" title="Test configuration" aria-label={`Test ${automation.name}`} disabled={busy} onClick={() => void runAutomation(automation, true)}><FlaskConical size={16} /></button>}
@@ -775,7 +776,7 @@ export function AutomationsPage() {
 
       {tab === 'history' && <section className="content-card automation-history-card">
         <div className="section-heading"><div><span className="eyebrow">Run history</span><h2>Recent activity</h2></div><History size={19} className="muted-icon" /></div>
-        {runs.length === 0 ? <EmptyState title="No runs recorded" detail="Successful, skipped, failed, scheduled, manual, and test runs will appear here." /> : <div className="table-scroll"><table className="automation-history-table"><thead><tr><th>Automation</th><th>Result</th><th>Run type</th><th>Started</th><th>Summary</th></tr></thead><tbody>{runs.map((run) => <tr key={run.id}><td>{run.automation_name}</td><td><span className={`automation-run-status automation-run-${run.status}`}>{run.status}</span></td><td>{run.is_test ? 'Test' : 'Scheduled / manual'}</td><td>{formatDate(run.started_at, activeMembership?.school.timezone ?? 'UTC')}</td><td>{run.error_message || run.summary}</td></tr>)}</tbody></table></div>}
+        {runs.length === 0 ? <EmptyState title="No runs recorded" detail="Successful, skipped, failed, scheduled, manual, and test runs will appear here." /> : <div className="table-scroll"><table className="automation-history-table"><thead><tr><th>Automation</th><th>Result</th><th>Run type</th><th>Started</th><th>Summary</th></tr></thead><tbody>{runs.map((run) => <tr key={run.id}><td>{run.automation_name}</td><td><span className={`automation-run-status automation-run-${run.status}`}>{run.status}</span></td><td>{run.is_test ? 'Test' : 'Scheduled / manual'}</td><td>{formatDate(run.started_at, resolveTimeZone(activeMembership?.school.timezone))}</td><td>{run.error_message || run.summary}</td></tr>)}</tbody></table></div>}
       </section>}
     </div>
   );

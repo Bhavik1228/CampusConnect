@@ -122,11 +122,11 @@ Accounts Payable Officer is available as a restricted core role; supplier-payabl
 - [x] School holidays and term dates.
 - [x] School calendar and events.
 - [x] Academic grading configuration.
-- [ ] Subject combinations and optional subjects.
-- [ ] Academic-year rollover.
-- [ ] Student promotion and class allocation.
-- [ ] Academic-year rollover simulation.
-- [ ] Detect class-capacity and subject-allocation conflicts.
+- [x] Subject combinations and optional subjects.
+- [x] Academic-year rollover.
+- [x] Student promotion and class allocation.
+- [x] Academic-year rollover simulation.
+- [x] Detect class-capacity and subject-allocation conflicts.
 
 ## 5. Admissions Management
 - [ ] Create and manage applications.

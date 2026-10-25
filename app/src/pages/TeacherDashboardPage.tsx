@@ -7,6 +7,7 @@ import { Link } from 'react-router-dom';
 import { useAuth } from '../contexts/AuthContext';
 import { EmptyState, ErrorState, LoadingState } from '../components/Feedback';
 import { requireSupabase } from '../lib/supabase';
+import { resolveTimeZone } from '../lib/timezone';
 
 type Relation<T> = T | T[] | null;
 type TimetableLesson = {
@@ -256,7 +257,7 @@ export function TeacherDashboardPage() {
   const { activeMembership, user } = useAuth();
   const schoolId = activeMembership?.school_id;
   const profileId = user?.id;
-  const timeZone = activeMembership?.school.timezone ?? 'UTC';
+  const timeZone = resolveTimeZone(activeMembership?.school.timezone);
   const [data, setData] = useState<TeacherDashboardData | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');

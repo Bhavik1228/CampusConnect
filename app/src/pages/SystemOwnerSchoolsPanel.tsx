@@ -2,6 +2,7 @@ import { useCallback, useEffect, useState, type FormEvent } from 'react';
 import { Building2, ChevronLeft, ChevronRight, Eye, Pencil, Plus, Save, Search, UserPlus, X } from 'lucide-react';
 import { ErrorState, LoadingState } from '../components/Feedback';
 import { requireSupabase } from '../lib/supabase';
+import { normalizeTimeZone } from '../lib/timezone';
 
 type SchoolAdmin = { id: string; name: string; email: string | null };
 type SchoolRecord = {
@@ -143,6 +144,11 @@ export function SystemOwnerSchoolsPanel() {
 
   async function saveSchool(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
+    const timezone = normalizeTimeZone(form.timezone);
+    if (!timezone) {
+      setError('Enter a valid IANA time zone or UTC offset, such as Africa/Nairobi or GMT +03:00.');
+      return;
+    }
     setSaving(true);
     setError('');
     setNotice('');
@@ -153,6 +159,7 @@ export function SystemOwnerSchoolsPanel() {
           schoolId: selected?.id,
           school: {
             ...form,
+            timezone,
             school_type: form.school_type || null,
             subscription_ends_at: form.subscription_ends_at
               ? new Date(`${form.subscription_ends_at}T00:00:00`).toISOString()

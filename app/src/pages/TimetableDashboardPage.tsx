@@ -6,6 +6,7 @@ import {
 import { useAuth } from '../contexts/AuthContext';
 import { EmptyState, ErrorState, LoadingState, SuccessMessage } from '../components/Feedback';
 import { requireSupabase } from '../lib/supabase';
+import { resolveTimeZone } from '../lib/timezone';
 import { TimetableManager } from './TimetableManager';
 
 type ScheduleStatus = 'draft' | 'published' | 'archived';
@@ -188,7 +189,7 @@ async function loadEntries(schoolId: string) {
 export function TimetableDashboardPage() {
   const { activeMembership, user } = useAuth();
   const schoolId = activeMembership?.school_id;
-  const timeZone = activeMembership?.school.timezone ?? 'UTC';
+  const timeZone = resolveTimeZone(activeMembership?.school.timezone);
   const canManage = activeMembership?.role === 'school_admin'
     || activeMembership?.role === 'academic_coordinator'
     || activeMembership?.role === 'system_admin';
