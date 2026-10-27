@@ -1,8 +1,9 @@
 import { useCallback, useEffect, useMemo, useState, type FormEvent } from 'react';
-import { Check, ChevronLeft, ChevronRight, ExternalLink, GraduationCap, RefreshCw, Search, UserRoundCheck } from 'lucide-react';
+import { CalendarClock, Check, ChevronLeft, ChevronRight, ExternalLink, FileCheck2, GraduationCap, Inbox, Plus, RefreshCw, Search, Settings2, UserRoundCheck } from 'lucide-react';
 import { useAuth } from '../contexts/AuthContext';
 import { EmptyState, ErrorState, LoadingState, SuccessMessage } from '../components/Feedback';
 import { requireSupabase } from '../lib/supabase';
+import { AdmissionsOperationsPanel } from './AdmissionsOperationsPanel';
 
 type AdmissionStatus = 'submitted' | 'under_review' | 'accepted' | 'rejected' | 'waitlisted' | 'withdrawn' | 'registered';
 interface Application {
@@ -32,6 +33,8 @@ interface Application {
   registered_student_id: string | null;
   registered_class_id: string | null;
   assigned_to: string | null;
+  workflow_stage_id: string | null;
+  custom_fields: Record<string, string> | null;
   updated_at: string;
 }
 interface ApplicationDocument {
@@ -41,6 +44,19 @@ interface ApplicationDocument {
   content_type: string;
   file_size: number;
   uploaded_at: string;
+}
+interface DocumentChecklistItem {
+  id: string;
+  document_key: string;
+  label: string;
+  status: 'pending' | 'received' | 'waived';
+  note: string;
+}
+interface WorkflowStage {
+  id: string;
+  label: string;
+  status: AdmissionStatus;
+  active: boolean;
 }
 interface ApplicationHistory {
   id: string;
@@ -105,6 +121,8 @@ export function AdmissionsPage() {
   const [applications, setApplications] = useState<Application[]>([]);
   const [selectedId, setSelectedId] = useState('');
   const [documents, setDocuments] = useState<ApplicationDocument[]>([]);
+  const [checklist, setChecklist] = useState<DocumentChecklistItem[]>([]);
+  const [workflowStages, setWorkflowStages] = useState<WorkflowStage[]>([]);
   const [history, setHistory] = useState<ApplicationHistory[]>([]);
   const [classes, setClasses] = useState<SchoolClass[]>([]);
   const [admissionsMembers, setAdmissionsMembers] = useState<AdmissionsMember[]>([]);
@@ -120,12 +138,15 @@ export function AdmissionsPage() {
   const [error, setError] = useState('');
   const [success, setSuccess] = useState('');
   const [decisionStatus, setDecisionStatus] = useState<AdmissionStatus>('under_review');
+  const [decisionStageId, setDecisionStageId] = useState('');
   const [decisionNote, setDecisionNote] = useState('');
   const [placementClassId, setPlacementClassId] = useState('');
   const [assignedTo, setAssignedTo] = useState('');
   const [refreshKey, setRefreshKey] = useState(0);
   const [total, setTotal] = useState(0);
   const [realtimeState, setRealtimeState] = useState<'connecting' | 'live' | 'offline'>('connecting');
+  const [section, setSection] = useState<'applications' | 'configuration' | 'enquiries' | 'appointments'>('applications');
+  const [showCreateForm, setShowCreateForm] = useState(false);
 
   const selected = applications.find((application) => application.id === selectedId) ?? null;
   const classById = useMemo(() => new Map(classes.map((item) => [item.id, item.name])), [classes]);
@@ -271,16 +292,24 @@ export function AdmissionsPage() {
     async function loadApplicationDetails() {
       try {
         const client = requireSupabase();
-        const [documentResult, historyResult] = await Promise.all([
+        const [documentResult, historyResult, checklistResult, stageResult] = await Promise.all([
           client.from('admission_application_documents')
             .select('id, file_name, storage_path, content_type, file_size, uploaded_at')
             .eq('school_id', schoolId).eq('application_id', selectedId).order('uploaded_at', { ascending: false }),
           client.from('admission_application_history')
             .select('id, actor_id, action, from_status, to_status, note, created_at')
             .eq('school_id', schoolId).eq('application_id', selectedId).order('created_at', { ascending: false }),
+          client.from('admission_document_checklist')
+            .select('id, document_key, label, status, note')
+            .eq('school_id', schoolId).eq('application_id', selectedId).order('label'),
+          client.from('admission_workflow_stages')
+            .select('id, label, status, active')
+            .eq('school_id', schoolId).eq('active', true).order('sort_order'),
         ]);
         if (documentResult.error) throw documentResult.error;
         if (historyResult.error) throw historyResult.error;
+        if (checklistResult.error) throw checklistResult.error;
+        if (stageResult.error) throw stageResult.error;
         const events = (historyResult.data ?? []) as ApplicationHistory[];
         const actorIds = [...new Set(events.flatMap((event) => event.actor_id ? [event.actor_id] : []))];
         const actorNames = new Map<string, string>();
@@ -291,9 +320,13 @@ export function AdmissionsPage() {
         }
         if (!alive) return;
         setDocuments((documentResult.data ?? []) as ApplicationDocument[]);
+        setChecklist((checklistResult.data ?? []) as DocumentChecklistItem[]);
+        const activeStages = (stageResult.data ?? []) as WorkflowStage[];
+        setWorkflowStages(activeStages);
         setHistory(events.map((event) => ({ ...event, actor_name: event.actor_id ? actorNames.get(event.actor_id) ?? null : null })));
         const application = applications.find((row) => row.id === selectedId);
         setDecisionStatus(application?.status === 'submitted' ? 'under_review' : application?.status ?? 'under_review');
+        setDecisionStageId(application?.workflow_stage_id ?? activeStages.find((stage) => stage.status === (application?.status === 'submitted' ? 'under_review' : application?.status))?.id ?? '');
         setDecisionNote(application?.decision_note ?? '');
         setPlacementClassId(application?.registered_class_id ?? '');
         setAssignedTo(application?.assigned_to ?? '');
@@ -314,16 +347,73 @@ export function AdmissionsPage() {
     setError('');
     setSuccess('');
     try {
-      const { error: reviewError } = await requireSupabase().rpc('review_admission_application', {
+      const { error: reviewError } = await requireSupabase().rpc('move_admission_application_stage', {
         target_application: selected.id,
-        next_status: decisionStatus,
-        reviewer_note: decisionNote.trim() || null,
+        target_stage: decisionStageId,
+        stage_note: decisionNote.trim() || null,
       });
       if (reviewError) throw reviewError;
       setSuccess(`Application ${selected.application_reference} updated to ${statusLabels[decisionStatus]}.`);
       setRefreshKey((current) => current + 1);
     } catch (reviewError) {
       setError(reviewError instanceof Error ? reviewError.message : 'Could not update this application.');
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  async function createApplication(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    if (!schoolId) return;
+    const form = new FormData(event.currentTarget);
+    setSaving(true);
+    setError('');
+    setSuccess('');
+    try {
+      const { error: createError } = await requireSupabase().rpc('create_admission_application', {
+        application_payload: {
+          school_id: schoolId,
+          student_first_name: form.get('student_first_name'),
+          student_last_name: form.get('student_last_name'),
+          date_of_birth: form.get('date_of_birth'),
+          applying_for: form.get('applying_for'),
+          guardian_name: form.get('guardian_name'),
+          guardian_relationship: form.get('guardian_relationship'),
+          guardian_email: form.get('guardian_email'),
+          guardian_phone: form.get('guardian_phone'),
+          previous_school: form.get('previous_school'),
+          student_email: form.get('student_email'),
+          student_phone: form.get('student_phone'),
+          notes: form.get('notes'),
+          assigned_to: form.get('assigned_to'),
+        },
+      });
+      if (createError) throw createError;
+      setShowCreateForm(false);
+      setSuccess('Application created.');
+      setRefreshKey((current) => current + 1);
+    } catch (createError) {
+      setError(createError instanceof Error ? createError.message : 'Could not create the application.');
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  async function updateChecklist(item: DocumentChecklistItem, status: DocumentChecklistItem['status']) {
+    setSaving(true);
+    setError('');
+    setSuccess('');
+    try {
+      const { error: updateError } = await requireSupabase().rpc('set_admission_document_checklist', {
+        target_checklist: item.id,
+        next_status: status,
+        checklist_note: item.note,
+      });
+      if (updateError) throw updateError;
+      setChecklist((current) => current.map((entry) => entry.id === item.id ? { ...entry, status } : entry));
+      setSuccess(`${item.label} checklist updated.`);
+    } catch (updateError) {
+      setError(updateError instanceof Error ? updateError.message : 'Could not update the document checklist.');
     } finally {
       setSaving(false);
     }
@@ -391,10 +481,21 @@ export function AdmissionsPage() {
     <div className="page-stack admissions-page">
       <div className="page-heading">
         <div><span className="eyebrow">School administration</span><h1>Admissions &amp; enrolment</h1><p>Review applications, record decisions, and register accepted students into a class.</p></div>
-        <button className="button button-quiet" type="button" onClick={() => setRefreshKey((current) => current + 1)} disabled={loading}><RefreshCw size={15} />Refresh</button>
+        {section === 'applications' && <button className="button button-quiet" type="button" onClick={() => setRefreshKey((current) => current + 1)} disabled={loading}><RefreshCw size={15} />Refresh</button>}
       </div>
       {error && <ErrorState message={error} />}
       {success && <SuccessMessage message={success} />}
+      <nav className="admissions-section-tabs" aria-label="Admissions workspace">
+        <button type="button" className={section === 'applications' ? 'active' : ''} onClick={() => setSection('applications')}><GraduationCap size={15} />Applications</button>
+        <button type="button" className={section === 'configuration' ? 'active' : ''} onClick={() => setSection('configuration')}><Settings2 size={15} />Application setup</button>
+        <button type="button" className={section === 'enquiries' ? 'active' : ''} onClick={() => setSection('enquiries')}><Inbox size={15} />Enquiries</button>
+        <button type="button" className={section === 'appointments' ? 'active' : ''} onClick={() => setSection('appointments')}><CalendarClock size={15} />Appointments</button>
+      </nav>
+      {section !== 'applications' ? <AdmissionsOperationsPanel
+        schoolId={schoolId ?? ''}
+        section={section}
+        canConfigure={activeMembership?.role === 'school_admin'}
+      /> : <>
       <section className="admissions-summary">
         {([
           ['Submitted', counters.submitted, 'submitted'],
@@ -405,6 +506,29 @@ export function AdmissionsPage() {
           <span>{label}</span><strong>{value.toLocaleString()}</strong><small>Open this queue</small>
         </button>)}
       </section>
+      <div className="admissions-create-toolbar">
+        <span>Create applications on behalf of families who contacted the school offline.</span>
+        <button className="button button-primary" type="button" onClick={() => setShowCreateForm((current) => !current)}><Plus size={15} />{showCreateForm ? 'Cancel' : 'New application'}</button>
+      </div>
+      {showCreateForm && <form className="content-card admissions-create-form" onSubmit={(event) => void createApplication(event)}>
+        <div className="section-heading"><div><span className="eyebrow">Staff entry</span><h2>Create application</h2></div></div>
+        <div className="admissions-create-fields">
+          <label className="field"><span>Student first name *</span><input name="student_first_name" required maxLength={80} /></label>
+          <label className="field"><span>Student last name *</span><input name="student_last_name" required maxLength={80} /></label>
+          <label className="field"><span>Date of birth</span><input name="date_of_birth" type="date" /></label>
+          <label className="field"><span>Applying for *</span><input name="applying_for" required maxLength={100} /></label>
+          <label className="field"><span>Guardian name *</span><input name="guardian_name" required minLength={2} maxLength={160} /></label>
+          <label className="field"><span>Relationship *</span><input name="guardian_relationship" required maxLength={60} /></label>
+          <label className="field"><span>Guardian email *</span><input name="guardian_email" required type="email" maxLength={254} /></label>
+          <label className="field"><span>Guardian phone *</span><input name="guardian_phone" required minLength={5} maxLength={40} /></label>
+          <label className="field"><span>Assign to staff</span><select name="assigned_to" defaultValue=""><option value="">Unassigned</option>{admissionsMembers.map((member) => <option key={member.profile_id} value={member.profile_id}>{member.profile?.full_name || member.profile?.email || member.profile_id}</option>)}</select></label>
+          <label className="field"><span>Previous school</span><input name="previous_school" maxLength={160} /></label>
+          <label className="field"><span>Student email</span><input name="student_email" type="email" maxLength={254} /></label>
+          <label className="field"><span>Student phone</span><input name="student_phone" maxLength={40} /></label>
+          <label className="field admissions-create-wide"><span>Notes</span><textarea name="notes" rows={3} maxLength={3000} /></label>
+        </div>
+        <button className="button button-primary" type="submit" disabled={saving}><Plus size={15} />{saving ? 'Creating…' : 'Create application'}</button>
+      </form>}
       <div className="admissions-workspace">
         <section className="content-card admissions-inbox">
           <div className="section-heading"><div><span className="eyebrow">Live application queue</span><h2>Applications <small>{total.toLocaleString()}</small></h2></div><span className={`admissions-live admissions-live-${realtimeState}`}><i />{realtimeState === 'live' ? 'Live updates' : realtimeState === 'connecting' ? 'Connecting…' : 'Refresh mode'}</span></div>
@@ -450,6 +574,7 @@ export function AdmissionsPage() {
                   <dt>Phone</dt><dd><a href={`tel:${selected.guardian_phone}`}>{selected.guardian_phone}</a></dd>
                 </dl></section>
               </div>
+              {!!selected.custom_fields && Object.keys(selected.custom_fields).length > 0 && <section className="admissions-notes"><h3>Additional application details</h3><dl className="admissions-custom-fields">{Object.entries(selected.custom_fields).map(([key, value]) => <div key={key}><dt>{key.replace(/_/g, ' ')}</dt><dd>{value || '—'}</dd></div>)}</dl></section>}
               <label className="field"><span>Assigned admissions staff</span><select value={assignedTo} disabled={saving} onChange={(event) => void assignApplication(event.target.value)}>
                 <option value="">Unassigned</option>{admissionsMembers.map((member) => <option key={member.profile_id} value={member.profile_id}>{member.profile?.full_name || member.profile?.email || member.profile_id} · {member.role.replace(/_/g, ' ')}</option>)}
               </select></label>
@@ -457,12 +582,24 @@ export function AdmissionsPage() {
               <section className="admissions-documents"><h3>Supporting documents <span>{documents.length}</span></h3>
                 {documents.length ? <div className="admissions-document-list">{documents.map((document) => <button type="button" key={document.id} onClick={() => void openDocument(document)}><span><strong>{document.file_name}</strong><small>{Math.ceil(document.file_size / 1024)} KB · {displayTimestamp(document.uploaded_at)}</small></span><ExternalLink size={15} /></button>)}</div> : <p className="admissions-muted">No documents were attached to this application.</p>}
               </section>
+              <section className="admissions-checklist"><h3><FileCheck2 size={15} />Required document checklist</h3>
+                {checklist.length ? checklist.map((item) => <div className="admissions-checklist-row" key={item.id}>
+                  <span><strong>{item.label}</strong>{item.note && <small>{item.note}</small>}</span>
+                  <select value={item.status} disabled={saving} aria-label={`${item.label} status`} onChange={(event) => void updateChecklist(item, event.target.value as DocumentChecklistItem['status'])}>
+                    <option value="pending">Pending</option><option value="received">Received</option><option value="waived">Waived</option>
+                  </select>
+                </div>) : <p className="admissions-muted">No required documents are configured. Add document requirements under Application setup.</p>}
+              </section>
 
               {selected.status !== 'registered' && <form className="admissions-decision" onSubmit={(event) => void reviewApplication(event)}>
                 <h3>Review &amp; decision</h3>
                 <div className="admissions-decision-fields">
-                  <label className="field"><span>Application status</span><select value={decisionStatus} onChange={(event) => setDecisionStatus(event.target.value as AdmissionStatus)}>
-                    {(['under_review', 'accepted', 'rejected', 'waitlisted', 'withdrawn'] as AdmissionStatus[]).map((status) => <option key={status} value={status}>{statusLabels[status]}</option>)}
+                  <label className="field"><span>Application stage</span><select value={decisionStageId} required onChange={(event) => {
+                    setDecisionStageId(event.target.value);
+                    const selectedStage = workflowStages.find((stage) => stage.id === event.target.value);
+                    if (selectedStage) setDecisionStatus(selectedStage.status);
+                  }}>
+                    {workflowStages.filter((stage) => stage.status !== 'registered').map((stage) => <option key={stage.id} value={stage.id}>{stage.label}</option>)}
                   </select></label>
                   <label className="field"><span>Decision / follow-up notes</span><textarea rows={3} maxLength={3000} value={decisionNote} onChange={(event) => setDecisionNote(event.target.value)} placeholder="Record decision reasons or next steps" /></label>
                 </div>
@@ -494,6 +631,7 @@ export function AdmissionsPage() {
           </>}
         </section>
       </div>
+      </>}
     </div>
   );
 }

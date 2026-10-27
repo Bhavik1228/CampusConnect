@@ -1,4 +1,4 @@
-import { useEffect, useState, type FormEvent } from 'react';
+import { useEffect, useRef, useState, type FormEvent } from 'react';
 import { ArrowDown, ArrowRight, BookOpenCheck, CalendarDays, CheckCircle2, FileText, GraduationCap, MapPin, Search, ShieldCheck } from 'lucide-react';
 import { useParams } from 'react-router-dom';
 import { ErrorState, LoadingState } from '../components/Feedback';
@@ -31,6 +31,10 @@ type PublicWebsite = {
   secondary_color: string | null;
   motto: string | null;
 };
+type PublicApplicationField = { key: string; label: string; type: 'text' | 'email' | 'tel' | 'date' | 'select' | 'textarea'; required: boolean; options: string[] };
+type PublicRequiredDocument = { key: string; label: string };
+type PublicAppointmentSlot = { id: string; slot_type: 'appointment' | 'open_day'; title: string; starts_at: string; ends_at: string; location: string; remaining: number };
+type PublicAdmissionsConfiguration = { application_fields: PublicApplicationField[]; required_documents: PublicRequiredDocument[]; appointments_enabled: boolean; appointment_slots: PublicAppointmentSlot[] };
 
 type PublicResult = {
   student_number: string;
@@ -88,7 +92,18 @@ function safeWebsiteUrl(value: string | null) {
 
 export function PublicSchoolWebsitePage() {
   const { slug = '' } = useParams();
+  const applicationFormRef = useRef<HTMLFormElement>(null);
   const [website, setWebsite] = useState<PublicWebsite | null>(null);
+  const [admissionsConfiguration, setAdmissionsConfiguration] = useState<PublicAdmissionsConfiguration | null>(null);
+  const [resumeToken, setResumeToken] = useState('');
+  const [resumeTokenEntry, setResumeTokenEntry] = useState('');
+  const [draftSuccess, setDraftSuccess] = useState('');
+  const [draftError, setDraftError] = useState('');
+  const [savingDraft, setSavingDraft] = useState(false);
+  const [enquiryBusy, setEnquiryBusy] = useState(false);
+  const [enquiryResult, setEnquiryResult] = useState('');
+  const [appointmentBusy, setAppointmentBusy] = useState(false);
+  const [appointmentResult, setAppointmentResult] = useState('');
   const [studentNumber, setStudentNumber] = useState('');
   const [results, setResults] = useState<PublicResult[]>([]);
   const [searched, setSearched] = useState(false);
@@ -128,6 +143,29 @@ export function PublicSchoolWebsitePage() {
     return () => { alive = false; };
   }, [slug]);
 
+  useEffect(() => {
+    if (!website?.admissions_open || !website.admissions_applications_enabled) {
+      setAdmissionsConfiguration(null);
+      return;
+    }
+    let alive = true;
+    void (async () => {
+      try {
+        const { data, error: configError } = await requireSupabase().rpc('get_public_admission_configuration', { target_slug: website.slug });
+        if (configError) throw configError;
+        if (alive && data) setAdmissionsConfiguration(data as PublicAdmissionsConfiguration);
+      } catch (configError) {
+        if (alive) setApplicationError(configError instanceof Error ? configError.message : 'Could not load online application requirements.');
+      }
+    })();
+    const savedToken = window.localStorage.getItem(`admission-resume:${website.slug}`);
+    if (savedToken) {
+      setResumeToken(savedToken);
+      setResumeTokenEntry(savedToken);
+    }
+    return () => { alive = false; };
+  }, [website]);
+
   async function checkResults(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
     const normalizedNumber = studentNumber.trim();
@@ -154,6 +192,78 @@ export function PublicSchoolWebsitePage() {
     }
   }
 
+  function collectAdmissionPayload(form: FormData) {
+    const payload: Record<string, string | Record<string, string>> = {};
+    for (const [key, value] of form.entries()) {
+      if (value instanceof File || key === 'admission_documents') continue;
+      if (key.startsWith('custom_')) {
+        const customFields = (payload.custom_fields ?? {}) as Record<string, string>;
+        customFields[key.slice('custom_'.length)] = String(value).trim();
+        payload.custom_fields = customFields;
+      } else {
+        payload[key] = String(value).trim();
+      }
+    }
+    return payload;
+  }
+
+  async function saveAdmissionDraft() {
+    if (!website || !applicationFormRef.current) return;
+    setSavingDraft(true);
+    setDraftError('');
+    setDraftSuccess('');
+    try {
+      const token = resumeToken || `${crypto.randomUUID()}${crypto.randomUUID()}`.replace(/-/g, '');
+      const payload = collectAdmissionPayload(new FormData(applicationFormRef.current));
+      const { data, error: saveError } = await requireSupabase().rpc('save_public_admission_draft', {
+        target_slug: website.slug,
+        resume_token: token,
+        draft_payload: payload,
+      });
+      if (saveError) throw saveError;
+      setResumeToken(token);
+      setResumeTokenEntry(token);
+      window.localStorage.setItem(`admission-resume:${website.slug}`, token);
+      setDraftSuccess(`Draft saved until ${new Date(data as string).toLocaleDateString()}. Keep this resume code to continue on another device: ${token}`);
+    } catch (saveError) {
+      setDraftError(saveError instanceof Error ? saveError.message : 'Could not save your application draft.');
+    } finally {
+      setSavingDraft(false);
+    }
+  }
+
+  async function resumeAdmissionDraft() {
+    if (!website || !applicationFormRef.current) return;
+    setDraftError('');
+    setDraftSuccess('');
+    try {
+      const token = resumeTokenEntry.trim();
+      const { data, error: loadError } = await requireSupabase().rpc('get_public_admission_draft', {
+        target_slug: website.slug,
+        resume_token: token,
+      });
+      if (loadError) throw loadError;
+      if (!data || typeof data !== 'object') throw new Error('No active application draft was found for that code.');
+      const payload = data as Record<string, string | Record<string, string>>;
+      const customFields = (payload.custom_fields ?? {}) as Record<string, string>;
+      for (const [name, value] of Object.entries(payload)) {
+        if (name === 'custom_fields' || typeof value !== 'string') continue;
+        const control = applicationFormRef.current.elements.namedItem(name);
+        if (control instanceof HTMLInputElement || control instanceof HTMLSelectElement || control instanceof HTMLTextAreaElement) control.value = value;
+      }
+      for (const [key, value] of Object.entries(customFields)) {
+        const control = applicationFormRef.current.querySelector<HTMLInputElement | HTMLSelectElement | HTMLTextAreaElement>(`[name="custom_${key}"]`);
+        if (control) control.value = value;
+      }
+      setResumeToken(token);
+      setResumeTokenEntry(token);
+      window.localStorage.setItem(`admission-resume:${website.slug}`, token);
+      setDraftSuccess('Your saved application has been restored.');
+    } catch (loadError) {
+      setDraftError(loadError instanceof Error ? loadError.message : 'Could not resume your application.');
+    }
+  }
+
   async function submitAdmission(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
     if (!website) return;
@@ -171,23 +281,11 @@ export function PublicSchoolWebsitePage() {
         if (file.size > maxAdmissionFileSize) throw new Error(`${file.name} exceeds the 10 MB per-file limit.`);
         if (file.name.length > 200) throw new Error('Document file names must be 200 characters or fewer.');
       }
-      const { data, error: submitError } = await requireSupabase().rpc('submit_public_admission_application', {
+      const payload = collectAdmissionPayload(form);
+      if (resumeToken) payload.resume_token = resumeToken;
+      const { data, error: submitError } = await requireSupabase().rpc('submit_public_admission_application_v2', {
         target_slug: website.slug,
-        applicant_first_name: String(form.get('student_first_name') ?? '').trim(),
-        applicant_last_name: String(form.get('student_last_name') ?? '').trim(),
-        applicant_date_of_birth: String(form.get('date_of_birth') ?? '') || null,
-        applicant_gender: String(form.get('gender') ?? '') || null,
-        requested_grade: String(form.get('applying_for') ?? '').trim(),
-        requested_academic_year: String(form.get('academic_year') ?? '').trim() || null,
-        applicant_previous_school: String(form.get('previous_school') ?? '').trim() || null,
-        applicant_email: String(form.get('student_email') ?? '').trim() || null,
-        applicant_phone: String(form.get('student_phone') ?? '').trim() || null,
-        applicant_address: String(form.get('address') ?? '').trim() || null,
-        guardian_full_name: String(form.get('guardian_name') ?? '').trim(),
-        guardian_relationship: String(form.get('guardian_relationship') ?? '').trim(),
-        guardian_contact_email: String(form.get('guardian_email') ?? '').trim(),
-        guardian_contact_phone: String(form.get('guardian_phone') ?? '').trim(),
-        applicant_notes: String(form.get('notes') ?? '').trim() || null,
+        application_payload: payload,
       });
       if (submitError) throw submitError;
       const submitted = data as { id?: string; reference?: string } | null;
@@ -220,6 +318,9 @@ export function PublicSchoolWebsitePage() {
       }
 
       formElement.reset();
+      if (resumeToken) window.localStorage.removeItem(`admission-resume:${website.slug}`);
+      setResumeToken('');
+      setResumeTokenEntry('');
       if (failedFiles.length) {
         setApplicationError(`Your application was received as ${submitted.reference}, but these files could not be attached: ${failedFiles.join(', ')}. Please contact admissions and quote your reference.`);
       } else {
@@ -250,6 +351,70 @@ export function PublicSchoolWebsitePage() {
       setApplicationError(statusError instanceof Error ? statusError.message : 'Could not check application status.');
     } finally {
       setCheckingApplicationStatus(false);
+    }
+  }
+
+  async function submitAdmissionEnquiry(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    if (!website) return;
+    const formElement = event.currentTarget;
+    const form = new FormData(formElement);
+    setEnquiryBusy(true);
+    setEnquiryResult('');
+    setApplicationError('');
+    try {
+      const { error: enquiryError } = await requireSupabase().rpc('submit_public_admission_enquiry', {
+        target_slug: website.slug,
+        guardian_name: form.get('enquiry_guardian_name'),
+        guardian_email: form.get('enquiry_guardian_email'),
+        guardian_phone: form.get('enquiry_guardian_phone'),
+        student_name: form.get('enquiry_student_name'),
+        applying_for: form.get('enquiry_applying_for'),
+        enquiry_message: form.get('enquiry_message'),
+      });
+      if (enquiryError) throw enquiryError;
+      formElement.reset();
+      setEnquiryResult('Your enquiry has been sent to the admissions team.');
+    } catch (enquiryError) {
+      setApplicationError(enquiryError instanceof Error ? enquiryError.message : 'Could not send your enquiry.');
+    } finally {
+      setEnquiryBusy(false);
+    }
+  }
+
+  async function bookAdmissionAppointment(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    if (!website) return;
+    const formElement = event.currentTarget;
+    const form = new FormData(formElement);
+    setAppointmentBusy(true);
+    setAppointmentResult('');
+    setApplicationError('');
+    try {
+      const { error: bookingError } = await requireSupabase().rpc('book_admission_appointment', {
+        target_slug: website.slug,
+        target_slot: form.get('slot_id'),
+        guardian_name: form.get('booking_guardian_name'),
+        guardian_email: form.get('booking_guardian_email'),
+        guardian_phone: form.get('booking_guardian_phone'),
+        student_name: form.get('booking_student_name'),
+        booking_note: form.get('booking_note'),
+      });
+      if (bookingError) throw bookingError;
+      formElement.reset();
+      setAppointmentResult('Your booking request has been confirmed.');
+      setApplicationError('');
+      try {
+        const { data, error: slotsError } = await requireSupabase().rpc('get_public_admission_appointment_slots', { target_slug: website.slug });
+        if (slotsError) throw slotsError;
+        setAdmissionsConfiguration((current) => current ? { ...current, appointment_slots: (data ?? []) as PublicAppointmentSlot[] } : current);
+      } catch (slotsError) {
+        setApplicationError(slotsError instanceof Error ? `Your booking is confirmed, but availability could not be refreshed: ${slotsError.message}` : 'Your booking is confirmed, but availability could not be refreshed.');
+      }
+    } catch (bookingError) {
+      setApplicationError(bookingError instanceof Error ? bookingError.message : 'Could not book this appointment.');
+    } finally {
+      setAppointmentBusy(false);
     }
   }
 
@@ -321,11 +486,45 @@ export function PublicSchoolWebsitePage() {
         </div>
       </section>
 
+      {website.admissions_email && <section className="public-admission-status public-school-section">
+        <div><span className="public-school-section-kicker">Questions about admissions?</span><h3>Send an enquiry</h3><p>Share your contact details and the admissions team will follow up.</p></div>
+        <form className="public-admission-fields" onSubmit={(event) => void submitAdmissionEnquiry(event)}>
+          <label><span>Guardian name *</span><input name="enquiry_guardian_name" required minLength={2} maxLength={160} /></label>
+          <label><span>Email *</span><input name="enquiry_guardian_email" required type="email" maxLength={254} /></label>
+          <label><span>Phone</span><input name="enquiry_guardian_phone" type="tel" maxLength={40} /></label>
+          <label><span>Student name *</span><input name="enquiry_student_name" required minLength={2} maxLength={160} /></label>
+          <label><span>Applying for</span><input name="enquiry_applying_for" maxLength={100} /></label>
+          <label className="public-admission-wide"><span>How can we help? *</span><textarea name="enquiry_message" required minLength={2} maxLength={2000} rows={3} /></label>
+          <button type="submit" disabled={enquiryBusy}>{enquiryBusy ? 'Sending…' : 'Send enquiry'}<ArrowRight size={14} /></button>
+          {applicationError && <p className="public-school-lookup-error" role="alert">{applicationError}</p>}
+          {enquiryResult && <p role="status">{enquiryResult}</p>}
+        </form>
+      </section>}
+
+      {admissionsConfiguration?.appointments_enabled && admissionsConfiguration.appointment_slots.length > 0 && <section className="public-admission-status public-school-section">
+        <div><span className="public-school-section-kicker">Meet the school</span><h3>Book an admissions appointment</h3><p>Choose an available appointment or open day. Remaining places update as families book.</p></div>
+        <form className="public-admission-fields" onSubmit={(event) => void bookAdmissionAppointment(event)}>
+          <label className="public-admission-wide"><span>Available event *</span><select name="slot_id" required defaultValue=""><option value="" disabled>Select a date</option>{admissionsConfiguration.appointment_slots.map((slot) => <option key={slot.id} value={slot.id}>{slot.title} · {slot.slot_type === 'open_day' ? 'Open day' : 'Appointment'} · {new Date(slot.starts_at).toLocaleString()} · {slot.remaining} place(s)</option>)}</select></label>
+          <label><span>Guardian name *</span><input name="booking_guardian_name" required minLength={2} maxLength={160} /></label>
+          <label><span>Email *</span><input name="booking_guardian_email" required type="email" maxLength={254} /></label>
+          <label><span>Phone</span><input name="booking_guardian_phone" type="tel" maxLength={40} /></label>
+          <label><span>Student name *</span><input name="booking_student_name" required minLength={2} maxLength={160} /></label>
+          <label className="public-admission-wide"><span>Notes</span><textarea name="booking_note" maxLength={1000} rows={2} /></label>
+          <button type="submit" disabled={appointmentBusy}>{appointmentBusy ? 'Booking…' : 'Book place'}<CalendarDays size={14} /></button>
+          {applicationError && <p className="public-school-lookup-error" role="alert">{applicationError}</p>}
+          {appointmentResult && <p role="status">{appointmentResult}</p>}
+        </form>
+      </section>}
+
       {website.admissions_open && website.admissions_applications_enabled && <section id="admission-application" className="public-school-admission-application public-school-section">
         <div className="public-school-section-heading"><span className="public-school-section-kicker">Start your application</span><h2>Apply to {website.name}</h2><p>Complete the student and parent/guardian details below. The school’s admissions team will review the application.</p></div>
-        <form className="public-admission-form" onSubmit={(event) => void submitAdmission(event)}>
+        <form ref={applicationFormRef} className="public-admission-form" onSubmit={(event) => void submitAdmission(event)}>
           {applicationError && <div className="public-school-lookup-error" role="alert">{applicationError}</div>}
           {applicationSuccess && <div className="public-admission-success" role="status"><CheckCircle2 size={20} /><div><strong>Application received · {applicationReference}</strong><p>{applicationSuccess}</p></div></div>}
+          <div className="public-admission-status-resume"><div><label><span>Resume code</span><input value={resumeTokenEntry} onChange={(event) => setResumeTokenEntry(event.target.value)} minLength={40} maxLength={160} placeholder="Enter your saved application code" /></label><button type="button" onClick={() => void resumeAdmissionDraft()} disabled={!resumeTokenEntry.trim()}>Resume application</button></div>
+            {draftError && <p className="public-school-lookup-error" role="alert">{draftError}</p>}
+            {draftSuccess && <p role="status">{draftSuccess}</p>}
+          </div>
           <div className="public-admission-form-section"><h3>Student information</h3><div className="public-admission-fields">
             <label><span>First name *</span><input name="student_first_name" required maxLength={80} autoComplete="given-name" disabled={submittingApplication} /></label>
             <label><span>Last name *</span><input name="student_last_name" required maxLength={80} autoComplete="family-name" disabled={submittingApplication} /></label>
@@ -338,6 +537,14 @@ export function PublicSchoolWebsitePage() {
             <label><span>Student phone</span><input name="student_phone" type="tel" maxLength={40} autoComplete="tel" disabled={submittingApplication} /></label>
             <label className="public-admission-wide"><span>Home address</span><input name="address" maxLength={500} autoComplete="street-address" disabled={submittingApplication} /></label>
           </div></div>
+          {admissionsConfiguration?.application_fields.length ? <div className="public-admission-form-section"><h3>Additional information</h3><div className="public-admission-fields">
+            {admissionsConfiguration.application_fields.map((field) => <label key={field.key} className={field.type === 'textarea' ? 'public-admission-wide' : ''}>
+              <span>{field.label}{field.required ? ' *' : ''}</span>
+              {field.type === 'textarea' ? <textarea name={`custom_${field.key}`} required={field.required} maxLength={2000} rows={3} disabled={submittingApplication} />
+                : field.type === 'select' ? <select name={`custom_${field.key}`} required={field.required} defaultValue="" disabled={submittingApplication}><option value="">Select an option</option>{field.options.map((option) => <option key={option} value={option}>{option}</option>)}</select>
+                  : <input name={`custom_${field.key}`} type={field.type} required={field.required} maxLength={2000} disabled={submittingApplication} />}
+            </label>)}
+          </div></div> : null}
           <div className="public-admission-form-section"><h3>Parent or guardian</h3><div className="public-admission-fields">
             <label><span>Full name *</span><input name="guardian_name" required minLength={2} maxLength={160} autoComplete="name" disabled={submittingApplication} /></label>
             <label><span>Relationship *</span><input name="guardian_relationship" required maxLength={60} placeholder="Parent, guardian..." disabled={submittingApplication} /></label>
@@ -347,9 +554,10 @@ export function PublicSchoolWebsitePage() {
           <div className="public-admission-form-section"><h3>Supporting information</h3>
             <label className="public-admission-wide"><span>Notes for the admissions team</span><textarea name="notes" rows={4} maxLength={3000} disabled={submittingApplication} placeholder="Share anything the admissions team should know." /></label>
             <label className="public-admission-upload"><FileText size={18} /><span><strong>Supporting documents</strong><small>PDF, JPG, PNG, DOC or DOCX · up to five files, 10 MB each</small></span><input name="admission_documents" type="file" multiple accept=".pdf,.jpg,.jpeg,.png,.doc,.docx" disabled={submittingApplication} /></label>
+            {!!admissionsConfiguration?.required_documents.length && <div className="public-admission-required-documents"><strong>Required documents checklist</strong><ul>{admissionsConfiguration.required_documents.map((document) => <li key={document.key}>{document.label}</li>)}</ul></div>}
             <p className="public-admission-privacy">Application details and uploaded documents are only available to this school’s authorized admissions administrator.</p>
           </div>
-          <button className="public-school-primary-action public-admission-submit" type="submit" disabled={submittingApplication}>{submittingApplication ? 'Submitting application…' : 'Submit application'}<ArrowRight size={16} /></button>
+          <div className="public-admission-form-actions"><button className="public-school-secondary-action" type="button" onClick={() => void saveAdmissionDraft()} disabled={savingDraft || submittingApplication}>{savingDraft ? 'Saving draft…' : 'Save and resume later'}</button><button className="public-school-primary-action public-admission-submit" type="submit" disabled={submittingApplication}>{submittingApplication ? 'Submitting application…' : 'Submit application'}<ArrowRight size={16} /></button></div>
         </form>
         <section className="public-admission-status">
           <div><span className="public-school-section-kicker">Already applied?</span><h3>Check application status</h3><p>Enter the reference number and guardian email used in the application.</p></div>

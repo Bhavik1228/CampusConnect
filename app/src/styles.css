@@ -1946,7 +1946,71 @@ td strong { color: #3e435a; font-weight: 600; }
 .admissions-history li strong { color: #4d5369; font-size: 8px; text-transform: capitalize; }
 .admissions-history li small, .admissions-history li span { color: #8d93a4; font-size: 8px; }
 .admissions-history li p { margin: 2px 0 0; color: #687086; font-size: 8px; line-height: 1.5; white-space: pre-line; }
+.admissions-section-tabs { display: flex; flex-wrap: wrap; gap: 7px; padding: 5px; border: 1px solid #eceef3; border-radius: 10px; background: #fff; }
+.admissions-section-tabs button { display: inline-flex; min-height: 34px; align-items: center; gap: 7px; padding: 0 11px; border: 0; border-radius: 7px; background: transparent; color: #73798b; font-size: 9px; font-weight: 700; }
+.admissions-section-tabs button.active { background: #f0effb; color: #5d50cb; }
+.admissions-section-tabs button:hover { color: #5d50cb; }
+.admissions-create-toolbar { display: flex; align-items: center; justify-content: space-between; gap: 12px; color: #858b9e; font-size: 9px; }
+.admissions-create-form { display: grid; gap: 13px; }
+.admissions-create-fields { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 10px; }
+.admissions-create-fields .field { min-width: 0; margin: 0; }
+.admissions-create-wide { grid-column: 1 / -1; }
+.admissions-custom-fields { display: grid; gap: 8px; margin: 0; }
+.admissions-custom-fields > div { display: grid; grid-template-columns: minmax(100px, .7fr) minmax(0, 1.3fr); gap: 10px; font-size: 9px; }
+.admissions-custom-fields dt { color: #9297a8; text-transform: capitalize; }
+.admissions-custom-fields dd { margin: 0; color: #4b5167; overflow-wrap: anywhere; }
+.admissions-checklist { display: grid; gap: 8px; padding: 13px; border: 1px solid #eceef3; border-radius: 10px; background: #fff; }
+.admissions-checklist h3 { display: flex; align-items: center; gap: 7px; margin: 0 0 2px; color: #454b62; font-size: 10px; }
+.admissions-checklist h3 svg { color: #6555d9; }
+.admissions-checklist-row { display: flex; align-items: center; justify-content: space-between; gap: 10px; padding: 8px 0; border-top: 1px solid #f0f1f5; }
+.admissions-checklist-row > span { display: grid; gap: 4px; min-width: 0; }
+.admissions-checklist-row strong { color: #545a70; font-size: 9px; }
+.admissions-checklist-row small { color: #9297a8; font-size: 8px; }
+.admissions-checklist-row select { min-width: 110px; min-height: 31px; padding: 0 7px; border: 1px solid #e7e8ef; border-radius: 7px; background: #fff; color: #62697d; font-size: 8px; }
+.admissions-operations-panel { display: grid; gap: 13px; }
+.admissions-config-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); align-items: start; gap: 13px; }
+.admissions-config-card { display: grid; gap: 11px; min-width: 0; padding: 15px; border: 1px solid #eceef3; border-radius: 10px; background: #fff; }
+.admissions-config-card .section-heading { margin: 0; }
+.admissions-config-card .section-heading h2 { margin: 3px 0 0; color: #42485f; font-size: 13px; }
+.admissions-config-card .section-heading > svg { color: #6555d9; }
+.admissions-config-card > .button { justify-self: start; }
+.admissions-config-card > .field { margin: 0; }
+.admissions-config-subheading { padding-top: 13px; border-top: 1px solid #eff0f4; }
+.admissions-config-row, .admissions-stage-row { display: flex; flex-wrap: wrap; align-items: center; gap: 7px; }
+.admissions-config-row > input:first-child, .admissions-stage-row > input:not([type="number"]) { min-width: 125px; flex: 1; }
+.admissions-config-row input, .admissions-config-row select, .admissions-stage-row input, .admissions-stage-row select, .admissions-inline-add input, .admissions-inline-add select { min-height: 32px; min-width: 0; padding: 0 8px; border: 1px solid #e7e8ef; border-radius: 7px; background: #fff; color: #565c72; font-size: 8px; }
+.admissions-config-row label, .admissions-stage-row label, .admissions-config-toggle { display: inline-flex; align-items: center; gap: 5px; color: #73798b; font-size: 8px; white-space: nowrap; }
+.admissions-config-row input[type="checkbox"], .admissions-stage-row input[type="checkbox"], .admissions-config-toggle input { min-height: auto; accent-color: #6555d9; }
+.admissions-stage-row > input[type="number"] { width: 65px; }
+.admissions-stage-row > select { max-width: 145px; }
+.admissions-inline-add { display: flex; flex-wrap: wrap; gap: 7px; }
+.admissions-inline-add > input { flex: 1; }
+.admissions-config-toggle { justify-self: start; }
+.settings-readonly { margin: 0; color: #858b9e; font-size: 8px; line-height: 1.6; }
+.admissions-operations-list { display: grid; gap: 8px; }
+.admissions-operations-list article { display: flex; align-items: flex-start; justify-content: space-between; gap: 12px; padding: 11px; border: 1px solid #eceef3; border-radius: 9px; }
+.admissions-operations-list article > div:first-child { display: grid; gap: 5px; min-width: 0; }
+.admissions-operations-list article strong { color: #444a61; font-size: 9px; }
+.admissions-operations-list article small { color: #858b9e; font-size: 8px; overflow-wrap: anywhere; }
+.admissions-operations-list article p { margin: 3px 0; color: #646b80; font-size: 9px; line-height: 1.5; white-space: pre-line; overflow-wrap: anywhere; }
+.admissions-operation-actions { display: flex; flex-wrap: wrap; justify-content: flex-end; gap: 5px; }
+.admissions-operation-actions .button { min-height: 30px; padding: 0 8px; font-size: 8px; }
+.public-admission-status-resume { display: grid; gap: 8px; padding: 12px; border: 1px solid #e8e7f2; border-radius: 9px; background: #fafaff; }
+.public-admission-status-resume > div:first-child { display: flex; align-items: end; gap: 9px; }
+.public-admission-status-resume label { display: grid; flex: 1; gap: 5px; color: #747a8e; font-size: 9px; }
+.public-admission-status-resume input { min-height: 38px; padding: 0 10px; border: 1px solid #e5e6ee; border-radius: 7px; background: #fff; font-size: 9px; }
+.public-admission-status-resume button, .public-admission-status form button, .public-admission-fields > button { display: inline-flex; min-height: 38px; align-items: center; justify-content: center; gap: 7px; padding: 0 12px; border: 0; border-radius: 7px; background: var(--school-accent); color: #fff; font-size: 9px; font-weight: 700; }
+.public-admission-status-resume > p, .public-admission-status-resume > div ~ p { margin: 0; color: #697087; font-size: 9px; line-height: 1.5; overflow-wrap: anywhere; }
+.public-admission-required-documents { padding: 10px 12px; border: 1px solid #ececf4; border-radius: 8px; color: #62697d; font-size: 9px; }
+.public-admission-required-documents ul { display: grid; gap: 5px; margin: 7px 0 0; padding-left: 17px; color: #858b9e; }
+.public-admission-form-actions { display: flex; flex-wrap: wrap; gap: 9px; }
+.public-admission-form-actions > button { min-height: 42px; }
+.public-admission-form-actions .public-admission-submit { margin: 0; }
+.public-admission-status > form.public-admission-fields { min-width: 0; }
+.public-admission-status > form.public-admission-fields p { grid-column: 1 / -1; margin: 0; color: #5c7f68; font-size: 9px; }
 @media (max-width: 800px) {
+  .admissions-config-grid { grid-template-columns: 1fr; }
+  .admissions-create-fields { grid-template-columns: repeat(2, minmax(0, 1fr)); }
   .website-fee-row { grid-template-columns: repeat(2, minmax(0, 1fr)); }
   .website-fee-remove { justify-self: end; }
   .public-school-header { gap: 12px; padding: 0 22px; }
@@ -1961,6 +2025,14 @@ td strong { color: #3e435a; font-weight: 600; }
   .public-school-admission-application > .public-school-section-heading { grid-column: 1 / -1; }
 }
 @media (max-width: 620px) {
+  .admissions-summary { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .admissions-workspace { grid-template-columns: 1fr; }
+  .admissions-detail-grid, .admissions-create-fields { grid-template-columns: 1fr; }
+  .admissions-create-wide { grid-column: 1; }
+  .admissions-create-toolbar, .admissions-operations-list article { align-items: stretch; flex-direction: column; }
+  .admissions-operation-actions { justify-content: flex-start; }
+  .admissions-stage-row > input:not([type="number"]) { flex-basis: 100%; }
+  .public-admission-status-resume > div:first-child { align-items: stretch; flex-direction: column; }
   .public-school-header { min-height: 66px; padding: 0 15px; }
   .public-school-brand > img, .public-school-monogram { width: 34px; height: 34px; }
   .public-school-brand strong { max-width: 150px; font-size: 11px; }

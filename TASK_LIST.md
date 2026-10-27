@@ -129,20 +129,20 @@ Accounts Payable Officer is available as a restricted core role; supplier-payabl
 - [x] Detect class-capacity and subject-allocation conflicts.
 
 ## 5. Admissions Management
-- [ ] Create and manage applications.
-- [ ] Configure application fields.
-- [ ] Record applicant and guardian details.
-- [ ] Track application status.
-- [ ] Upload and manage required documents.
-- [ ] Search and filter applications.
-- [ ] Assign applications to admissions staff.
-- [ ] Record decisions and authorised notes.
-- [ ] Convert accepted applications into student records.
-- [ ] Save-and-resume online applications.
-- [ ] Application document checklist.
-- [ ] Admissions appointment and open-day booking.
-- [ ] Enquiry-to-application tracking.
-- [ ] Configurable application stages and approval workflows.
+- [x] Create and manage applications.
+- [x] Configure application fields.
+- [x] Record applicant and guardian details.
+- [x] Track application status.
+- [x] Upload and manage required documents.
+- [x] Search and filter applications.
+- [x] Assign applications to admissions staff.
+- [x] Record decisions and authorised notes.
+- [x] Convert accepted applications into student records.
+- [x] Save-and-resume online applications.
+- [x] Application document checklist.
+- [x] Admissions appointment and open-day booking.
+- [x] Enquiry-to-application tracking.
+- [x] Configurable application stages and approval workflows.
 
 ## 6. Staff Management
 - [ ] Staff profiles.
