@@ -145,20 +145,20 @@ Accounts Payable Officer is available as a restricted core role; supplier-payabl
 - [x] Configurable application stages and approval workflows.
 
 ## 6. Staff Management
-- [ ] Staff profiles.
-- [ ] Staff identifiers and contact details.
-- [ ] Job titles, departments and responsibilities.
-- [ ] Staff-to-school assignments.
-- [ ] Teacher subject and class assignments.
-- [ ] Staff document uploads.
-- [ ] Staff directory and authorised exports.
-- [ ] Staff account and role linkage.
-- [ ] Qualifications and certification tracking.
-- [ ] Employment document expiry reminders.
-- [ ] Staff attendance and leave management.
-- [ ] Workload summaries.
-- [ ] Substitute coverage planning.
-- [ ] Advanced HR and payroll integration.
+- [x] Staff profiles.
+- [x] Staff identifiers and contact details.
+- [x] Job titles, departments and responsibilities.
+- [x] Staff-to-school assignments.
+- [x] Teacher subject and class assignments.
+- [x] Staff document uploads.
+- [x] Staff directory and authorised exports.
+- [x] Staff account and role linkage.
+- [x] Qualifications and certification tracking.
+- [x] Employment document expiry reminders.
+- [x] Staff attendance and leave management.
+- [x] Workload summaries.
+- [x] Substitute coverage planning.
+- [x] Advanced HR and payroll integration (payroll-ready CSV export; provider-neutral).
 
 ## 7. Parent and Guardian Management
 - [ ] Parent/guardian profiles.

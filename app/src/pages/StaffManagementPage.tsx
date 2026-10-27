@@ -1,9 +1,10 @@
 import { useCallback, useEffect, useMemo, useState, type FormEvent } from 'react';
-import { BriefcaseBusiness, Building2, Download, FilePlus2, FileText, GraduationCap, MailPlus, Plus, Save, Search, Trash2, UserRound, X } from 'lucide-react';
+import { BriefcaseBusiness, Building2, CalendarCheck, CalendarDays, Clock3, Download, FileBadge2, FilePlus2, FileText, GraduationCap, MailPlus, Plus, Save, Search, Trash2, UserRound, X } from 'lucide-react';
 import { useAuth } from '../contexts/AuthContext';
 import { ErrorState, LoadingState, SuccessMessage } from '../components/Feedback';
 import { requireSupabase } from '../lib/supabase';
 import type { AppRole } from '../types/database';
+import { StaffOperationsPanel } from './StaffOperationsPanel';
 
 type EmploymentStatus = 'active' | 'on_leave' | 'inactive' | 'terminated';
 type InvitableRole = Exclude<AppRole, 'system_admin' | 'school_admin' | 'academic_coordinator' | 'student' | 'parent'>;
@@ -51,6 +52,7 @@ type TeacherProfile = {
   employment_status: EmploymentStatus;
 };
 type Department = { id: string; name: string };
+type StaffAccount = { profile_id: string; role: string };
 type TeacherResponsibility = {
   teacher_id: string;
   responsibility_type: 'class_teacher' | 'head_of_department';
@@ -67,7 +69,10 @@ type StaffDocument = {
   content_type: string;
   file_size: number;
   created_at: string;
+  document_type: 'employment' | 'identity' | 'qualification' | 'safeguarding' | 'medical' | 'other';
+  expires_on: string | null;
 };
+type WorkloadEntry = { day_of_week: number; starts_at: string; ends_at: string; subject: { name: string } | { name: string }[] | null; class: { name: string } | { name: string }[] | null; schedule: { status: string } | { status: string }[] | null };
 type StaffForm = Omit<StaffProfile, 'id' | 'profile_id'> & {
   qualifications: string;
   is_teacher: boolean;
@@ -126,11 +131,13 @@ export function StaffManagementPage() {
   const [staff, setStaff] = useState<StaffProfile[]>([]);
   const [teachers, setTeachers] = useState<TeacherProfile[]>([]);
   const [departments, setDepartments] = useState<Department[]>([]);
+  const [staffAccounts, setStaffAccounts] = useState<StaffAccount[]>([]);
   const [classes, setClasses] = useState<Choice[]>([]);
   const [subjects, setSubjects] = useState<Choice[]>([]);
   const [classAssignments, setClassAssignments] = useState<Assignment[]>([]);
   const [subjectAssignments, setSubjectAssignments] = useState<Assignment[]>([]);
   const [documents, setDocuments] = useState<StaffDocument[]>([]);
+  const [workloadEntries, setWorkloadEntries] = useState<WorkloadEntry[]>([]);
   const [selectedId, setSelectedId] = useState('');
   const [form, setForm] = useState<StaffForm>(emptyForm);
   const [editingId, setEditingId] = useState('');
@@ -147,6 +154,7 @@ export function StaffManagementPage() {
   const [inviteError, setInviteError] = useState('');
   const [success, setSuccess] = useState('');
   const [refreshKey, setRefreshKey] = useState(0);
+  const [staffSection, setStaffSection] = useState<'directory' | 'credentials' | 'attendance' | 'leave' | 'payroll'>('directory');
 
   const load = useCallback(async () => {
     if (!schoolId) return;
@@ -154,7 +162,7 @@ export function StaffManagementPage() {
     setError('');
     try {
       const client = requireSupabase();
-      const [staffResult, teacherResult, departmentResult, classResult, subjectResult, classAssignmentsResult, subjectAssignmentsResult, responsibilityResult] = await Promise.all([
+      const [staffResult, teacherResult, departmentResult, classResult, subjectResult, classAssignmentsResult, subjectAssignmentsResult, responsibilityResult, accountResult] = await Promise.all([
         client.from('staff_profiles').select('id,profile_id,department_id,employee_number,first_name,last_name,email,phone,job_title,employment_status,hire_date').eq('school_id', schoolId).order('last_name').order('first_name'),
         client.from('teacher_profiles').select('id,profile_id,staff_profile_id,qualifications,employment_status').eq('school_id', schoolId),
         client.from('school_departments').select('id,name').eq('school_id', schoolId).order('name'),
@@ -165,14 +173,18 @@ export function StaffManagementPage() {
         isHrStaffAdmin
           ? Promise.resolve({ data: [], error: null })
           : client.from('teacher_responsibilities').select('teacher_id,responsibility_type,class_id,department_id').eq('school_id', schoolId),
+        isHrStaffAdmin
+          ? Promise.resolve({ data: [], error: null })
+          : client.from('school_memberships').select('profile_id,role').eq('school_id', schoolId),
       ]);
-      for (const response of [staffResult, teacherResult, departmentResult, classResult, subjectResult, classAssignmentsResult, subjectAssignmentsResult, responsibilityResult]) {
+      for (const response of [staffResult, teacherResult, departmentResult, classResult, subjectResult, classAssignmentsResult, subjectAssignmentsResult, responsibilityResult, accountResult]) {
         if (response.error) throw response.error;
       }
       const records = (staffResult.data ?? []) as StaffProfile[];
       setStaff(records);
       setTeachers((teacherResult.data ?? []) as TeacherProfile[]);
       setDepartments((departmentResult.data ?? []) as Department[]);
+      setStaffAccounts((accountResult.data ?? []) as StaffAccount[]);
       setClasses((classResult.data ?? []) as Choice[]);
       setSubjects((subjectResult.data ?? []) as Choice[]);
       setClassAssignments((classAssignmentsResult.data ?? []) as Assignment[]);
@@ -222,7 +234,7 @@ export function StaffManagementPage() {
     async function loadDocuments() {
       try {
         const { data, error: queryError } = await requireSupabase().from('staff_documents')
-          .select('id,staff_id,file_name,storage_path,content_type,file_size,created_at')
+          .select('id,staff_id,file_name,storage_path,content_type,file_size,created_at,document_type,expires_on')
           .eq('school_id', schoolId)
           .eq('staff_id', selectedId)
           .order('created_at', { ascending: false });
@@ -235,6 +247,26 @@ export function StaffManagementPage() {
     void loadDocuments();
     return () => { alive = false; };
   }, [schoolId, selectedId, isAdmin, isHrStaffAdmin, refreshKey]);
+
+  useEffect(() => {
+    if (!schoolId || !selectedTeacher) {
+      setWorkloadEntries([]);
+      return;
+    }
+    let alive = true;
+    void (async () => {
+      try {
+        const { data, error: workloadError } = await requireSupabase().from('timetable')
+          .select('day_of_week,starts_at,ends_at,subject:subjects(name),class:school_classes(name),schedule:timetable_schedules(status)')
+          .eq('school_id', schoolId).eq('teacher_id', selectedTeacher.id).eq('entry_type', 'lesson');
+        if (workloadError) throw workloadError;
+        if (alive) setWorkloadEntries((data ?? []) as unknown as WorkloadEntry[]);
+      } catch (workloadError) {
+        if (alive) setError(errorMessage(workloadError, 'Could not load teacher workload.'));
+      }
+    })();
+    return () => { alive = false; };
+  }, [schoolId, selectedTeacher]);
 
   function startCreate() {
     setEditingId('');
@@ -478,6 +510,7 @@ export function StaffManagementPage() {
     const storagePath = `${schoolId}/${selectedStaff.id}/${crypto.randomUUID()}-${safeName}`;
     try {
       const client = requireSupabase();
+      const uploadForm = new FormData(formElement);
       const { error: uploadError } = await client.storage.from('staff-documents')
         .upload(storagePath, file, { contentType: file.type, upsert: false });
       if (uploadError) throw uploadError;
@@ -489,7 +522,9 @@ export function StaffManagementPage() {
         storage_path: storagePath,
         content_type: file.type,
         file_size: file.size,
-      }).select('id,staff_id,file_name,storage_path,content_type,file_size,created_at').single();
+        document_type: String(uploadForm.get('document_type') ?? 'other'),
+        expires_on: String(uploadForm.get('expires_on') ?? '') || null,
+      }).select('id,staff_id,file_name,storage_path,content_type,file_size,created_at,document_type,expires_on').single();
       if (metadataError) {
         const { error: cleanupError } = await client.storage.from('staff-documents').remove([storagePath]);
         if (cleanupError) throw new Error(`Document details could not be saved, and the uploaded file could not be removed: ${metadataError.message}; ${cleanupError.message}`);
@@ -547,11 +582,53 @@ export function StaffManagementPage() {
     setSuccess('Department assignment updated.');
   }
 
+  function exportStaffDirectory() {
+    const records = visibleStaff.map((person) => {
+      const teacher = teacherByStaffId.get(person.id);
+      const department = departments.find((item) => item.id === person.department_id)?.name ?? '';
+      const accountProfile = person.profile_id ?? teacher?.profile_id ?? '';
+      const linkedRole = staffAccounts.find((membership) => membership.profile_id === accountProfile)?.role ?? '';
+      const classesForTeacher = teacher ? classAssignments.filter((assignment) => assignment.teacher_id === teacher.id)
+        .map((assignment) => classes.find((item) => item.id === assignment.class_id)?.name).filter(Boolean).join('; ') : '';
+      const subjectsForTeacher = teacher ? subjectAssignments.filter((assignment) => assignment.teacher_id === teacher.id)
+        .map((assignment) => subjects.find((item) => item.id === assignment.subject_id)?.name).filter(Boolean).join('; ') : '';
+      return {
+        employee_number: person.employee_number,
+        first_name: person.first_name,
+        last_name: person.last_name,
+        email: person.email ?? '',
+        phone: person.phone ?? '',
+        job_title: person.job_title,
+        department,
+        employment_status: person.employment_status,
+        hire_date: person.hire_date ?? '',
+        linked_school_role: linkedRole,
+        teacher_classes: classesForTeacher,
+        teacher_subjects: subjectsForTeacher,
+      };
+    });
+    if (!records.length) {
+      setError('There are no staff profiles in the current directory view to export.');
+      return;
+    }
+    const columns = Object.keys(records[0]) as (keyof typeof records[number])[];
+    const csvValue = (value: string) => `"${value.replace(/"/g, '""')}"`;
+    const csv = [columns.join(','), ...records.map((record) => columns.map((column) => csvValue(record[column])).join(','))].join('\r\n');
+    const url = URL.createObjectURL(new Blob([`\uFEFF${csv}`], { type: 'text/csv;charset=utf-8' }));
+    const link = document.createElement('a');
+    link.href = url;
+    link.download = `staff-directory-${new Date().toISOString().slice(0, 10)}.csv`;
+    link.click();
+    URL.revokeObjectURL(url);
+    setSuccess(`Exported ${records.length} authorized staff directory record(s).`);
+  }
+
   return (
     <div className="page-stack staff-management-page">
       <header className="page-heading">
         <div><span className="eyebrow">People &amp; organization</span><h1>Staff &amp; teachers</h1><p>Manage employee profiles, teacher qualifications, department assignments, and teaching allocations.</p></div>
-        {canManageDirectory && <div className="staff-header-actions">
+        {canManageDirectory && staffSection === 'directory' && <div className="staff-header-actions">
+          <button className="button button-quiet" onClick={exportStaffDirectory}><Download size={15} />Export directory</button>
           {isAdmin && <button className="button button-quiet" onClick={() => { setShowCreateForm(false); setShowTeacherInvite((visible) => !visible); setInviteError(''); }}><MailPlus size={16} />Invite staff</button>}
           <button className="button button-primary" onClick={startCreate}><Plus size={16} />Add staff profile</button>
         </div>}
@@ -559,6 +636,19 @@ export function StaffManagementPage() {
       {error && <ErrorState message={error} />}
       {success && <SuccessMessage message={success} />}
 
+      {canManageDirectory && <nav className="staff-section-tabs" aria-label="Staff management workspace">
+        <button type="button" className={staffSection === 'directory' ? 'active' : ''} onClick={() => setStaffSection('directory')}><BriefcaseBusiness size={15} />Directory</button>
+        <button type="button" className={staffSection === 'credentials' ? 'active' : ''} onClick={() => setStaffSection('credentials')}><FileBadge2 size={15} />Credentials &amp; expiry</button>
+        <button type="button" className={staffSection === 'attendance' ? 'active' : ''} onClick={() => setStaffSection('attendance')}><CalendarCheck size={15} />Attendance</button>
+        <button type="button" className={staffSection === 'leave' ? 'active' : ''} onClick={() => setStaffSection('leave')}><CalendarDays size={15} />Leave &amp; coverage</button>
+        <button type="button" className={staffSection === 'payroll' ? 'active' : ''} onClick={() => setStaffSection('payroll')}><Clock3 size={15} />Payroll export</button>
+      </nav>}
+
+      {staffSection !== 'directory' && canManageDirectory ? <StaffOperationsPanel
+        schoolId={schoolId ?? ''}
+        section={staffSection}
+        canManage={canManageDirectory}
+      /> : <>
       {showTeacherInvite && isAdmin && <section className="content-card staff-profile-card teacher-invite-card">
         <div className="section-heading"><div><span className="eyebrow">School account</span><h2>Invite a staff member</h2></div><button className="icon-button" aria-label="Close staff invitation form" onClick={() => setShowTeacherInvite(false)}><X size={17} /></button></div>
         <p className="accounting-help">We’ll send a secure account setup link, assign the selected school role, and create a staff directory profile.</p>
@@ -636,15 +726,33 @@ export function StaffManagementPage() {
             <div><span>Hire date</span><strong>{selectedStaff.hire_date ? new Date(`${selectedStaff.hire_date}T00:00:00`).toLocaleDateString() : 'Not recorded'}</strong></div>
             <div><span>Email</span><strong>{selectedStaff.email || 'Not recorded'}</strong></div>
             <div><span>Phone</span><strong>{selectedStaff.phone || 'Not recorded'}</strong></div>
+            <div><span>School account</span><strong>{(selectedStaff.profile_id ?? selectedTeacher?.profile_id) ? staffAccounts.find((account) => account.profile_id === (selectedStaff.profile_id ?? selectedTeacher?.profile_id))?.role.replace(/_/g, ' ') ?? 'Linked' : 'Not linked'}</strong></div>
           </div>
           {selectedTeacher && <div className="staff-teacher-detail"><h3><GraduationCap size={16} />Teacher details</h3><p>{selectedTeacher.qualifications || 'No qualifications recorded.'}</p><div><span><strong>Classes</strong>{classAssignments.filter((assignment) => assignment.teacher_id === selectedTeacher.id).map((assignment) => classes.find((item) => item.id === assignment.class_id)?.name).filter(Boolean).join(', ') || 'Not allocated'}</span><span><strong>Subjects</strong>{subjectAssignments.filter((assignment) => assignment.teacher_id === selectedTeacher.id).map((assignment) => subjects.find((item) => item.id === assignment.subject_id)?.name).filter(Boolean).join(', ') || 'Not allocated'}</span></div>{isAdmin && selectedResponsibilities.length > 0 && <p><strong>Additional responsibilities:</strong> {selectedResponsibilities.map((item) => item.responsibility_type === 'class_teacher' ? `Class Teacher — ${classes.find((schoolClass) => schoolClass.id === item.class_id)?.name ?? 'class'}` : `HOD — ${departments.find((department) => department.id === item.department_id)?.name ?? 'department'}`).join('; ')}</p>}</div>}
           {canManageDirectory && <div className="staff-document-section">
             <div className="staff-document-heading"><div><FileText size={16} /><strong>Private staff documents</strong></div><span>{documents.length} files · visible to authorized HR administrators</span></div>
-            <form className="staff-document-upload" onSubmit={(event) => void uploadStaffDocument(event)}><input required type="file" name="staff_document" accept=".pdf,.jpg,.jpeg,.png,.doc,.docx,application/pdf,image/jpeg,image/png,application/msword,application/vnd.openxmlformats-officedocument.wordprocessingml.document" /><button className="button button-quiet" disabled={uploading}><FilePlus2 size={14} />{uploading ? 'Uploading...' : 'Upload document'}</button></form>
-            {documents.length > 0 && <div className="staff-document-list">{documents.map((document) => <article key={document.id}><span><FileText size={15} /><strong>{document.file_name}</strong><small>{(document.file_size / 1024 / 1024).toFixed(2)} MB · {new Date(document.created_at).toLocaleDateString()}</small></span><button className="icon-button" title="Download securely" aria-label={`Download ${document.file_name}`} onClick={() => void downloadStaffDocument(document)}><Download size={14} /></button><button className="icon-button staff-delete-document" title="Delete document" aria-label={`Delete ${document.file_name}`} onClick={() => void deleteStaffDocument(document)}><Trash2 size={14} /></button></article>)}</div>}
+            <form className="staff-document-upload" onSubmit={(event) => void uploadStaffDocument(event)}><input required type="file" name="staff_document" accept=".pdf,.jpg,.jpeg,.png,.doc,.docx,application/pdf,image/jpeg,image/png,application/msword,application/vnd.openxmlformats-officedocument.wordprocessingml.document" /><select name="document_type" aria-label="Staff document type"><option value="other">Other</option><option value="employment">Employment</option><option value="identity">Identity</option><option value="qualification">Qualification</option><option value="safeguarding">Safeguarding</option><option value="medical">Medical</option></select><label className="staff-document-expiry">Expires<input name="expires_on" type="date" /></label><button className="button button-quiet" disabled={uploading}><FilePlus2 size={14} />{uploading ? 'Uploading...' : 'Upload document'}</button></form>
+            {documents.length > 0 && <div className="staff-document-list">{documents.map((document) => <article key={document.id}><span><FileText size={15} /><strong>{document.file_name}</strong><small>{(document.file_size / 1024 / 1024).toFixed(2)} MB · {document.document_type.replace(/_/g, ' ')} · {document.expires_on ? `Expires ${new Date(`${document.expires_on}T00:00:00`).toLocaleDateString()}` : 'No expiry date'}</small></span><button className="icon-button" title="Download securely" aria-label={`Download ${document.file_name}`} onClick={() => void downloadStaffDocument(document)}><Download size={14} /></button><button className="icon-button staff-delete-document" title="Delete document" aria-label={`Delete ${document.file_name}`} onClick={() => void deleteStaffDocument(document)}><Trash2 size={14} /></button></article>)}</div>}
           </div>}
+          {selectedTeacher && (() => {
+            const publishedLessons = workloadEntries.filter((entry) => {
+              const schedule = Array.isArray(entry.schedule) ? entry.schedule[0] : entry.schedule;
+              return schedule?.status === 'published';
+            });
+            const minutes = publishedLessons.reduce((total, entry) => {
+              const start = entry.starts_at.split(':').map(Number);
+              const end = entry.ends_at.split(':').map(Number);
+              return total + (end[0] * 60 + end[1]) - (start[0] * 60 + start[1]);
+            }, 0);
+            return <section className="staff-workload-summary"><h3><Clock3 size={15} />Published timetable workload</h3><strong>{(minutes / 60).toFixed(1)} scheduled hours / week</strong><div>{publishedLessons.length ? publishedLessons.map((entry, index) => {
+              const subject = Array.isArray(entry.subject) ? entry.subject[0] : entry.subject;
+              const schoolClass = Array.isArray(entry.class) ? entry.class[0] : entry.class;
+              return <span key={`${entry.day_of_week}-${entry.starts_at}-${index}`}>{['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'][entry.day_of_week - 1] ?? 'Day'} · {subject?.name ?? 'Subject'} · {schoolClass?.name ?? 'Class'}</span>;
+            }) : <small>No lessons in a published timetable.</small>}</div></section>;
+          })()}
         </section> : <section className="content-card staff-profile-empty"><BriefcaseBusiness size={25} /><strong>Select a staff member</strong><span>View their department, employment details, teacher allocations, and documents.</span></section>}
       </div>
+      </>}
     </div>
   );
 }
