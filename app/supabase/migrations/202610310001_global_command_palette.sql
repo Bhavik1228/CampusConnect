@@ -1,4 +1,5 @@
 create extension if not exists pg_trgm with schema extensions;
+create extension if not exists pgcrypto with schema extensions;
 
 create index if not exists students_command_name_trgm_idx
   on public.students using gin (lower(first_name || ' ' || last_name) extensions.gin_trgm_ops);
@@ -42,7 +43,7 @@ create policy "Users manage their own school-scoped command favourites"
 
 create table public.command_search_analytics_keys (
   school_id uuid primary key references public.schools(id) on delete cascade,
-  secret bytea not null default gen_random_bytes(32)
+  secret bytea not null default extensions.gen_random_bytes(32)
 );
 alter table public.command_search_analytics_keys enable row level security;
 revoke all on public.command_search_analytics_keys from public, anon, authenticated;
@@ -105,7 +106,7 @@ begin
   select secret into analytics_secret from public.command_search_analytics_keys
   where school_id = target_school;
   insert into public.command_no_result_terms(school_id, term_digest)
-  values (target_school, hmac(convert_to(normalized_term, 'UTF8'), analytics_secret, 'sha256'))
+  values (target_school, extensions.hmac(convert_to(normalized_term, 'UTF8'), analytics_secret, 'sha256'))
   on conflict (school_id, term_digest) do update
   set occurrence_count = public.command_no_result_terms.occurrence_count + 1,
       last_seen_at = now();
