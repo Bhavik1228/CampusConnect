@@ -3,7 +3,7 @@ import {
   AlertTriangle, CalendarClock, Check, Download, FileText,
   RefreshCw, Send, ShieldCheck, UserRoundCog,
 } from 'lucide-react';
-import { EmptyState } from '../components/Feedback';
+import { EmptyState, ErrorState } from '../components/Feedback';
 import { requireSupabase } from '../lib/supabase';
 import type { AppRole } from '../types/database';
 
@@ -755,7 +755,7 @@ export function AttendanceAutomationPanel({ schoolId, userId, role, active, clas
         {panelTabs.map((item) => <button key={item.id} type="button" role="tab" aria-selected={tab === item.id}
           className={tab === item.id ? 'active' : ''} onClick={() => setTab(item.id)}>{item.label}</button>)}
       </div>
-      {error && <div className="attendance-advanced-message error" role="alert">{error}</div>}
+      {error && <ErrorState message={error} />}
       {notice && <div className="attendance-advanced-message success" role="status">{notice}</div>}
 
       {tab === 'automation' && (manager || role === 'teacher') && <>

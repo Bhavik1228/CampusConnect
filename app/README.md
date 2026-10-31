@@ -130,7 +130,7 @@ Supabase remains the authentication, metadata, and authorization backend. No ser
    npx supabase db push
    ```
 
-   Migration `202610310004_support_tickets.sql` adds the private, durable support-request inbox. Deploy `support-bot` and `system-owner-admin` after applying it. **Support Bot** uses the authenticated user's current school membership to run diagnostics, submit and list requests, and display owner responses/status updates. Detailed setup-health diagnostics use the existing permission-checked live health check and are limited to school administrators and academic coordinators. Requests are stored server-side and remain in **System owner → Support requests** until resolved or closed, including while the owner is signed out; the inbox refreshes automatically while open.
+   Migration `202610310004_support_tickets.sql` adds the private, durable support-request inbox. Deploy `support-bot` and `system-owner-admin` after applying it. Module errors display stable feature-specific codes and plain-English explanations with a direct Support Bot link. The Bot looks up known feature guidance, verifies the authenticated user's school membership and live module/maintenance status, and safely refreshes the sign-in and school context. Users can retry the failed feature; if the same error reappears, the Bot automatically creates a persistent owner request with the error code and original error details. Unknown codes, unrecognized questions, and failed live diagnostics are escalated automatically. Requests remain in **System owner → Support requests** until resolved or closed, including while the owner is signed out; the inbox refreshes automatically while open.
 
    ```powershell
    npx supabase db push

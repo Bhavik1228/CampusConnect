@@ -1,8 +1,14 @@
-import { useCallback, useEffect, useState, type FormEvent } from 'react';
+import { useCallback, useEffect, useRef, useState, type FormEvent } from 'react';
 import { Activity, LifeBuoy, RefreshCw, Send, Stethoscope } from 'lucide-react';
+import { useLocation, useNavigate } from 'react-router-dom';
 import { ErrorState, LoadingState } from '../components/Feedback';
 import { useAuth } from '../contexts/AuthContext';
 import { requireSupabase } from '../lib/supabase';
+import {
+  getDiagnosticFeature,
+  supportDiagnosticContextKey,
+  supportRetryStorageKey,
+} from '../lib/diagnostic-errors';
 
 type TicketStatus = 'new' | 'in_progress' | 'waiting_on_requester' | 'resolved' | 'closed';
 type SupportTicket = {
@@ -15,22 +21,18 @@ type SupportTicket = {
   created_at: string;
   updated_at: string;
 };
-type DiagnosticMatch = {
-  rule_key: string;
-  name: string;
-  status: string;
-  severity: string;
-  result_message: string;
-  fix_route: string | null;
-};
-type Diagnostic = {
+type AssistantResult = {
+  answer: string;
+  steps: string[];
+  code: string;
+  feature: string;
   schoolName: string;
-  role: string;
   checkedAt: string;
-  summary: string;
-  matches: DiagnosticMatch[];
-  matchCount: number;
-  canViewSetupHealth: boolean;
+  liveStatus: 'available' | 'maintenance' | 'unavailable';
+  safeFixAvailable: boolean;
+  escalated: boolean;
+  ticketId?: string;
+  retryPath: string | null;
 };
 
 const categories = [
@@ -70,38 +72,54 @@ function parseTicket(value: unknown): SupportTicket {
   return value as SupportTicket;
 }
 
-function parseDiagnostic(value: unknown): Diagnostic {
+function parseAssistant(value: unknown): AssistantResult {
   if (!isRecord(value)
+    || typeof value.answer !== 'string'
+    || !Array.isArray(value.steps)
+    || !value.steps.every((step) => typeof step === 'string')
+    || typeof value.code !== 'string'
+    || typeof value.feature !== 'string'
     || typeof value.schoolName !== 'string'
-    || typeof value.role !== 'string'
     || typeof value.checkedAt !== 'string'
-    || typeof value.summary !== 'string'
-    || !Array.isArray(value.matches)
-    || typeof value.matchCount !== 'number'
-    || typeof value.canViewSetupHealth !== 'boolean') {
-    throw new Error('The diagnostic service returned an invalid result.');
+    || (value.liveStatus !== 'available' && value.liveStatus !== 'maintenance' && value.liveStatus !== 'unavailable')
+    || typeof value.safeFixAvailable !== 'boolean'
+    || typeof value.escalated !== 'boolean'
+    || (value.ticketId !== undefined && typeof value.ticketId !== 'string')
+    || (value.retryPath !== undefined && value.retryPath !== null && typeof value.retryPath !== 'string')) {
+    throw new Error('The Support Bot returned an invalid diagnostic result.');
   }
-  const matches = value.matches.map((match) => {
-    if (!isRecord(match)
-      || typeof match.rule_key !== 'string'
-      || typeof match.name !== 'string'
-      || typeof match.status !== 'string'
-      || typeof match.severity !== 'string'
-      || typeof match.result_message !== 'string'
-      || (match.fix_route !== null && typeof match.fix_route !== 'string')) {
-      throw new Error('The diagnostic service returned an invalid health check.');
-    }
-    return match as DiagnosticMatch;
-  });
-  return { ...value, matches } as Diagnostic;
+  return { ...value, retryPath: typeof value.retryPath === 'string' ? value.retryPath : null } as AssistantResult;
 }
 
 function formatDate(value: string) {
   return new Date(value).toLocaleString();
 }
 
+function takeErrorContext(code: string) {
+  if (!code) return '';
+  try {
+    const key = `${supportDiagnosticContextKey}:${code}`;
+    const saved = sessionStorage.getItem(key);
+    if (!saved) return '';
+    sessionStorage.removeItem(key);
+    const value: unknown = JSON.parse(saved);
+    if (!isRecord(value) || typeof value.message !== 'string' || typeof value.createdAt !== 'number') return '';
+    if (Date.now() - value.createdAt > 10 * 60_000) return '';
+    return value.message.slice(0, 1000);
+  } catch (error) {
+    console.error('Could not restore the feature error details.', error);
+    return '';
+  }
+}
+
 export function SupportPage() {
-  const { activeMembership } = useAuth();
+  const { activeMembership, refreshMemberships } = useAuth();
+  const location = useLocation();
+  const navigate = useNavigate();
+  const searchParams = new URLSearchParams(location.search);
+  const initialCode = searchParams.get('code') ?? '';
+  const initialFeature = searchParams.get('feature') ?? '';
+  const initialFrom = searchParams.get('from') ?? '';
   const [tickets, setTickets] = useState<SupportTicket[]>([]);
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
@@ -109,11 +127,14 @@ export function SupportPage() {
   const [diagnosing, setDiagnosing] = useState(false);
   const [error, setError] = useState('');
   const [notice, setNotice] = useState('');
-  const [question, setQuestion] = useState('');
-  const [diagnostic, setDiagnostic] = useState<Diagnostic | null>(null);
+  const [errorCode, setErrorCode] = useState(initialCode);
+  const [question, setQuestion] = useState(initialCode ? `${initialFeature || 'Feature'} error ${initialCode}` : '');
+  const [sourceMessage] = useState(() => takeErrorContext(initialCode));
+  const [assistant, setAssistant] = useState<AssistantResult | null>(null);
   const [category, setCategory] = useState('technical');
   const [title, setTitle] = useState('');
   const [description, setDescription] = useState('');
+  const handledRetryFailure = useRef(false);
 
   const loadTickets = useCallback(async (background = false) => {
     if (!activeMembership) return;
@@ -125,7 +146,7 @@ export function SupportPage() {
       });
       if (requestError) throw requestError;
       if (!Array.isArray(data?.tickets)) throw new Error('The support service returned an invalid ticket list.');
-      setTickets(data.tickets.map(parseTicket));
+      setTickets(data.tickets.map((ticket: unknown) => parseTicket(ticket)));
       setError('');
     } catch (loadError) {
       setError(loadError instanceof Error ? loadError.message : 'Could not load your support requests.');
@@ -141,24 +162,76 @@ export function SupportPage() {
     return () => window.clearInterval(timer);
   }, [loadTickets]);
 
-  async function runDiagnostic(event: FormEvent<HTMLFormElement>) {
+  const escalate = useCallback(async (failureMessage: string) => {
+    if (!activeMembership) return;
+    setDiagnosing(true);
+    setError('');
+    try {
+      const feature = getDiagnosticFeature(initialFrom || location.pathname);
+      const { data, error: requestError } = await requireSupabase().functions.invoke('support-bot', {
+        body: {
+          action: 'auto-escalate',
+          schoolId: activeMembership.school_id,
+          code: errorCode.trim(),
+          feature: initialFeature || assistant?.feature || feature.name,
+          errorMessage: [sourceMessage, failureMessage].filter(Boolean).join('\nRecovery attempt: '),
+          query: question.trim(),
+        },
+      });
+      if (requestError) throw requestError;
+      const ticket = parseTicket(data?.ticket);
+      setNotice(`The retry still failed. Request ${ticket.id.slice(0, 8).toUpperCase()} was automatically sent to the platform owner.`);
+      await loadTickets(true);
+    } catch (escalationError) {
+      setError(escalationError instanceof Error
+        ? `The issue could not be automatically sent to the platform owner: ${escalationError.message}`
+        : 'The issue could not be automatically sent to the platform owner.');
+    } finally {
+      setDiagnosing(false);
+    }
+  }, [activeMembership, assistant?.feature, errorCode, initialFeature, initialFrom, loadTickets, location.pathname, question, sourceMessage]);
+
+  useEffect(() => {
+    if (searchParams.get('retryFailed') !== '1' || handledRetryFailure.current || !activeMembership) return;
+    handledRetryFailure.current = true;
+    void escalate('The same feature error appeared again after safe recovery and retry.');
+  }, [activeMembership, escalate, location.search]);
+
+  async function runAssistant(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
     if (!activeMembership) return;
     setDiagnosing(true);
     setError('');
     setNotice('');
+    setAssistant(null);
     try {
-      const { data, error: requestError } = await requireSupabase().functions.invoke('support-bot', {
+      const client = requireSupabase();
+      const { data: sessionData, error: refreshError } = await client.auth.refreshSession();
+      if (refreshError) throw refreshError;
+      if (!sessionData.session) throw new Error('Your sign-in could not be refreshed.');
+      await refreshMemberships();
+      const { data, error: requestError } = await client.functions.invoke('support-bot', {
         body: {
-          action: 'diagnose',
+          action: 'assist',
           schoolId: activeMembership.school_id,
+          code: errorCode.trim(),
           query: question.trim(),
+          errorMessage: sourceMessage,
+          feature: initialFeature,
+          from: initialFrom || location.pathname,
         },
       });
       if (requestError) throw requestError;
-      setDiagnostic(parseDiagnostic(data?.diagnostic));
-    } catch (diagnosticError) {
-      setError(diagnosticError instanceof Error ? diagnosticError.message : 'The live diagnostic could not be completed.');
+      const result = parseAssistant(data?.assistant);
+      setAssistant(result);
+      if (result.escalated) {
+        setNotice(`The Bot could not safely resolve this error. It automatically sent request ${result.ticketId?.slice(0, 8).toUpperCase() ?? ''} to the platform owner.`);
+        await loadTickets(true);
+      }
+    } catch (assistError) {
+      const message = assistError instanceof Error ? assistError.message : 'The safe access refresh or live feature check failed.';
+      setError(`The safe recovery attempt failed. Sending the issue to the platform owner. ${message}`);
+      await escalate(message);
     } finally {
       setDiagnosing(false);
     }
@@ -171,13 +244,16 @@ export function SupportPage() {
     setError('');
     setNotice('');
     try {
+      const context = errorCode.trim()
+        ? `\n\nError code: ${errorCode.trim()}\nFeature: ${initialFeature || assistant?.feature || 'School workspace'}\nOriginal error: ${sourceMessage || '(not provided)'}`
+        : '';
       const { data, error: requestError } = await requireSupabase().functions.invoke('support-bot', {
         body: {
           action: 'submit-ticket',
           schoolId: activeMembership.school_id,
           category,
           title: title.trim(),
-          description: description.trim(),
+          description: `${description.trim()}${context}`.slice(0, 5000),
         },
       });
       if (requestError) throw requestError;
@@ -193,30 +269,62 @@ export function SupportPage() {
     }
   }
 
+  function retryOriginalFeature() {
+    if (!assistant?.retryPath || assistant.retryPath === '/support' || assistant.retryPath.startsWith('/system-owner')) return;
+    try {
+      const createdAt = Date.now();
+      sessionStorage.setItem(supportRetryStorageKey, JSON.stringify({
+        code: assistant.code,
+        path: assistant.retryPath,
+        createdAt,
+      }));
+      window.setTimeout(() => {
+        try {
+          const saved = sessionStorage.getItem(supportRetryStorageKey);
+          if (!saved) return;
+          const retry: unknown = JSON.parse(saved);
+          if (isRecord(retry) && retry.createdAt === createdAt) {
+            sessionStorage.removeItem(supportRetryStorageKey);
+          }
+        } catch (error) {
+          console.error('Could not expire the pending support retry.', error);
+        }
+      }, 30_000);
+      navigate(assistant.retryPath);
+    } catch (retryError) {
+      console.error('Could not prepare automatic support escalation for the retry.', retryError);
+      setError('The retry marker could not be saved in this browser. You can still retry the feature; if it fails again, submit a support request with the error code.');
+    }
+  }
+
   return <main className="support-page">
     <header className="support-header">
-      <div><span className="eyebrow">Help for {activeMembership?.school.name}</span><h1><LifeBuoy size={25} /> Support Bot</h1><p>Run a live workspace check, submit a request, and follow its status here.</p></div>
+      <div><span className="eyebrow">Help for {activeMembership?.school.name}</span><h1><LifeBuoy size={25} /> Support Bot</h1><p>Paste a feature error code or describe the problem. The Bot checks your live school access, explains the failure, and tries a safe recovery.</p></div>
       <button className="button button-quiet" onClick={() => void loadTickets(true)} disabled={refreshing}><RefreshCw size={15} className={refreshing ? 'system-owner-spinning' : ''} /> Refresh requests</button>
     </header>
     {error && <ErrorState message={error} />}
     {notice && <p className="inline-success" role="status">{notice}</p>}
 
     <section className="content-card support-panel">
-      <div className="support-panel-heading"><span className="support-icon"><Stethoscope size={18} /></span><div><h2>Live diagnostic lookup</h2><p>Checks your signed-in account and this school's current backend status. School health details are shown only to authorized school administrators and academic coordinators.</p></div></div>
-      <form className="support-diagnostic-form" onSubmit={(event) => void runDiagnostic(event)}>
-        <label className="field"><span>What is going wrong? (optional)</span><input value={question} onChange={(event) => setQuestion(event.target.value)} maxLength={1000} placeholder="For example: timetable setup, attendance, or account access" /></label>
-        <button className="button button-primary" type="submit" disabled={diagnosing}>{diagnosing ? <RefreshCw size={15} className="system-owner-spinning" /> : <Activity size={15} />} {diagnosing ? 'Checking live data…' : 'Run diagnostic'}</button>
+      <div className="support-panel-heading"><span className="support-icon"><Stethoscope size={18} /></span><div><h2>Diagnose a feature error</h2><p>Use the error code shown on the failed feature, or ask a question in plain English. The failed feature is not replayed or modified during diagnosis.</p></div></div>
+      <form className="support-assistant-form" onSubmit={(event) => void runAssistant(event)}>
+        <label className="field"><span>Error code (if shown)</span><input value={errorCode} onChange={(event) => setErrorCode(event.target.value.toUpperCase())} maxLength={64} placeholder="For example: CC-ATT-1A2B3C4D" /></label>
+        <label className="field"><span>Your question or what happened?</span><textarea required={errorCode.trim().length === 0} minLength={errorCode.trim() ? undefined : 3} maxLength={1000} rows={3} value={question} onChange={(event) => setQuestion(event.target.value)} placeholder="Paste an error code, or describe the feature and what you were trying to do." /></label>
+        <button className="button button-primary" type="submit" disabled={diagnosing || (!errorCode.trim() && !question.trim())}>{diagnosing ? <RefreshCw size={15} className="system-owner-spinning" /> : <Activity size={15} />} {diagnosing ? 'Checking and refreshing access…' : 'Explain and try safe recovery'}</button>
       </form>
-      {diagnostic && <div className="support-diagnostic-result" role="status">
-        <div><strong>{diagnostic.summary}</strong><small>{diagnostic.schoolName} · {diagnostic.role.replaceAll('_', ' ')} · Checked {formatDate(diagnostic.checkedAt)}</small></div>
-        {diagnostic.matches.length > 0
-          ? <ul>{diagnostic.matches.map((match) => <li key={match.rule_key}><span className={`support-severity ${match.severity}`}>{match.severity}</span><div><strong>{match.name}</strong><p>{match.result_message}</p>{match.fix_route && <a href={match.fix_route}>Open the related workspace</a>}</div></li>)}</ul>
-          : <p>{diagnostic.canViewSetupHealth ? 'No unresolved setup checks matched this lookup.' : 'Your role does not include school setup-health access. The live account, school membership, and platform status were verified.'}</p>}
+      {assistant && <div className="support-diagnostic-result" role="status">
+        <div><strong>{assistant.answer}</strong><small>{assistant.feature} · {assistant.schoolName} · Checked {formatDate(assistant.checkedAt)}{assistant.code ? ` · ${assistant.code}` : ''}</small></div>
+        {assistant.steps.length > 0 && <ol>{assistant.steps.map((step, index) => <li key={`${index}-${step}`}>{step}</li>)}</ol>}
+        {assistant.escalated
+          ? <p>The request is saved in the platform owner's persistent inbox.</p>
+          : assistant.safeFixAvailable && assistant.retryPath && assistant.retryPath !== '/support' && !assistant.retryPath.startsWith('/system-owner')
+            ? <button className="button button-quiet support-retry-button" type="button" onClick={retryOriginalFeature} disabled={diagnosing}>Retry the feature — automatically report it if it fails again</button>
+            : <p>If these steps do not resolve it, use the support request form below. Your error code and original details will be attached.</p>}
       </div>}
     </section>
 
     <section className="content-card support-panel">
-      <div className="support-panel-heading"><span className="support-icon"><Send size={17} /></span><div><h2>Submit a support request</h2><p>Requests are attached to your authenticated account, role, and current school. The platform owner can respond in this panel.</p></div></div>
+      <div className="support-panel-heading"><span className="support-icon"><Send size={17} /></span><div><h2>Send a request to the platform owner</h2><p>If the Bot cannot explain the problem or a retry fails, your request and error details are saved to the owner's inbox even while they are signed out.</p></div></div>
       <form className="support-ticket-form" onSubmit={(event) => void submitTicket(event)}>
         <label className="field"><span>Category</span><select value={category} onChange={(event) => setCategory(event.target.value)}>{categories.map((option) => <option key={option.value} value={option.value}>{option.label}</option>)}</select></label>
         <label className="field"><span>Request title</span><input required minLength={3} maxLength={120} value={title} onChange={(event) => setTitle(event.target.value)} placeholder="Briefly summarize the issue" /></label>

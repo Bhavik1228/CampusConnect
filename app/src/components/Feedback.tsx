@@ -1,11 +1,92 @@
-import { AlertCircle, CheckCircle2, LoaderCircle } from 'lucide-react';
+import { useEffect, useState } from 'react';
+import { Link, useLocation, useNavigate } from 'react-router-dom';
+import { AlertCircle, CheckCircle2, LifeBuoy, LoaderCircle } from 'lucide-react';
+import {
+  createDiagnosticError,
+  explainDiagnosticError,
+  makeSupportErrorLink,
+  saveSupportDiagnosticContext,
+  supportRetryStorageKey,
+} from '../lib/diagnostic-errors';
 
 export function LoadingState({ label = 'Loading your workspace…' }: { label?: string }) {
   return <div className="feedback"><LoaderCircle className="spin" size={20} aria-hidden="true" /><span>{label}</span></div>;
 }
 
 export function ErrorState({ message }: { message: string }) {
-  return <div className="feedback feedback-error" role="alert"><AlertCircle size={19} aria-hidden="true" /><span>{message}</span></div>;
+  const location = useLocation();
+  const navigate = useNavigate();
+  const [copyNotice, setCopyNotice] = useState('');
+  const { feature, code } = createDiagnosticError(location.pathname, message);
+  const supportLink = makeSupportErrorLink(location.pathname, code);
+
+  useEffect(() => {
+    let pending: unknown;
+    try {
+      const saved = sessionStorage.getItem(supportRetryStorageKey);
+      if (!saved) return;
+      pending = JSON.parse(saved) as unknown;
+    } catch (error) {
+      console.error('Could not restore the pending support retry.', error);
+      try {
+        sessionStorage.removeItem(supportRetryStorageKey);
+      } catch (storageError) {
+        console.error('Could not clear the pending support retry.', storageError);
+      }
+      return;
+    }
+    if (!pending || typeof pending !== 'object' || Array.isArray(pending)) return;
+    const retry = pending as { code?: unknown; path?: unknown; createdAt?: unknown };
+    if (typeof retry.code !== 'string' || typeof retry.path !== 'string' || typeof retry.createdAt !== 'number') return;
+    if (Date.now() - retry.createdAt > 30_000) {
+      try {
+        sessionStorage.removeItem(supportRetryStorageKey);
+      } catch (error) {
+        console.error('Could not clear the expired support retry.', error);
+      }
+      return;
+    }
+    if (retry.path !== location.pathname || (retry.code && retry.code !== code)) return;
+    try {
+      sessionStorage.removeItem(supportRetryStorageKey);
+    } catch (error) {
+      console.error('Could not clear the completed support retry.', error);
+    }
+    saveSupportDiagnosticContext(code, message);
+    navigate(makeSupportErrorLink(location.pathname, code, location.pathname, true), { replace: true });
+  }, [code, location.pathname, message, navigate]);
+
+  async function copyDiagnostic() {
+    try {
+      await navigator.clipboard.writeText(`Error code: ${code}\nFeature: ${feature.name}\nWhat happened: ${message}`);
+      setCopyNotice('Diagnostic details copied.');
+    } catch (error) {
+      console.error('Could not copy diagnostic details.', error);
+      setCopyNotice('Copy failed. Select and copy the error code above.');
+    }
+  }
+
+  return <div className="feedback feedback-error diagnostic-error" role="alert">
+    <AlertCircle size={19} aria-hidden="true" />
+    <div className="diagnostic-error-content">
+      <strong>{feature.name} could not complete this request</strong>
+      <span>{explainDiagnosticError(message)}</span>
+      <details><summary>Technical details</summary><p>{message}</p></details>
+      <div className="diagnostic-error-actions">
+        <span className="diagnostic-error-code">Error code: <code>{code}</code></span>
+        <button type="button" className="diagnostic-copy-button" onClick={() => void copyDiagnostic()}>Copy details</button>
+        <Link
+          to={supportLink}
+          onClick={() => {
+            if (!saveSupportDiagnosticContext(code, message)) {
+              setCopyNotice('The original error details could not be saved. The error code is still included.');
+            }
+          }}
+        ><LifeBuoy size={14} /> Ask Support Bot</Link>
+      </div>
+      {copyNotice && <small role="status">{copyNotice}</small>}
+    </div>
+  </div>;
 }
 
 export function SuccessMessage({ message }: { message: string }) {
