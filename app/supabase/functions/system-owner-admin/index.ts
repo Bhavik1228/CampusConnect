@@ -33,6 +33,9 @@ type OwnerRequest = {
   startsAt?: unknown;
   endsAt?: unknown;
   windowId?: unknown;
+  ticketId?: unknown;
+  ticketStatus?: unknown;
+  ownerResponse?: unknown;
 };
 
 const schoolTypes = ['primary', 'secondary', 'k12', 'university', 'other'];
@@ -91,6 +94,45 @@ Deno.serve(async (request: Request) => {
     const payload = await request.json() as OwnerRequest;
 
     if (payload.action === 'check') return respond(200, { authorized: true });
+
+    if (payload.action === 'support-inbox') {
+      const tickets: Array<Record<string, unknown>> = [];
+      const pageSize = 500;
+      for (let offset = 0; ; offset += pageSize) {
+        const { data, error } = await serviceClient
+          .from('support_tickets')
+          .select('id,school_id,school_name,requester_name,requester_email,requester_role,category,title,description,status,owner_response,created_at,updated_at')
+          .in('status', ['new', 'in_progress', 'waiting_on_requester'])
+          .order('created_at', { ascending: true })
+          .range(offset, offset + pageSize - 1);
+        if (error) throw error;
+        tickets.push(...(data ?? []));
+        if ((data ?? []).length < pageSize) break;
+      }
+      return respond(200, { tickets });
+    }
+
+    if (payload.action === 'update-support-ticket') {
+      const ticketStatuses = ['new', 'in_progress', 'waiting_on_requester', 'resolved', 'closed'];
+      if (!isUuid(payload.ticketId)
+        || typeof payload.ticketStatus !== 'string'
+        || !ticketStatuses.includes(payload.ticketStatus)
+        || !isShortText(payload.ownerResponse, 4000)) {
+        return respond(400, { error: 'Provide a valid support request, status, and response.' });
+      }
+      const { data: ticket, error } = await serviceClient
+        .from('support_tickets')
+        .update({
+          status: payload.ticketStatus,
+          owner_response: payload.ownerResponse.trim(),
+        })
+        .eq('id', payload.ticketId)
+        .select('id,status,owner_response,updated_at')
+        .maybeSingle();
+      if (error) throw error;
+      if (!ticket) return respond(404, { error: 'The support request was not found.' });
+      return respond(200, { ticket });
+    }
 
     if (payload.action === 'dashboard') {
       const { data, error } = await serviceClient.rpc('platform_owner_dashboard');

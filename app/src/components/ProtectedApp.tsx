@@ -47,6 +47,8 @@ import { PermissionsManagementPage } from '../pages/PermissionsManagementPage';
 import { AcademicPlanningPage } from '../pages/AcademicPlanningPage';
 import { SetupHealthPage } from '../pages/SetupHealthPage';
 import { DocumentVerificationPage } from '../pages/DocumentVerificationPage';
+import { SupportPage } from '../pages/SupportPage';
+import { SystemOwnerSupportPage } from '../pages/SystemOwnerSupportPage';
 
 function RouteGate({ authOnly = true, requireMembership = true }: { authOnly?: boolean; requireMembership?: boolean }) {
   const { user, loading, memberships } = useAuth();
@@ -157,6 +159,7 @@ export function ProtectedApp() {
             <Route path="schools" element={<SystemOwnerSchoolsPage />} />
             <Route path="settings" element={<SystemOwnerSettingsPage />} />
             <Route path="maintenance" element={<SystemOwnerMaintenancePage />} />
+            <Route path="support" element={<SystemOwnerSupportPage />} />
           </Route>
         </Route>
         <Route element={<SchoolWorkspaceGate />}>
@@ -166,6 +169,7 @@ export function ProtectedApp() {
           <Route path="/permissions" element={<PermissionsManagementPage />} />
           <Route path="/setup-health" element={<SetupHealthPage />} />
           <Route path="/academic-planning" element={<AcademicPlanningPage />} />
+          <Route path="/support" element={<SupportPage />} />
           <Route path="/dashboard" element={<DashboardPage />} />
           <Route path="/students" element={<StudentsPage />} />
           <Route path="/admissions" element={<AdmissionsPage />} />

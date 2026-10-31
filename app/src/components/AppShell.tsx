@@ -5,7 +5,7 @@ import {
   ChevronLeft, ClipboardCheck, GraduationCap, LayoutDashboard, LogOut, Menu,
   Settings, UsersRound, X, CalendarClock, CircleDollarSign, UserRoundPlus,
   Award, BriefcaseBusiness, FileStack, HeartPulse, ClipboardPlus, Search, Library,
-  MessageCircle, ShieldCheck,
+  MessageCircle, ShieldCheck, LifeBuoy,
   type LucideIcon,
 } from 'lucide-react';
 import { useAuth } from '../contexts/AuthContext';
@@ -20,6 +20,7 @@ type NavigationGroup = { id: string; title: string; icon: LucideIcon; items: Nav
 
 const dashboardItem: NavigationItem = { to: '/dashboard', label: 'Overview', icon: LayoutDashboard };
 const accountSecurityItem: NavigationItem = { to: '/account-security', label: 'Account security', icon: ShieldCheck };
+const supportItem: NavigationItem = { to: '/support', label: 'Support Bot', icon: LifeBuoy };
 const navigation: NavigationGroup[] = [
   { id: 'academics', title: 'Academics', icon: CalendarDays, items: [
     { to: '/academic-planning', label: 'Academic planning', icon: CalendarDays, roles: ['school_admin', 'academic_coordinator'] },
@@ -94,6 +95,7 @@ const pageNames: Record<string, string> = {
   '/academic-planning': 'Academic planning',
   '/automations': 'Automations',
   '/messaging': 'Messages', '/audit-log': 'Audit log',
+  '/support': 'Support Bot',
   '/library': 'Library', '/health': 'Student health', '/health/report': 'Health report', '/visitors': 'Visitor management',
 };
 
@@ -147,6 +149,7 @@ export function AppShell() {
     && 'from' in location.state.setupHealthReturn
     && location.state.setupHealthReturn.from === '/setup-health';
   const isVisitorRoute = modulePath === '/visitors';
+  const isSupportRoute = modulePath === '/support';
   const moduleForPath: Record<string, string> = {
     '/admissions': 'module_admissions',
     '/timetable': 'module_timetable',
@@ -251,6 +254,7 @@ export function AppShell() {
     : dashboardItem;
   const accessibleNavigation = [
     ...(!isRestrictedRole ? [dashboardNavigationItem, accountSecurityItem] : []),
+    supportItem,
     ...accessibleNavigationGroups.flatMap((group) => group.items),
   ];
   const canAccessSettings = !isRestrictedRole && !isLimitedRole && !isAccountingRole && activeMembership?.role !== 'teacher';
@@ -332,6 +336,13 @@ export function AppShell() {
     void (async () => {
       try {
         const client = requireSupabase();
+        if (isSupportRoute) {
+          if (active) {
+            setModules({});
+            setMaintenance(null);
+          }
+          return;
+        }
         const [moduleResult, maintenanceResult] = await Promise.all([
           isRestrictedRole
             ? client.rpc(isHealthcareRole ? 'health_access_enabled' : 'visitor_access_enabled', { target_school: activeMembership.school_id })
@@ -361,7 +372,7 @@ export function AppShell() {
       }
     })();
     return () => { active = false; };
-  }, [activeMembership?.school_id, location.pathname, isHealthcareRole, isRestrictedRole]);
+  }, [activeMembership?.school_id, location.pathname, isHealthcareRole, isRestrictedRole, isSupportRoute]);
 
   useEffect(() => {
     let active = true;
@@ -567,6 +578,7 @@ export function AppShell() {
             </div>
           </section>;
         })}
+        <NavLink to={supportItem.to} onClick={() => setMobileOpen(false)} title={sidebarCollapsed ? supportItem.label : undefined} className={({ isActive }) => `nav-item${isActive ? ' active' : ''}`}><LifeBuoy size={18} strokeWidth={1.8} /><span>{supportItem.label}</span></NavLink>
       </nav>
       <div className="sidebar-bottom">
         {!isRestrictedRole && <NavLink to={accountSecurityItem.to} onClick={() => setMobileOpen(false)} title={collapsed ? accountSecurityItem.label : undefined} className={({ isActive }) => `nav-item${isActive ? ' active' : ''}`}><ShieldCheck size={18} strokeWidth={1.8} /><span>{accountSecurityItem.label}</span></NavLink>}
@@ -576,9 +588,9 @@ export function AppShell() {
     </>;
   }
 
-  if (isHealthcareRole && !isHealthRoute) return <Navigate to="/health" replace />;
-  if (isSecretaryRole && !isVisitorRoute) return <Navigate to="/visitors" replace />;
-  if (rolePaths && !rolePaths.includes(modulePath)) return <Navigate to="/dashboard" replace />;
+  if (isHealthcareRole && !isHealthRoute && !isSupportRoute) return <Navigate to="/health" replace />;
+  if (isSecretaryRole && !isVisitorRoute && !isSupportRoute) return <Navigate to="/visitors" replace />;
+  if (rolePaths && !rolePaths.includes(modulePath) && !isSupportRoute) return <Navigate to="/dashboard" replace />;
   if (location.pathname === '/permissions' && activeMembership?.role !== 'school_admin') return <Navigate to="/dashboard" replace />;
   if (location.pathname === '/setup-health' && !['school_admin', 'academic_coordinator'].includes(activeMembership?.role ?? '')) return <Navigate to="/dashboard" replace />;
 
@@ -601,11 +613,11 @@ export function AppShell() {
           {logoutError && <ErrorState message={logoutError} />}
           {permissionDenied
             ? <section className="content-card"><ErrorState message="Your current role permissions do not allow access to this module. Contact a school administrator if you need access." /></section>
-            : modulesError
+            : modulesError && !isSupportRoute
               ? <ErrorState message={modulesError} />
-              : modules === null || maintenance === null
+              : modules === null || (!isSupportRoute && maintenance === null)
                 ? <LoadingState label="Loading school features…" />
-                : maintenance.active && !maintenance.read_only
+                : maintenance?.active && !maintenance.read_only && !isSupportRoute
                   ? <section className="content-card school-maintenance-block"><span className="brand-mark"><ShieldCheck size={20} /></span><span className="eyebrow">Maintenance in progress</span><h1>{maintenance.emergency ? 'Emergency maintenance' : 'This workspace is temporarily unavailable'}</h1><p>{maintenance.notice || maintenanceNotice || 'Campus Connect is undergoing maintenance. Please try again later.'}</p>{maintenance.ends_at && <small>Scheduled to end {new Date(maintenance.ends_at).toLocaleString()}.</small>}<button className="button button-quiet" onClick={() => void logout()}><LogOut size={14} /> Sign out</button></section>
                   : disabledModule
                     ? <section className="content-card system-owner-panel"><h2>This feature is unavailable</h2><p className="system-owner-muted">This module is disabled for your school by platform or school settings.</p></section>

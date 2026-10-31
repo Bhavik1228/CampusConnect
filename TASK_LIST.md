@@ -572,7 +572,7 @@ Accounts Payable Officer is available as a restricted core role; supplier-payabl
 - [x] View basic platform reports.
 - [x] Manage owner account security.
 - [x] Enforce owner-only access to platform controls.
-- [ ] Support and issue management.
+- [x] Support and issue management.
 - [ ] Global search.
 - [ ] Storage usage and backup status.
 - [ ] Cross-school configuration comparison.

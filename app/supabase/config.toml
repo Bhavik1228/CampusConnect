@@ -30,3 +30,6 @@ verify_jwt = false
 
 [functions.system-owner-admin]
 verify_jwt = false
+
+[functions.support-bot]
+verify_jwt = false

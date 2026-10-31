@@ -2343,6 +2343,71 @@ td strong { color: #3e435a; font-weight: 600; }
 .system-owner-check-grid label { display: flex; align-items: center; gap: 7px; color: #666b7f; font-size: 9px; }
 .system-owner-check-grid input { accent-color: #6258c8; }
 .system-owner-settings-form > .settings-actions { padding: 14px 0 0; }
+.support-page { width: min(100%, 1120px); display: grid; gap: 16px; margin: 0 auto; padding: 26px clamp(15px, 3vw, 36px) 34px; }
+.support-header { display: flex; align-items: center; justify-content: space-between; gap: 15px; }
+.support-header h1 { display: flex; align-items: center; gap: 9px; margin: 4px 0; color: #32374d; font-size: clamp(22px, 3vw, 30px); }
+.support-header h1 svg { color: #6258c8; }
+.support-header p { margin: 0; color: #80869a; font-size: 10px; }
+.support-header > .button { display: inline-flex; align-items: center; gap: 7px; }
+.support-panel { display: grid; align-content: start; gap: 14px; padding: 17px; }
+.support-panel-heading { display: flex; align-items: flex-start; gap: 10px; }
+.support-icon { display: grid; width: 34px; height: 34px; flex: none; place-items: center; border-radius: 9px; background: #f2f0ff; color: #6258c8; }
+.support-panel-heading > div { display: grid; gap: 4px; }
+.support-panel-heading h2 { margin: 0; color: #3b4056; font-size: 14px; }
+.support-panel-heading p { max-width: 760px; margin: 0; color: #82879a; font-size: 9px; line-height: 1.55; }
+.support-diagnostic-form { display: flex; align-items: end; gap: 9px; }
+.support-diagnostic-form .field { flex: 1; margin: 0; }
+.support-diagnostic-form .button, .support-ticket-form > .button, .support-owner-controls > .button { display: inline-flex; align-items: center; justify-content: center; gap: 6px; }
+.support-diagnostic-result { display: grid; gap: 10px; padding: 13px; border: 1px solid #e8e6f4; border-radius: 9px; background: #fbfaff; color: #53586d; font-size: 10px; line-height: 1.55; }
+.support-diagnostic-result > div { display: grid; gap: 5px; }
+.support-diagnostic-result > div > strong { color: #42475d; }
+.support-diagnostic-result small { color: #858a9c; font-size: 8px; }
+.support-diagnostic-result > p { margin: 0; color: #72778b; }
+.support-diagnostic-result ul { display: grid; gap: 8px; margin: 0; padding: 0; list-style: none; }
+.support-diagnostic-result li { display: flex; align-items: flex-start; gap: 9px; padding-top: 9px; border-top: 1px solid #eeedf4; }
+.support-diagnostic-result li > div { display: grid; gap: 3px; }
+.support-diagnostic-result li strong { color: #464b60; font-size: 9px; }
+.support-diagnostic-result li p { margin: 0; color: #73788a; font-size: 9px; }
+.support-diagnostic-result li a { color: #6258c8; font-size: 9px; }
+.support-severity { flex: none; padding: 3px 6px; border-radius: 20px; background: #f2f0ff; color: #655bb6; font-size: 8px; text-transform: capitalize; }
+.support-severity.critical, .support-severity.high { background: #fff0ef; color: #ab4f49; }
+.support-severity.medium { background: #fff8e9; color: #9a782e; }
+.support-ticket-form { display: grid; grid-template-columns: minmax(180px, .7fr) minmax(240px, 1.3fr); gap: 11px; }
+.support-ticket-form .field { margin: 0; }
+.support-ticket-form .support-description { grid-column: 1 / -1; }
+.support-ticket-form textarea, .support-owner-controls textarea { width: 100%; padding: 10px 11px; border: 1px solid #e7e8ef; border-radius: 8px; background: #fff; color: #34394f; font: inherit; font-size: 10px; resize: vertical; }
+.support-ticket-form > .button { justify-self: start; }
+.support-ticket-list { display: grid; }
+.support-ticket { display: grid; gap: 10px; padding: 14px 0; border-top: 1px solid #eff0f4; }
+.support-ticket-heading { display: flex; align-items: flex-start; justify-content: space-between; gap: 12px; }
+.support-ticket-heading > div { min-width: 0; display: grid; gap: 4px; }
+.support-ticket-category { color: #7770bf; font-size: 8px; font-weight: 700; text-transform: capitalize; }
+.support-ticket-heading h3 { margin: 0; color: #44495e; font-size: 11px; }
+.support-ticket-heading small { color: #898ea0; font-size: 8px; }
+.support-ticket > p { margin: 0; color: #686d81; font-size: 9px; line-height: 1.55; white-space: pre-wrap; }
+.support-ticket-status { flex: none; padding: 5px 8px; border-radius: 20px; background: #f2f0ff; color: #6258c8; font-size: 8px; font-weight: 700; text-transform: capitalize; }
+.support-ticket-status.new { background: #fff4e5; color: #9a702c; }
+.support-ticket-status.in_progress { background: #eef4ff; color: #4a6ba2; }
+.support-ticket-status.waiting_on_requester { background: #fff8e9; color: #92732f; }
+.support-ticket-status.resolved, .support-ticket-status.closed { background: #eef8f1; color: #4d8059; }
+.support-owner-response { display: grid; gap: 4px; padding: 11px; border-radius: 8px; background: #f4f3ff; }
+.support-owner-response strong { color: #5048a2; font-size: 9px; }
+.support-owner-response p { margin: 0; color: #5f5b7f; font-size: 9px; line-height: 1.55; white-space: pre-wrap; }
+.support-owner-response small { color: #8884a4; font-size: 8px; }
+.support-empty { margin: 0; padding: 13px 0; color: #858a9c; font-size: 10px; }
+.owner-support-ticket { padding: 16px 0; }
+.support-owner-controls { display: grid; grid-template-columns: minmax(180px, .45fr) minmax(260px, 1.5fr) auto; align-items: end; gap: 9px; padding-top: 3px; }
+.support-owner-controls .field { margin: 0; }
+.support-owner-controls > .button { white-space: nowrap; }
+@media (max-width: 700px) {
+  .support-header { align-items: flex-start; flex-direction: column; }
+  .support-diagnostic-form { align-items: stretch; flex-direction: column; }
+  .support-diagnostic-form .button { align-self: flex-start; }
+  .support-ticket-form { grid-template-columns: 1fr; }
+  .support-ticket-form .support-description { grid-column: auto; }
+  .support-owner-controls { grid-template-columns: 1fr; }
+  .support-ticket-heading { flex-direction: column; }
+}
 .system-owner-maintenance-notice { width: min(100%, 620px); margin: 0; }
 .system-owner-maintenance-notice textarea { width: 100%; padding: 10px 11px; border: 1px solid #e7e8ef; border-radius: 8px; color: #34394f; font: inherit; font-size: 10px; resize: vertical; }
 .system-owner-maintenance-controls { display: flex; flex-wrap: wrap; gap: 8px; }

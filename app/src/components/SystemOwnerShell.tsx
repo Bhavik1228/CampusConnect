@@ -1,5 +1,5 @@
 import { useState } from 'react';
-import { Building2, Gauge, LogOut, Menu, Settings, ShieldAlert, X } from 'lucide-react';
+import { Building2, Gauge, LifeBuoy, LogOut, Menu, Settings, ShieldAlert, X } from 'lucide-react';
 import { NavLink, Outlet, useLocation, useNavigate } from 'react-router-dom';
 import { useAuth } from '../contexts/AuthContext';
 import { ErrorState } from './Feedback';
@@ -9,6 +9,7 @@ const links = [
   { to: '/system-owner/schools', label: 'School management', icon: Building2 },
   { to: '/system-owner/settings', label: 'Platform settings', icon: Settings },
   { to: '/system-owner/maintenance', label: 'Maintenance mode', icon: ShieldAlert },
+  { to: '/system-owner/support', label: 'Support requests', icon: LifeBuoy },
 ];
 
 const titles: Record<string, string> = {
@@ -16,6 +17,7 @@ const titles: Record<string, string> = {
   '/system-owner/schools': 'School management',
   '/system-owner/settings': 'Platform settings',
   '/system-owner/maintenance': 'Maintenance mode',
+  '/system-owner/support': 'Support requests',
 };
 
 export function SystemOwnerShell() {
