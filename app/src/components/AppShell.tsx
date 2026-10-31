@@ -4,7 +4,7 @@ import {
   BookCopy, BookMarked, BookOpenCheck, BookOpenText, CalendarDays, Check, ChevronDown, ClipboardList, Library, Workflow, Globe,
   ChevronLeft, ClipboardCheck, GraduationCap, LayoutDashboard, LogOut, Menu,
   Settings, UsersRound, X, CalendarClock, CircleDollarSign, UserRoundPlus,
-  Award, BriefcaseBusiness, FileStack, HeartPulse, ClipboardPlus,
+  Award, BriefcaseBusiness, FileStack, HeartPulse, ClipboardPlus, Search,
   MessageCircle, ShieldCheck,
   type LucideIcon,
 } from 'lucide-react';
@@ -13,6 +13,7 @@ import { usePlatformBranding } from '../contexts/PlatformBrandingContext';
 import { ErrorState, LoadingState } from './Feedback';
 import type { AppRole } from '../types/database';
 import { requireSupabase } from '../lib/supabase';
+import { CommandPalette, openCommandPalette } from './CommandPalette';
 
 const navigation: { title: string; items: { to: string; label: string; icon: LucideIcon; roles?: AppRole[]; module?: string }[] }[] = [
   { title: 'Workspace', items: [
@@ -195,6 +196,26 @@ export function AppShell() {
     '/academic-calendar': 'calendar',
   };
   const disabledModule = moduleForPath[modulePath] && modules?.[moduleForPath[modulePath]] === false;
+  const isAccountingRole = ['finance_manager', 'accountant', 'bursar', 'cashier'].includes(activeMembership?.role ?? '');
+  const roleNavigation = isLimitedRole
+    ? navigation.map((group) => ({ ...group, items: group.items.filter((item) => rolePaths.includes(item.to)) }))
+      .filter((group) => group.items.length > 0)
+    : activeMembership?.role === 'teacher'
+    ? teacherNavigation.map((group) => group.title === 'Teaching' && isHeadOfDepartment
+      ? { ...group, items: [...group.items, { to: '/staff', label: 'Department staff', icon: BriefcaseBusiness }] }
+      : group)
+    : navigation;
+  const visibleNavigation = isRestrictedRole
+    ? roleNavigation.map((group) => ({
+      ...group,
+      items: group.items.filter((item) => item.to === (isHealthcareRole ? '/health' : '/visitors')),
+    })).filter((group) => group.items.length > 0)
+    : roleNavigation;
+  const accessibleNavigation = visibleNavigation.flatMap((group) => group.items.filter((item) =>
+    (!item.roles || item.roles.includes(activeMembership?.role ?? 'student'))
+    && (!item.module || modules?.[item.module] !== false)
+    && (!permissionModuleForPath[item.to] || permissionSummary?.[permissionModuleForPath[item.to]]?.access !== false)));
+  const canAccessSettings = !isRestrictedRole && !isLimitedRole && !isAccountingRole && activeMembership?.role !== 'teacher';
 
   useEffect(() => {
     let active = true;
@@ -414,21 +435,6 @@ export function AppShell() {
   }
 
   function sidebarContent() {
-    const isAccountingRole = ['finance_manager', 'accountant', 'bursar', 'cashier'].includes(activeMembership?.role ?? '');
-    const roleNavigation = isLimitedRole
-      ? navigation.map((group) => ({ ...group, items: group.items.filter((item) => rolePaths.includes(item.to)) }))
-        .filter((group) => group.items.length > 0)
-      : activeMembership?.role === 'teacher'
-      ? teacherNavigation.map((group) => group.title === 'Teaching' && isHeadOfDepartment
-        ? { ...group, items: [...group.items, { to: '/staff', label: 'Department staff', icon: BriefcaseBusiness }] }
-        : group)
-      : navigation;
-    const visibleNavigation = isRestrictedRole
-      ? roleNavigation.map((group) => ({
-        ...group,
-        items: group.items.filter((item) => item.to === (isHealthcareRole ? '/health' : '/visitors')),
-      })).filter((group) => group.items.length > 0)
-      : roleNavigation;
     return <>
       <div className="sidebar-top">
         <a className="brand" href="/"><span className="brand-mark">{logoUrl ? <img src={logoUrl} alt="" /> : <BookOpenCheck size={20} />}</span><span>{platformName}</span></a>
@@ -444,9 +450,8 @@ export function AppShell() {
       </div>}
       <nav className="side-navigation" aria-label="Main navigation">
         {visibleNavigation.map((group) => {
-          const items = group.items.filter((item) => (!item.roles || item.roles.includes(activeMembership?.role ?? 'student'))
-            && (!item.module || modules?.[item.module] !== false)
-            && (!permissionModuleForPath[item.to] || permissionSummary?.[permissionModuleForPath[item.to]]?.access !== false));
+          const accessiblePaths = new Set(accessibleNavigation.map((item) => item.to));
+          const items = group.items.filter((item) => accessiblePaths.has(item.to));
           return items.length ? <div className="nav-group" key={group.title}><span className="nav-label">{group.title}</span>{items.map(({ to, label, icon: Icon }) => <NavLink key={to} to={to} onClick={() => setMobileOpen(false)} className={({ isActive }) => `nav-item${isActive ? ' active' : ''}`}><Icon size={18} strokeWidth={1.8} /><span>{label}</span></NavLink>)}</div> : null;
         })}
       </nav>
@@ -469,7 +474,7 @@ export function AppShell() {
       <main className="workspace">
         <header className="topbar">
           <div className="topbar-left"><button className="icon-button mobile-menu" onClick={() => setMobileOpen(true)} aria-label="Open navigation"><Menu size={21} /></button><span className="breadcrumbs">Workspace <ChevronLeft size={14} className="crumb-chevron" /> <strong>{title}</strong></span></div>
-          <div className="topbar-actions"><span className="role-badge"><span></span>{activeMembership?.role.replace(/_/g, ' ')}</span></div>
+          <div className="topbar-actions"><button type="button" className="command-palette-trigger" aria-label="Search Campus Connect (Control K)" onClick={openCommandPalette}><Search size={16} /><span>Search</span><kbd>Ctrl K</kbd></button><span className="role-badge"><span></span>{activeMembership?.role.replace(/_/g, ' ')}</span></div>
         </header>
         <div className="page-content">
           {maintenance?.active && <aside className="platform-maintenance-notice" role="status">{maintenance.notice || maintenanceNotice || 'Maintenance is in progress.'}{maintenance.read_only ? ' This workspace is read-only; changes are temporarily disabled.' : ''}{maintenance.ends_at ? ` Scheduled until ${new Date(maintenance.ends_at).toLocaleString()}.` : ''}</aside>}
@@ -487,6 +492,16 @@ export function AppShell() {
                     ? <section className="content-card system-owner-panel"><h2>This feature is unavailable</h2><p className="system-owner-muted">This module is disabled for your school by platform or school settings.</p></section>
                     : <Outlet />}
         </div>
+        <CommandPalette
+          routes={[
+            ...accessibleNavigation.map((item) => ({ path: item.to, label: item.label, icon: item.icon })),
+            ...(canAccessSettings ? [{ path: '/settings', label: 'Settings', icon: Settings }] : []),
+          ]}
+          schoolId={activeMembership?.school_id ?? ''}
+          profileId={user?.id ?? ''}
+          canAccessSettings={canAccessSettings}
+          role={activeMembership?.role ?? 'student'}
+        />
         <footer className="workspace-footer"><span>Campus Connect</span><span>School information & learning management</span></footer>
       </main>
     </div>

@@ -772,6 +772,19 @@ Accounts Payable Officer is available as a restricted core role; supplier-payabl
 - [ ] Manage website SEO and metadata.
 - [ ] Publish approved admissions content.
 
+## Quality of Life Features Update
+
+### Feature 01: Global Command Palette & Universal Search
+- [x] Open a keyboard-accessible global palette with Ctrl/Cmd+K and a visible search control.
+- [x] Search accessible pages, role-gated actions, settings, and school records.
+- [x] Search students, classes, subjects, books, and finance-authorized invoices with school-scoped server queries.
+- [x] Support keyboard navigation, favorites, recent items, and record-aware navigation.
+- [x] Record school-scoped usage metrics without storing raw search terms.
+- [x] Document the palette and its migration/deployment requirements.
+
+### Features 02–70
+- [ ] Pending: their specifications were not included with the supplied Feature 01 brief.
+
 ## Priority Order for Next Implementation
 1. Roles and permissions
 2. Admissions management

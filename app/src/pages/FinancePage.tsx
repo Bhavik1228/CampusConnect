@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useMemo, useState, type FormEvent } from 'react';
 import { Banknote, Download, FileText, Receipt, WalletCards } from 'lucide-react';
+import { useSearchParams } from 'react-router-dom';
 import { useAuth } from '../contexts/AuthContext';
 import { EmptyState, ErrorState, LoadingState, SuccessMessage } from '../components/Feedback';
 import { requireSupabase } from '../lib/supabase';
@@ -106,7 +107,12 @@ export function FinancePage() {
   const canManage = managerRoles.includes(activeMembership?.role ?? 'student');
   const canViewFinance = financeViewRoles.includes(activeMembership?.role ?? 'student');
   const canRecordPayment = financeRoles.includes(activeMembership?.role ?? 'student');
-  const [tab, setTab] = useState<FinanceTab>('overview');
+  const [searchParams] = useSearchParams();
+  const [tab, setTab] = useState<FinanceTab>(() => {
+    const requestedTab = new URLSearchParams(window.location.search).get('tab');
+    return tabs.some((item) => item.id === requestedTab) ? requestedTab as FinanceTab : 'overview';
+  });
+  const [invoiceSearch, setInvoiceSearch] = useState(() => new URLSearchParams(window.location.search).get('search') ?? '');
   const [structures, setStructures] = useState<FeeStructure[]>([]);
   const [students, setStudents] = useState<FeeStudent[]>([]);
   const [invoices, setInvoices] = useState<FeeInvoice[]>([]);
@@ -154,6 +160,23 @@ export function FinancePage() {
 
   useEffect(() => { void loadFinance(); }, [loadFinance, refreshKey]);
 
+  useEffect(() => {
+    const requestedTab = searchParams.get('tab');
+    const command = searchParams.get('command');
+    const recordId = searchParams.get('commandRecord');
+    if (requestedTab && tabs.some((item) => item.id === requestedTab)) setTab(requestedTab as FinanceTab);
+    if (searchParams.has('search')) setInvoiceSearch(searchParams.get('search') ?? '');
+    if (recordId) setInvoiceSearch('');
+    if (command === 'create' && canManage) {
+      setTab('invoices');
+      window.requestAnimationFrame(() => document.getElementById('finance-invoice-student')?.focus());
+    }
+    if (recordId && !loading) {
+      if (!invoices.some((invoice) => invoice.id === recordId)) setFormError('That invoice is unavailable or your access has changed.');
+      else window.requestAnimationFrame(() => document.querySelector<HTMLElement>(`[data-command-record="${CSS.escape(recordId)}"]`)?.scrollIntoView({ block: 'center', behavior: 'smooth' }));
+    }
+  }, [searchParams, canManage, invoices, loading]);
+
   const studentsById = useMemo(() => new Map(students.map((student) => [student.id, student])), [students]);
   const outstandingByInvoice = useMemo(() => {
     const balances = new Map<string, number>();
@@ -175,6 +198,14 @@ export function FinancePage() {
     () => invoices.filter((invoice) => invoice.status === 'issued' && (outstandingByInvoice.get(invoice.id) ?? 0) > 0),
     [invoices, outstandingByInvoice],
   );
+  const filteredInvoices = useMemo(() => {
+    const needle = invoiceSearch.trim().toLocaleLowerCase();
+    if (!needle) return invoices;
+    return invoices.filter((invoice) => {
+      const student = studentsById.get(invoice.student_id);
+      return `${invoice.invoice_number} ${invoice.description} ${student?.first_name ?? ''} ${student?.last_name ?? ''} ${student?.student_number ?? ''}`.toLocaleLowerCase().includes(needle);
+    });
+  }, [invoices, invoiceSearch, studentsById]);
   const selectedStructure = structures.find((structure) => structure.id === selectedStructureId);
   const selectedStudentInvoices = openInvoices.filter((invoice) => invoice.student_id === selectedPaymentStudent);
   const selectedStatementStudent = statementStudent || students[0]?.id || '';
@@ -685,7 +716,7 @@ export function FinancePage() {
         {tab === 'invoices' && <section className="content-card accounting-content-card">
           <div className="section-heading"><div><span className="eyebrow">Student billing</span><h2>Issue an invoice</h2></div><div className="accounting-document-actions"><button type="button" className="button button-quiet accounting-download-button" onClick={downloadAllInvoices}><Download size={15} />Download all invoices PDF</button><FileText size={19} className="muted-icon" /></div></div>
           {canManage && <form className="accounting-form accounting-invoice-form" onSubmit={(event) => void createInvoice(event)}>
-            <label className="field"><span>Student</span><select name="student_id" required defaultValue="" disabled={saving}><option value="" disabled>Select a student</option>{students.map((student) => <option key={student.id} value={student.id}>{student.first_name} {student.last_name} · {student.student_number}</option>)}</select></label>
+            <label className="field"><span>Student</span><select id="finance-invoice-student" name="student_id" required defaultValue="" disabled={saving}><option value="" disabled>Select a student</option>{students.map((student) => <option key={student.id} value={student.id}>{student.first_name} {student.last_name} · {student.student_number}</option>)}</select></label>
             <label className="field"><span>Use a fee structure (optional)</span><select value={selectedStructureId} disabled={saving} onChange={(event) => setSelectedStructureId(event.target.value)}><option value="">Custom invoice</option>{structures.filter((structure) => structure.is_active).map((structure) => <option key={structure.id} value={structure.id}>{structure.name} · {money(structure.amount, structure.currency_code)}</option>)}</select></label>
             {!selectedStructure && <label className="field"><span>Description</span><input name="description" required minLength={2} maxLength={240} disabled={saving} /></label>}
             <label className="field"><span>Amount</span><input name="amount" type="number" min="0.01" step="0.01" required value={selectedStructure ? selectedStructure.amount : undefined} readOnly={Boolean(selectedStructure)} disabled={saving} /></label>
@@ -696,11 +727,12 @@ export function FinancePage() {
             <label className="field"><span>Discount reason</span><input name="discount_reason" maxLength={240} placeholder="Required when discount is greater than zero" disabled={saving} /></label>
             <button className="button button-primary accounting-field-wide" type="submit" disabled={saving || students.length === 0}>{saving ? 'Issuing…' : 'Issue student invoice'}</button>
           </form>}
-          <div className="accounting-table-wrap"><table className="accounting-table"><thead><tr><th>Invoice</th><th>Student</th><th>Due</th><th>Original</th><th>Discount</th><th>Outstanding</th><th>Adjustment</th><th>PDF</th></tr></thead><tbody>{invoices.map((invoice) => {
+          <label className="table-search command-invoice-search"><FileText size={16} /><input value={invoiceSearch} onChange={(event) => setInvoiceSearch(event.target.value)} placeholder="Search invoice number, student or account reference" aria-label="Search invoices" /></label>
+          <div className="accounting-table-wrap"><table className="accounting-table"><thead><tr><th>Invoice</th><th>Student</th><th>Due</th><th>Original</th><th>Discount</th><th>Outstanding</th><th>Adjustment</th><th>PDF</th></tr></thead><tbody>{filteredInvoices.map((invoice) => {
             const outstanding = outstandingByInvoice.get(invoice.id) ?? 0;
-            return <tr key={invoice.id}><td><strong>{invoice.invoice_number}</strong><small>{invoice.description}{invoice.discount_reason ? ` · ${invoice.discount_reason}` : ''}</small></td><td>{displayStudent(invoice.student_id)}</td><td>{invoice.due_on}</td><td>{money(invoice.amount, invoice.currency_code)}</td><td>{invoice.discount_amount > 0 ? money(invoice.discount_amount, invoice.currency_code) : '—'}</td><td>{money(outstanding, invoice.currency_code)}</td><td>{canManage && invoice.status === 'issued' ? <details className="accounting-adjustment"><summary>Adjust</summary><form onSubmit={(event) => void addAdjustment(event, invoice)}><select name="adjustment_type" aria-label="Adjustment type" defaultValue={outstanding > 0 ? 'credit' : 'charge'}><option value="credit" disabled={outstanding <= 0}>Credit adjustment{outstanding <= 0 ? ' (no outstanding balance)' : ''}</option><option value="charge">Additional charge</option></select><input name="amount" type="number" aria-label="Adjustment amount" placeholder="Amount" min="0.01" step="0.01" required disabled={saving} /><input name="reason" aria-label="Adjustment reason" placeholder="Reason" minLength={2} maxLength={240} required disabled={saving} /><button className="button button-primary" type="submit" disabled={saving}>Save</button></form></details> : invoice.status === 'void' ? 'Voided' : '—'}</td><td><button type="button" className="button button-quiet accounting-row-download" onClick={() => downloadInvoice(invoice)} aria-label={`Download invoice ${invoice.invoice_number} PDF`} title="Download invoice PDF"><Download size={15} /></button></td></tr>;
+            return <tr data-command-record={invoice.id} className={searchParams.get('commandRecord') === invoice.id ? 'command-selected-row' : ''} key={invoice.id}><td><strong>{invoice.invoice_number}</strong><small>{invoice.description}{invoice.discount_reason ? ` · ${invoice.discount_reason}` : ''}</small></td><td>{displayStudent(invoice.student_id)}</td><td>{invoice.due_on}</td><td>{money(invoice.amount, invoice.currency_code)}</td><td>{invoice.discount_amount > 0 ? money(invoice.discount_amount, invoice.currency_code) : '—'}</td><td>{money(outstanding, invoice.currency_code)}</td><td>{canManage && invoice.status === 'issued' ? <details className="accounting-adjustment"><summary>Adjust</summary><form onSubmit={(event) => void addAdjustment(event, invoice)}><select name="adjustment_type" aria-label="Adjustment type" defaultValue={outstanding > 0 ? 'credit' : 'charge'}><option value="credit" disabled={outstanding <= 0}>Credit adjustment{outstanding <= 0 ? ' (no outstanding balance)' : ''}</option><option value="charge">Additional charge</option></select><input name="amount" type="number" aria-label="Adjustment amount" placeholder="Amount" min="0.01" step="0.01" required disabled={saving} /><input name="reason" aria-label="Adjustment reason" placeholder="Reason" minLength={2} maxLength={240} required disabled={saving} /><button className="button button-primary" type="submit" disabled={saving}>Save</button></form></details> : invoice.status === 'void' ? 'Voided' : '—'}</td><td><button type="button" className="button button-quiet accounting-row-download" onClick={() => downloadInvoice(invoice)} aria-label={`Download invoice ${invoice.invoice_number} PDF`} title="Download invoice PDF"><Download size={15} /></button></td></tr>;
           })}</tbody></table></div>
-          {invoices.length === 0 && <EmptyState title="No invoices yet" detail="Choose a student and issue an invoice for their school fees." />}
+          {filteredInvoices.length === 0 && <EmptyState title={invoiceSearch ? 'No matching invoices' : 'No invoices yet'} detail={invoiceSearch ? 'Try another invoice, student, or account reference.' : 'Choose a student and issue an invoice for their school fees.'} />}
         </section>}
         {tab === 'payments' && <section className="content-card accounting-content-card">
           <div className="section-heading"><div><span className="eyebrow">Cash collection</span><h2>Record a fee payment</h2></div><div className="accounting-document-actions"><button type="button" className="button button-quiet accounting-download-button" onClick={downloadAllReceipts}><Download size={15} />Download all receipts PDF</button><Banknote size={19} className="muted-icon" /></div></div>

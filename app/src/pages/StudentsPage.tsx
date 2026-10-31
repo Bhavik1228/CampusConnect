@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useMemo, useState, type FormEvent } from 'react';
+import { useSearchParams } from 'react-router-dom';
 import { ArrowDownToLine, CalendarDays, FileText, GitMerge, Plus, Search, ShieldCheck, UserRound, X } from 'lucide-react';
 import { useAuth } from '../contexts/AuthContext';
 import { EmptyState, ErrorState, LoadingState } from '../components/Feedback';
@@ -77,6 +78,7 @@ export function StudentsPage() {
   const [mergeCandidateId, setMergeCandidateId] = useState('');
   const [mergeReason, setMergeReason] = useState('');
   const [merging, setMerging] = useState(false);
+  const [searchParams, setSearchParams] = useSearchParams();
 
   const loadStudents = useCallback(async () => {
     if (!schoolId) return;
@@ -117,6 +119,28 @@ export function StudentsPage() {
   useEffect(() => { void loadStudents(); }, [loadStudents, refreshKey]);
 
   const selectedStudent = students.find((student) => student.id === selectedId) ?? null;
+
+  useEffect(() => {
+    const command = searchParams.get('command');
+    const recordId = searchParams.get('commandRecord');
+    if ((!command || command !== 'create') && !recordId) return;
+    if (command === 'create' && canManage) {
+      setSelectedId('');
+      openForm();
+    }
+    if (recordId && !loading) {
+      if (students.some((student) => student.id === recordId)) setSelectedId(recordId);
+      else setError('That student record is unavailable or your access has changed.');
+    }
+    if ((command !== 'create' || canManage) && (!recordId || !loading)) {
+      setSearchParams((current) => {
+        const next = new URLSearchParams(current);
+        next.delete('command');
+        next.delete('commandRecord');
+        return next;
+      }, { replace: true });
+    }
+  }, [searchParams, setSearchParams, canManage, students, loading]);
 
   const loadDetails = useCallback(async () => {
     if (!schoolId || !selectedStudent || !canManage) {

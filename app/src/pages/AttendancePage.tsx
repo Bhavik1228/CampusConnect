@@ -3,6 +3,7 @@ import {
   Check, ClipboardCheck, Download, FileClock,
   Printer, Save, Send, Settings2, UserRoundCheck,
 } from 'lucide-react';
+import { useSearchParams } from 'react-router-dom';
 import { useAuth } from '../contexts/AuthContext';
 import { EmptyState, ErrorState, LoadingState, SuccessMessage } from '../components/Feedback';
 import { requireSupabase } from '../lib/supabase';
@@ -127,6 +128,7 @@ function explainError(error: unknown, fallback: string) {
 
 export function AttendancePage() {
   const { activeMembership, user } = useAuth();
+  const [searchParams, setSearchParams] = useSearchParams();
   const [classes, setClasses] = useState<ClassChoice[]>([]);
   const [classId, setClassId] = useState('');
   const [date, setDate] = useState(localDate);
@@ -213,6 +215,16 @@ export function AttendancePage() {
   useEffect(() => {
     setTab(canRecord ? 'register' : 'my-attendance');
   }, [activeMembership?.school_id, role, canRecord]);
+
+  useEffect(() => {
+    if (searchParams.get('command') !== 'register') return;
+    if (canRecord) setTab('register');
+    setSearchParams((current) => {
+      const next = new URLSearchParams(current);
+      next.delete('command');
+      return next;
+    }, { replace: true });
+  }, [searchParams, setSearchParams, canRecord]);
 
   const loadBase = useCallback(async () => {
     if (!schoolId || !user) return;

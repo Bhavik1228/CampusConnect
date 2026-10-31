@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useMemo, useState, type FormEvent } from 'react';
+import { useSearchParams } from 'react-router-dom';
 import { Plus, Search, SlidersHorizontal, X } from 'lucide-react';
 import { useAuth } from '../contexts/AuthContext';
 import { requireSupabase } from '../lib/supabase';
@@ -34,6 +35,7 @@ export function DirectoryPage({ kind }: { kind: Kind }) {
   const [formError, setFormError] = useState('');
   const [formSuccess, setFormSuccess] = useState('');
   const [refreshKey, setRefreshKey] = useState(0);
+  const [searchParams, setSearchParams] = useSearchParams();
   const meta = config[kind];
   const canManage = membership?.role === 'school_admin' || membership?.role === 'system_admin';
   const canManageSubjects = canManage || membership?.role === 'academic_coordinator' || (kind === 'subjects' && isHod);
@@ -109,6 +111,53 @@ export function DirectoryPage({ kind }: { kind: Kind }) {
   }, [activeMembership, kind, meta.title, membership?.role, user?.id, canManage, canManageSubjects]);
 
   useEffect(() => { void load(); }, [load, refreshKey]);
+
+  useEffect(() => {
+    if (searchParams.get('command') !== 'create') return;
+    if (kind === 'subjects' ? canManageSubjects : canManage) {
+      setShowForm(true);
+      setFormError('');
+      setSearchParams((current) => {
+        const next = new URLSearchParams(current);
+        next.delete('command');
+        return next;
+      }, { replace: true });
+    }
+  }, [searchParams, setSearchParams, kind, canManage, canManageSubjects]);
+
+  useEffect(() => {
+    const recordId = searchParams.get('commandRecord');
+    if (!recordId || loading || (kind !== 'classes' && kind !== 'subjects') || rows.some((row) => row.id === recordId)) return;
+    let active = true;
+    void (async () => {
+      try {
+        const client = requireSupabase();
+        const table = kind === 'classes' ? 'school_classes' : 'subjects';
+        const columns = kind === 'classes'
+          ? 'id,school_id,name,grade_level,academic_year_id,created_at'
+          : 'id,school_id,name,code,department_id,created_at';
+        const { data, error: recordError } = await client.from(table).select(columns)
+          .eq('school_id', activeMembership?.school_id ?? '').eq('id', recordId).maybeSingle();
+        if (recordError) throw recordError;
+        if (!data) {
+          if (active) setError(`That ${meta.singular} record is unavailable or your access has changed.`);
+          return;
+        }
+        if (active) setRows((current) => current.some((row) => row.id === recordId) ? current : [data as DirectoryRow, ...current]);
+      } catch (recordError) {
+        if (active) setError(recordError instanceof Error ? recordError.message : `Could not open this ${meta.singular} record.`);
+      }
+    })();
+    return () => { active = false; };
+  }, [rows, loading, searchParams, kind, activeMembership?.school_id, meta.singular]);
+
+  useEffect(() => {
+    const recordId = searchParams.get('commandRecord');
+    if (!recordId || loading || !rows.some((row) => row.id === recordId)) return;
+    window.requestAnimationFrame(() => {
+      document.querySelector<HTMLElement>(`[data-command-record="${CSS.escape(recordId)}"]`)?.scrollIntoView({ block: 'center', behavior: 'smooth' });
+    });
+  }, [rows, loading, searchParams]);
 
   const filteredRows = useMemo(() => {
     const needle = query.trim().toLowerCase();
@@ -215,7 +264,7 @@ export function DirectoryPage({ kind }: { kind: Kind }) {
       {kind === 'subjects' && isHod && <p className="inline-success">Head of Department access: you can manage subjects assigned to your department.</p>}
       <section className="content-card table-card">
         <div className="table-toolbar"><label className="table-search"><Search size={17} /><input value={query} onChange={(event) => setQuery(event.target.value)} placeholder={meta.searchHint} aria-label={meta.searchHint} /></label><span className="table-count"><SlidersHorizontal size={15} />{filteredRows.length} records</span></div>
-        {loading ? <LoadingState label={`Loading ${meta.title.toLowerCase()}…`} /> : filteredRows.length === 0 ? <EmptyState title={query ? 'No matching records' : `No ${meta.title.toLowerCase()} yet`} detail={query ? 'Try a different search term.' : (kind === 'subjects' ? canManageSubjects : canManage) ? `Add your first ${meta.singular} to begin building your school records.` : `Records will appear here when your school adds ${meta.title.toLowerCase()}.`} /> : kind === 'students' || kind === 'teachers' ? <div className="table-scroll"><table><thead><tr><th>Name</th>{kind === 'students' && <><th>Student ID</th><th>Class</th></>}<th>Status</th></tr></thead><tbody>{filteredRows.map(personRow)}</tbody></table></div> : <div className="table-scroll"><table><thead><tr><th>{kind === 'classes' ? 'Class name' : 'Subject'}</th><th>{kind === 'classes' ? 'Grade level' : 'Code'}</th>{kind === 'subjects' && <th>Department</th>}<th>Created</th></tr></thead><tbody>{filteredRows.map((row) => { const createdAt = kind === 'classes' ? (row as SchoolClass).created_at : (row as Subject).created_at; return kind === 'classes' ? <tr key={row.id}><td><strong>{(row as SchoolClass).name}</strong></td><td>{(row as SchoolClass).grade_level ?? '—'}</td><td>{new Date(createdAt).toLocaleDateString()}</td></tr> : <tr key={row.id}><td><strong>{(row as Subject).name}</strong></td><td className="mono-cell">{(row as Subject).code ?? '—'}</td><td>{canManageSubjects ? <select aria-label={`${(row as Subject).name} department`} value={(row as Subject).department_id ?? ''} onChange={(event) => void saveSubjectDepartment(row.id, event.target.value)}><option value="">Not assigned</option>{subjectDepartments.map((department) => <option key={department.id} value={department.id}>{department.name}</option>)}</select> : subjectDepartments.find((department) => department.id === (row as Subject).department_id)?.name ?? '—'}</td><td>{new Date(createdAt).toLocaleDateString()}</td></tr>; })}</tbody></table></div>}
+        {loading ? <LoadingState label={`Loading ${meta.title.toLowerCase()}…`} /> : filteredRows.length === 0 ? <EmptyState title={query ? 'No matching records' : `No ${meta.title.toLowerCase()} yet`} detail={query ? 'Try a different search term.' : (kind === 'subjects' ? canManageSubjects : canManage) ? `Add your first ${meta.singular} to begin building your school records.` : `Records will appear here when your school adds ${meta.title.toLowerCase()}.`} /> : kind === 'students' || kind === 'teachers' ? <div className="table-scroll"><table><thead><tr><th>Name</th>{kind === 'students' && <><th>Student ID</th><th>Class</th></>}<th>Status</th></tr></thead><tbody>{filteredRows.map(personRow)}</tbody></table></div>         : <div className="table-scroll"><table><thead><tr><th>{kind === 'classes' ? 'Class name' : 'Subject'}</th><th>{kind === 'classes' ? 'Grade level' : 'Code'}</th>{kind === 'subjects' && <th>Department</th>}<th>Created</th></tr></thead><tbody>{filteredRows.map((row) => { const createdAt = kind === 'classes' ? (row as SchoolClass).created_at : (row as Subject).created_at; const selected = searchParams.get('commandRecord') === row.id; return kind === 'classes' ? <tr key={row.id} data-command-record={row.id} className={selected ? 'command-selected-row' : ''}><td><strong>{(row as SchoolClass).name}</strong></td><td>{(row as SchoolClass).grade_level ?? '—'}</td><td>{new Date(createdAt).toLocaleDateString()}</td></tr> : <tr key={row.id} data-command-record={row.id} className={selected ? 'command-selected-row' : ''}><td><strong>{(row as Subject).name}</strong></td><td className="mono-cell">{(row as Subject).code ?? '—'}</td><td>{canManageSubjects ? <select aria-label={`${(row as Subject).name} department`} value={(row as Subject).department_id ?? ''} onChange={(event) => void saveSubjectDepartment(row.id, event.target.value)}><option value="">Not assigned</option>{subjectDepartments.map((department) => <option key={department.id} value={department.id}>{department.name}</option>)}</select> : subjectDepartments.find((department) => department.id === (row as Subject).department_id)?.name ?? '—'}</td><td>{new Date(createdAt).toLocaleDateString()}</td></tr>; })}</tbody></table></div>}
       </section>
       {showForm && <div className="modal-backdrop" role="presentation" onMouseDown={(event) => { if (event.target === event.currentTarget) setShowForm(false); }}><section className="modal-card" role="dialog" aria-modal="true" aria-labelledby="record-modal-title"><div className="modal-heading"><div><span className="eyebrow">School records</span><h2 id="record-modal-title">Add {meta.singular}</h2></div><button className="icon-button" onClick={() => setShowForm(false)} aria-label="Close dialog"><X size={19} /></button></div><form className="modal-form" onSubmit={addRecord}>
         {kind === 'students' || kind === 'teachers' ? <><div className="form-row"><label className="field"><span>First name</span><input required name="first_name" maxLength={80} /></label><label className="field"><span>Last name</span><input required name="last_name" maxLength={80} /></label></div><label className="field"><span>Email <small>(optional)</small></span><input name="email" type="email" maxLength={254} /></label>{kind === 'students' && <><label className="field"><span>Student ID</span><input required name="student_number" maxLength={40} /></label><div className="form-row"><label className="field"><span>Date of birth <small>(optional)</small></span><input name="date_of_birth" type="date" /></label><label className="field"><span>Class <small>(optional)</small></span><select name="class_id" defaultValue=""><option value="">Not assigned</option>{classes.map((schoolClass) => <option key={schoolClass.id} value={schoolClass.id}>{schoolClass.name}</option>)}</select></label></div></>}</> : kind === 'classes' ? <><label className="field"><span>Class name</span><input required name="name" maxLength={100} placeholder="e.g. Grade 7 Blue" /></label><label className="field"><span>Grade level <small>(optional)</small></span><input name="grade_level" maxLength={50} placeholder="e.g. Grade 7" /></label><label className="field"><span>Academic calendar / division</span><select required name="calendar_id" value={classCalendarId} onChange={(event) => setClassCalendarId(event.target.value)}>{classCalendars.map((calendar) => <option key={calendar.id} value={calendar.id}>{calendar.name}{calendar.division_name ? ` · ${calendar.division_name}` : calendar.is_default ? ' · Default' : ''}</option>)}</select></label><label className="field"><span>Academic year <small>(optional)</small></span><select name="academic_year_id" defaultValue=""><option value="">Not assigned</option>{classAcademicYears.filter((year) => year.calendar_id === classCalendarId).map((academicYear) => <option key={academicYear.id} value={academicYear.id}>{academicYear.name}{academicYear.is_current ? ' · Current' : ''}</option>)}</select></label></> : <><label className="field"><span>Subject name</span><input required name="name" maxLength={100} placeholder="e.g. Mathematics" /></label><label className="field"><span>Subject code <small>(optional)</small></span><input name="code" maxLength={20} /></label><label className="field"><span>Department</span><select required={isHod} name="department_id" defaultValue=""><option value="">{isHod ? 'Choose your department' : 'No department'}</option>{subjectDepartments.map((department) => <option key={department.id} value={department.id}>{department.name}</option>)}</select></label></>}

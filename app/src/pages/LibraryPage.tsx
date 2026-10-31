@@ -2,7 +2,7 @@ import { useCallback, useEffect, useMemo, useRef, useState, type FormEvent } fro
 import {
   Archive, BookCopy, Check, Download, Edit3, Plus, QrCode, Search, Sparkles, Trash2, Undo2, X,
 } from 'lucide-react';
-import { useParams } from 'react-router-dom';
+import { useParams, useSearchParams } from 'react-router-dom';
 import { useAuth } from '../contexts/AuthContext';
 import { ErrorState, LoadingState } from '../components/Feedback';
 import { requireSupabase } from '../lib/supabase';
@@ -142,6 +142,7 @@ export function LibraryPage() {
   const [returnCode, setReturnCode] = useState('');
   const [scanning, setScanning] = useState(false);
   const [scannerError, setScannerError] = useState('');
+  const [searchParams, setSearchParams] = useSearchParams();
   const videoRef = useRef<HTMLVideoElement>(null);
 
   const load = useCallback(async () => {
@@ -193,6 +194,27 @@ export function LibraryPage() {
   }, [schoolId, canManage, user?.id]);
 
   useEffect(() => { void load(); }, [load]);
+
+  useEffect(() => {
+    const command = searchParams.get('command');
+    const recordId = searchParams.get('commandRecord');
+    if (command === 'create' && canManage) {
+      beginAdd();
+      setSearchParams((current) => {
+        const next = new URLSearchParams(current);
+        next.delete('command');
+        return next;
+      }, { replace: true });
+    }
+    if (!recordId || loading) return;
+    if (!books.some((book) => book.id === recordId)) {
+      setError('That book record is unavailable or your access has changed.');
+      return;
+    }
+    window.requestAnimationFrame(() => {
+      document.querySelector<HTMLElement>(`[data-command-record="${CSS.escape(recordId)}"]`)?.scrollIntoView({ block: 'center', behavior: 'smooth' });
+    });
+  }, [searchParams, setSearchParams, canManage, books, loading]);
 
   useEffect(() => {
     if (!scanning) return;
@@ -691,7 +713,7 @@ export function LibraryPage() {
       {canManage && <div className="library-select-toolbar"><button className="button button-quiet" onClick={() => setSelected(filteredBooks.filter((book) => !book.archived_at).map((book) => book.id))}>Select active results</button><button className="button button-quiet" onClick={() => setSelected([])}>Clear selection</button><span>{filteredBooks.length} {filteredBooks.length === 1 ? 'book' : 'books'}</span></div>}
       {filteredBooks.length === 0
         ? <div className="library-empty"><BookCopy size={23} /><h2>{books.length ? 'No matching books' : 'Your library is ready'}</h2><p>{canManage ? 'Add a book manually or enter an ISBN to fetch its details and cover.' : 'No books are currently listed in this school library.'}</p></div>
-        : <div className="library-book-grid">{filteredBooks.map((book) => <article className={`library-book-card${book.archived_at ? ' is-archived' : ''}`} key={book.id}>
+        : <div className="library-book-grid">{filteredBooks.map((book) => <article data-command-record={book.id} className={`library-book-card${book.archived_at ? ' is-archived' : ''}${searchParams.get('commandRecord') === book.id ? ' command-selected-card' : ''}`} key={book.id}>
           {canManage && <input className="library-book-select" aria-label={`Select ${book.title}`} type="checkbox" checked={selected.includes(book.id)} onChange={(event) => setSelected((current) => event.target.checked ? [...current, book.id] : current.filter((id) => id !== book.id))} />}
           {book.cover_url ? <img className="library-book-cover" src={book.cover_url} alt={`Cover of ${book.title}`} loading="lazy" /> : <div className="library-book-cover library-cover-placeholder"><BookCopy size={28} /></div>}
           <div className="library-book-main"><div className="library-book-title-row"><h2>{book.title}</h2>{book.archived_at && <span className="library-status-badge">Archived</span>}</div>

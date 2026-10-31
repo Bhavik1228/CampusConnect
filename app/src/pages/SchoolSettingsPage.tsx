@@ -1,4 +1,5 @@
 import { useEffect, useState, type FormEvent, type ReactNode } from 'react';
+import { useSearchParams } from 'react-router-dom';
 import { BookOpen, Check, ClipboardCheck, Cloud, Download, Globe, LockKeyhole, MessageSquare, Plus, Puzzle, Save, School, ShieldCheck, Trash2 } from 'lucide-react';
 import QRCode from 'qrcode';
 import { useAuth } from '../contexts/AuthContext';
@@ -286,7 +287,14 @@ export function SchoolSettingsPage() {
   const schoolId = activeMembership?.school_id;
   const canEdit = activeMembership?.role === 'school_admin';
   const canViewStorage = canEdit || activeMembership?.role === 'academic_coordinator' || activeMembership?.role === 'teacher';
-  const [tab, setTab] = useState<SettingsTab>('profile');
+  const [searchParams] = useSearchParams();
+  const [tab, setTab] = useState<SettingsTab>(() => {
+    const requestedTab = new URLSearchParams(window.location.search).get('tab');
+    const tabAllowed = requestedTab === 'website' ? canEdit
+      : requestedTab === 'storage' ? canViewStorage
+        : true;
+    return tabAllowed && tabs.some((item) => item.id === requestedTab) ? requestedTab as SettingsTab : 'profile';
+  });
   const [profile, setProfile] = useState<SchoolProfile | null>(null);
   const [campuses, setCampuses] = useState<SchoolCampus[]>([]);
   const [academics, setAcademics] = useState<SchoolAcademicPolicies | null>(null);
@@ -303,6 +311,22 @@ export function SchoolSettingsPage() {
   const [saving, setSaving] = useState<SettingsTab | null>(null);
   const [error, setError] = useState('');
   const [success, setSuccess] = useState('');
+
+  useEffect(() => {
+    const requestedTab = searchParams.get('tab');
+    if (!requestedTab || !tabs.some((item) => item.id === requestedTab)) return;
+    if (requestedTab === 'website' && !canEdit) {
+      setError('You do not have access to website settings.');
+      setTab('profile');
+      return;
+    }
+    if (requestedTab === 'storage' && !canViewStorage) {
+      setError('You do not have access to storage settings.');
+      setTab('profile');
+      return;
+    }
+    setTab(requestedTab as SettingsTab);
+  }, [searchParams, canEdit, canViewStorage]);
 
   useEffect(() => {
     if (!schoolId || !mobileAccess.enabled) {

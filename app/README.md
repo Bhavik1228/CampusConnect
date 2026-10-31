@@ -32,6 +32,14 @@ Campus Connect is the Vite + React application for the school information and le
 
 The academic modules whose backend schema exists but which do not yet have complete interaction screens are intentionally not presented as finished workflows. The authorized-paper ingestion pipeline stores files privately; a signed download/viewer endpoint is not included yet.
 
+## Global command palette
+
+After signing in, use the **Search** control in the workspace header or press **Ctrl+K** (Windows/Linux) / **Cmd+K** (macOS). Search accessible pages, role-authorized actions, settings, and school records. Use the arrow keys to navigate, Enter to open, and Escape to close. Favorites are saved to the signed-in user's school-scoped profile; recent destinations and recent search terms remain in browser memory/storage scoped by user and school.
+
+Record search is performed by the `search_school_command_records` Supabase RPC and is limited to the active school, existing row-level security, enabled modules, and school permissions. Invoice search requires finance access. Search analytics store event metadata and HMAC digests of terms that return no results; raw query text is not stored. Metrics can be queried by authorized school administrators or users with audit-view permission using `get_command_search_metrics`.
+
+Apply `app/supabase/migrations/202610310001_global_command_palette.sql` before deploying the frontend. The migration creates the record-search indexes, user favorites, analytics tables, and access-checked RPCs. To extend the palette, add navigation results through the existing accessible sidebar routes, add role-gated actions in `actionsForRole`, and add settings destinations to `settingsItems`; ensure each action's destination handles its query parameters and keep any record search school-scoped and permission-checked in the database.
+
 ## Technology
 
 - React and TypeScript
