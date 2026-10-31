@@ -799,7 +799,18 @@ Accounts Payable Officer is available as a restricted core role; supplier-payabl
 - [x] Add school-admin/academic-coordinator navigation and document scoring and migration deployment.
 - [x] Provide a read-only System Owner overview of readiness across schools, including stale and unchecked snapshots.
 
-### Features 03–70
+### Feature 03: Professional Documents & PDF Verification
+- [x] Reuse the existing jsPDF finance-document generator and published academic-result sources without changing financial or academic records.
+- [x] Correct academic report pagination to keep A4 result rows within page bounds and show per-report page counts.
+- [x] Remove fabricated student/sample marks from the report-design preview.
+- [ ] Unify school letterheads, branding, headers, typography and footers across reports and finance documents.
+- [ ] Add official QR verification references and public/authenticated verification flows.
+- [ ] Add server-generated document numbering, immutable issued versions, revocation and supersession lifecycle.
+- [ ] Store issued PDFs privately with role-checked access and document audit events.
+- [ ] Add report/invoice/receipt/statement previews of the actual generated PDF and test print output.
+- [ ] Add regression, financial-accuracy, QR-security and cross-school isolation tests.
+
+### Features 04–70
 - [ ] Pending: their specifications have not yet been supplied.
 
 ## Priority Order for Next Implementation

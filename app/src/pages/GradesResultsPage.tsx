@@ -118,19 +118,24 @@ function drawReportPage(
   studentResults: Result[],
   assessmentsById: Map<string, Assessment>,
   template: Omit<ReportTemplate, 'id' | 'school_id'>,
-  school: { name: string; address?: string | null; motto?: string | null; primary_color?: string | null },
+  school: {
+    name: string;
+    address?: string | null;
+    motto?: string | null;
+    primary_color?: string | null;
+    contact_email?: string | null;
+    contact_phone?: string | null;
+    website?: string | null;
+  },
   boundaries: Record<string, number>,
   pageIndex = 0,
+  reportPageCount = 1,
 ) {
   const width = pdf.internal.pageSize.getWidth();
   const height = pdf.internal.pageSize.getHeight();
   const [red, green, blue] = hexRgb(template.accent_color || school.primary_color || '#5147c7');
   const margin = 42;
   const headerHeight = template.layout === 'minimal' ? 90 : 116;
-  pdf.setFillColor(248, 249, 252);
-  pdf.rect(0, 0, width, height, 'F');
-  pdf.setFillColor(255, 255, 255);
-  pdf.roundedRect(margin, 28, width - margin * 2, height - 56, 12, 12, 'F');
   const lightHeader = template.layout === 'minimal' || template.layout === 'academic';
   if (template.layout === 'minimal') {
     pdf.setDrawColor(red, green, blue);
@@ -155,16 +160,21 @@ function drawReportPage(
   pdf.setTextColor(lightHeader ? 43 : 255, lightHeader ? 48 : 255, lightHeader ? 66 : 255);
   pdf.setFont('helvetica', 'bold');
   pdf.setFontSize(9);
-  pdf.text(school.name.toUpperCase(), margin + (template.layout === 'minimal' ? 22 : 24), 54);
+  pdf.text(school.name.toUpperCase(), margin + (template.layout === 'minimal' ? 22 : 24), 54, {
+    maxWidth: width - margin * 2 - 48,
+  });
   pdf.setFontSize(template.layout === 'vibrant' ? 20 : 18);
   pdf.text(pageIndex > 0 ? `${template.title} - CONTINUED` : template.title, margin + 24, 80);
   pdf.setFont('helvetica', 'normal');
   pdf.setFontSize(9);
   pdf.text(template.subtitle || 'Academic achievement & progress', margin + 24, 98);
-  if (school.address) {
+  const schoolDetails = [school.address, school.contact_phone, school.contact_email, school.website]
+    .filter((detail): detail is string => Boolean(detail?.trim()));
+  if (schoolDetails.length) {
     pdf.setFontSize(8);
     pdf.setTextColor(lightHeader ? 113 : 255, lightHeader ? 120 : 255, lightHeader ? 140 : 255);
-    pdf.text(school.address.slice(0, 100), width - margin - 24, 54, { align: 'right', maxWidth: 210 });
+    const contactLines = pdf.splitTextToSize(schoolDetails.join(' · '), 190).slice(0, 2);
+    pdf.text(contactLines, width - margin - 24, 54, { align: 'right', maxWidth: 190 });
   }
 
   let y = 28 + headerHeight + 26;
@@ -223,7 +233,7 @@ function drawReportPage(
   for (const column of columns) pdf.text(column.title, column.x, y + 15);
   y += 23;
 
-  const rowsPerPage = 15;
+  const rowsPerPage = 10;
   const pageResults = studentResults.slice(pageIndex * rowsPerPage, (pageIndex + 1) * rowsPerPage);
   pageResults.forEach((result, index) => {
     const assessment = assessmentsById.get(result.assessment_id);
@@ -279,7 +289,7 @@ function drawReportPage(
   pdf.setFontSize(7);
   pdf.setTextColor(144, 149, 164);
   pdf.text(template.footer || 'Confidential student report', margin + 10, height - 39);
-  pdf.text('CAMPUS CONNECT  ·  OFFICIAL REPORT', width - margin - 10, height - 39, { align: 'right' });
+  pdf.text(`PAGE ${pageIndex + 1} OF ${reportPageCount}`, width - margin - 10, height - 39, { align: 'right' });
 }
 
 export function GradesResultsPage() {
@@ -378,6 +388,9 @@ export function GradesResultsPage() {
     address: activeMembership?.school.address,
     motto: activeMembership?.school.motto,
     primary_color: activeMembership?.school.primary_color,
+    contact_email: activeMembership?.school.contact_email,
+    contact_phone: activeMembership?.school.contact_phone,
+    website: activeMembership?.school.website,
   };
 
   function editResult(result: Result) {
@@ -574,10 +587,10 @@ export function GradesResultsPage() {
       const { jsPDF: PdfDocument } = await import('jspdf');
       const pdf = new PdfDocument({ unit: 'pt', format: 'a4' });
       const reportTemplate = activeTemplate;
-      const pageCount = Math.ceil(rows.length / 15);
+      const pageCount = Math.ceil(rows.length / 10);
       for (let pageIndex = 0; pageIndex < pageCount; pageIndex += 1) {
         if (pageIndex > 0) pdf.addPage();
-        drawReportPage(pdf, student, rows, assessmentsById, reportTemplate, pdfSchool, boundaries, pageIndex);
+        drawReportPage(pdf, student, rows, assessmentsById, reportTemplate, pdfSchool, boundaries, pageIndex, pageCount);
       }
       pdf.save(`student-report-${student.student_number}.pdf`);
       setError('');
@@ -608,10 +621,10 @@ export function GradesResultsPage() {
       reportStudents.forEach((student, studentIndex) => {
         if (studentIndex > 0) pdf.addPage();
         const rows = (grouped.get(student.id) ?? []).sort((left, right) => left.assessment_date.localeCompare(right.assessment_date));
-        const pageCount = Math.ceil(rows.length / 15);
+        const pageCount = Math.ceil(rows.length / 10);
         for (let pageIndex = 0; pageIndex < pageCount; pageIndex += 1) {
           if (pageIndex > 0) pdf.addPage();
-          drawReportPage(pdf, student, rows, assessmentsById, activeTemplate, pdfSchool, boundaries, pageIndex);
+          drawReportPage(pdf, student, rows, assessmentsById, activeTemplate, pdfSchool, boundaries, pageIndex, pageCount);
         }
       });
       pdf.save('school-student-reports.pdf');
@@ -708,10 +721,10 @@ export function GradesResultsPage() {
             <div className="section-heading"><div><span className="eyebrow">Selected design</span><h2>{activeTemplate.name}</h2></div><span className="template-color-dot" style={{ backgroundColor: activeTemplate.accent_color }} /></div>
             <div className={`report-preview report-preview-${activeTemplate.layout}`} style={{ '--report-accent': activeTemplate.accent_color } as React.CSSProperties}>
               <div className="report-preview-header"><small>{pdfSchool.name}</small><strong>{activeTemplate.title}</strong><span>{activeTemplate.subtitle}</span></div>
-              <div className="report-preview-student"><strong>Jordan Taylor</strong><small>Student ID · CC-2026-014</small></div>
-              <div className="report-preview-stats"><span>ASSESSMENTS<strong>8</strong></span><span>TOTAL MARKS<strong>612 / 750</strong></span><span>OVERALL<strong>81.6%</strong></span><span>GRADE<strong>A</strong></span></div>
-              <div className="report-preview-row"><span>Mathematics · Term assessment</span><strong>84 / 100 · A</strong></div>
-              <div className="report-preview-row"><span>English · Reading comprehension</span><strong>76 / 90 · B</strong></div>
+              <div className="report-preview-student"><strong>Generated from published school results</strong><small>Student and assessment details appear in the downloaded PDF.</small></div>
+              <div className="report-preview-stats"><span>ASSESSMENTS<strong>Published</strong></span><span>TOTAL MARKS<strong>Verified</strong></span><span>OVERALL<strong>Calculated</strong></span><span>GRADE<strong>Configured</strong></span></div>
+              <div className="report-preview-row"><span>Subject and assessment</span><strong>Marks and grade</strong></div>
+              <div className="report-preview-row"><span>Teacher feedback</span><strong>Included when available</strong></div>
               <div className="report-preview-footer">{activeTemplate.footer}</div>
             </div>
             <p className="grades-template-note"><Check size={14} /> {templates.some((template) => template.id === selectedTemplate) ? 'Your school template' : 'One of five original Campus Connect designs'} · A4 PDF · Optimized for print</p>

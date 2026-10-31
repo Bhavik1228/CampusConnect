@@ -62,6 +62,12 @@ npx supabase db push --project-ref <your-project-ref>
 
 This applies `202610310001_global_command_palette.sql` and `202610310002_school_setup_health.sql` in order. The setup-health migration adds the persisted run/results/state tables, row-level security, access-checked RPCs, and stale-result triggers. Then deploy the frontend. Do not mark the remote database as updated until the CLI confirms both migrations completed.
 
+## Academic and finance PDFs
+
+Academic reports are generated from published assessment results with the school's configured grading boundaries and report template. Finance invoices, payment receipts and statements use the existing school-scoped invoice, payment, allocation, adjustment and balance data; PDFs do not create or alter financial transactions. Their shared jsPDF generator handles A4 output, repeated page headers, multi-page tables/cards, and page numbering. Academic report pages now cap result rows to fit A4 and display per-report page counts; the template preview no longer presents invented student marks.
+
+Existing QR PDFs for visitor badges, library materials and medical visit reports serve their feature-specific routes. Finance and academic PDFs do not yet have opaque-token authenticity verification, immutable issued-file storage/versioning, or a full actual-PDF preview workflow. Do not treat a QR on another document type as proof of authenticity or expose confidential document contents through public URLs.
+
 ## Technology
 
 - React and TypeScript
