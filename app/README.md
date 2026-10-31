@@ -40,6 +40,12 @@ Record search is performed by the `search_school_command_records` Supabase RPC a
 
 Apply `app/supabase/migrations/202610310001_global_command_palette.sql` before deploying the frontend. The migration creates the record-search indexes, user favorites, analytics tables, and access-checked RPCs. To extend the palette, add navigation results through the existing accessible sidebar routes, add role-gated actions in `actionsForRole`, and add settings destinations to `settingsItems`; ensure each action's destination handles its query parameters and keep any record search school-scoped and permission-checked in the database.
 
+## Grouped workspace navigation
+
+The workspace sidebar groups the existing routes into Academics, People, Finance, Learning & Library, Student Life, School Operations, Website & Communication, and Administration. The dashboard remains standalone; account security and authorized settings stay in the fixed footer area. Items are filtered by the current membership role, school module settings, and permission summary, while existing route guards remain responsible for direct URL access.
+
+Groups expand independently and the group containing the current route opens automatically. The desktop sidebar can switch to a compact icon-only mode; its group icons expand their child links, with tooltips identifying the destinations. Both the expanded/collapsed mode and open groups are stored in browser local storage using a key scoped to the signed-in user and active school. The mobile drawer keeps labels visible and uses the same grouped navigation. No database migration or new role is required.
+
 ## Technology
 
 - React and TypeScript

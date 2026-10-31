@@ -28,7 +28,7 @@ button:focus-visible, a:focus-visible, input:focus-visible, select:focus-visible
 .font-display, h1, h2, h3, .brand { font-family: 'Plus Jakarta Sans', sans-serif; }
 
 .app-layout { display: flex; min-height: 100vh; }
-.sidebar { position: sticky; top: 0; width: 258px; height: 100vh; min-height: 0; flex: 0 0 258px; display: flex; flex-direction: column; overflow: hidden; background: #fff; border-right: 1px solid var(--line); padding: 20px 13px 12px; z-index: 10; }
+.sidebar { position: sticky; top: 0; width: 258px; height: 100vh; min-height: 0; flex: 0 0 258px; display: flex; flex-direction: column; overflow: hidden; background: #fff; border-right: 1px solid var(--line); padding: 20px 13px 12px; z-index: 10; transition: width .18s ease, flex-basis .18s ease; }
 .sidebar-top { display: flex; align-items: center; justify-content: space-between; padding: 0 8px; }
 .brand { display: inline-flex; align-items: center; gap: 10px; color: var(--ink); font-size: 15px; font-weight: 800; letter-spacing: -.5px; }
 .brand-mark { width: 34px; height: 34px; border-radius: 11px; display: grid; place-items: center; color: white; background: linear-gradient(140deg, #7868ec, #4f45c6); box-shadow: 0 5px 12px rgba(92, 76, 205, .2); }
@@ -46,13 +46,48 @@ button:focus-visible, a:focus-visible, input:focus-visible, select:focus-visible
 .school-menu button:hover { background: #f6f5ff; }
 .school-menu svg { color: var(--purple); }
 .side-navigation { min-height: 0; flex: 1; overflow-x: hidden; overflow-y: auto; padding: 3px 2px 12px; scrollbar-width: thin; scrollbar-color: #deddeb transparent; }
-.nav-group { margin-bottom: 14px; }
-.nav-label { display: block; padding: 0 10px 6px; color: #9ca1b3; font-size: 9px; font-weight: 700; letter-spacing: .9px; text-transform: uppercase; }
+.sidebar-collapse-toggle { margin-left: auto; }
+.sidebar-collapse-icon { transition: transform .18s ease; }
+.sidebar-collapse-icon.collapsed { transform: rotate(180deg); }
+.side-navigation { display: flex; flex-direction: column; gap: 5px; }
+.nav-group { margin: 0; }
+.nav-group-toggle { display: flex; width: 100%; min-height: 37px; align-items: center; gap: 10px; padding: 0 10px; border: 0; border-radius: 9px; background: transparent; color: #737992; font-size: 11px; font-weight: 700; text-align: left; transition: background .16s, color .16s; }
+.nav-group-toggle > svg:first-child { flex: none; }
+.nav-group-toggle > span { min-width: 0; flex: 1; }
+.nav-group-toggle:hover { background: #f8f7ff; color: #4f4b82; }
+.nav-group-toggle.active { background: #f7f6ff; color: #5446c5; }
+.nav-group-chevron { flex: none; color: #9ca1b3; transition: transform .16s ease; }
+.nav-group-chevron.expanded { transform: rotate(180deg); }
+.nav-group-items { display: flex; flex-direction: column; padding: 2px 0 5px 10px; animation: sidebar-group-enter .14s ease both; }
+.nav-group-items[hidden] { display: none; }
+@keyframes sidebar-group-enter { from { opacity: 0; transform: translateY(-3px); } to { opacity: 1; transform: translateY(0); } }
+.dashboard-nav-item { margin-bottom: 5px; }
 .nav-item { display: flex; align-items: center; gap: 10px; min-height: 37px; margin: 1px 0; padding: 0 10px; border-radius: 9px; color: #737992; font-size: 11px; line-height: 1.25; font-weight: 600; transition: background .16s, color .16s; }
 .nav-item > svg { flex: none; }
 .nav-item > span { min-width: 0; }
 .nav-item:hover { color: #4f4b82; background: #f8f7ff; }
 .nav-item.active { color: #5446c5; background: #f0efff; }
+.sidebar.is-collapsed { width: 72px; flex-basis: 72px; padding: 14px 8px 10px; }
+.sidebar.is-collapsed .sidebar-top { flex-direction: column; gap: 7px; padding: 0; }
+.sidebar.is-collapsed .brand { gap: 0; }
+.sidebar.is-collapsed .brand > span:last-child,
+.sidebar.is-collapsed .school-picker-copy,
+.sidebar.is-collapsed .school-picker > svg,
+.sidebar.is-collapsed .nav-group-toggle > span,
+.sidebar.is-collapsed .nav-group-chevron,
+.sidebar.is-collapsed .nav-item > span,
+.sidebar.is-collapsed .profile-copy { display: none; }
+.sidebar.is-collapsed .school-picker-wrap { margin: 12px 0; }
+.sidebar.is-collapsed .school-picker { justify-content: center; padding: 6px; }
+.sidebar.is-collapsed .school-menu { position: fixed; top: 68px; right: auto; left: 78px; width: 220px; }
+.sidebar.is-collapsed .side-navigation { align-items: center; }
+.sidebar.is-collapsed .nav-group { width: 100%; }
+.sidebar.is-collapsed .nav-group-toggle,
+.sidebar.is-collapsed .nav-item { justify-content: center; gap: 0; padding: 0; }
+.sidebar.is-collapsed .nav-group-items { align-items: center; padding: 2px 0 5px; }
+.sidebar.is-collapsed .nav-item { width: 100%; }
+.sidebar.is-collapsed .sidebar-bottom > .nav-item { margin: 1px 0; }
+.sidebar.is-collapsed .profile-row { flex-direction: column; justify-content: center; gap: 4px; padding-right: 0; padding-left: 0; }
 .sidebar-bottom { flex: none; border-top: 1px solid #f0f0f5; padding-top: 8px; }
 .profile-row { display: flex; align-items: center; gap: 9px; margin-top: 11px; padding: 11px 4px 2px; border-top: 1px solid #f0f0f5; }
 .avatar { width: 33px; height: 33px; display: grid; flex: none; place-items: center; border-radius: 50%; background: #eeeaff; color: #594acb; font-size: 11px; font-weight: 700; }
@@ -533,6 +568,7 @@ td strong { color: #3e435a; font-weight: 600; }
   .mobile-backdrop { position: fixed; inset: 0; z-index: 20; display: block; background: rgba(25, 28, 49, .36); }
   .mobile-sidebar { position: absolute; inset: 0 auto 0 0; height: 100%; display: flex; box-shadow: 10px 0 35px rgba(24, 27, 52, .12); }
   .mobile-close, .mobile-menu { display: inline-grid; }
+  .sidebar-collapse-toggle { display: none; }
   .topbar { height: 58px; padding: 0 15px; }
   .topbar-left, .topbar-actions { gap: 8px; }
   .breadcrumbs { font-size: 10px; }
@@ -576,6 +612,10 @@ td strong { color: #3e435a; font-weight: 600; }
   .setup-header { padding: 0 15px; }
   .setup-card { margin: 8vh 15px 30px; width: auto; padding: 24px; }
   .config-card { padding: 25px; }
+}
+@media (prefers-reduced-motion: reduce) {
+  .sidebar, .sidebar-collapse-icon, .nav-group-toggle, .nav-group-chevron, .nav-item { transition: none; }
+  .nav-group-items { animation: none; }
 }
 @media (max-width: 390px) {
   .page-heading { align-items: flex-end; }

@@ -1,10 +1,10 @@
 import { useEffect, useState } from 'react';
 import { Navigate, NavLink, Outlet, useLocation, useNavigate } from 'react-router-dom';
 import {
-  BookCopy, BookMarked, BookOpenCheck, BookOpenText, CalendarDays, Check, ChevronDown, ClipboardList, Library, Workflow, Globe,
+  BookCopy, BookMarked, BookOpenCheck, BookOpenText, CalendarDays, Check, ChevronDown, ClipboardList, Workflow, Globe,
   ChevronLeft, ClipboardCheck, GraduationCap, LayoutDashboard, LogOut, Menu,
   Settings, UsersRound, X, CalendarClock, CircleDollarSign, UserRoundPlus,
-  Award, BriefcaseBusiness, FileStack, HeartPulse, ClipboardPlus, Search,
+  Award, BriefcaseBusiness, FileStack, HeartPulse, ClipboardPlus, Search, Library,
   MessageCircle, ShieldCheck,
   type LucideIcon,
 } from 'lucide-react';
@@ -15,61 +15,71 @@ import type { AppRole } from '../types/database';
 import { requireSupabase } from '../lib/supabase';
 import { CommandPalette, openCommandPalette } from './CommandPalette';
 
-const navigation: { title: string; items: { to: string; label: string; icon: LucideIcon; roles?: AppRole[]; module?: string }[] }[] = [
-  { title: 'Workspace', items: [
-    { to: '/dashboard', label: 'Overview', icon: LayoutDashboard },
-    { to: '/account-security', label: 'Account security', icon: ShieldCheck },
-    { to: '/permissions', label: 'Roles & permissions', icon: ShieldCheck, roles: ['school_admin'] },
+type NavigationItem = { to: string; label: string; icon: LucideIcon; roles?: AppRole[]; module?: string };
+type NavigationGroup = { id: string; title: string; icon: LucideIcon; items: NavigationItem[] };
+
+const dashboardItem: NavigationItem = { to: '/dashboard', label: 'Overview', icon: LayoutDashboard };
+const accountSecurityItem: NavigationItem = { to: '/account-security', label: 'Account security', icon: ShieldCheck };
+const navigation: NavigationGroup[] = [
+  { id: 'academics', title: 'Academics', icon: CalendarDays, items: [
     { to: '/academic-planning', label: 'Academic planning', icon: CalendarDays, roles: ['school_admin', 'academic_coordinator'] },
-    { to: '/students', label: 'Students', icon: GraduationCap },
-    { to: '/admissions', label: 'Admissions & enrolment', icon: UserRoundPlus, roles: ['school_admin', 'admissions_officer'], module: 'module_admissions' },
-    { to: '/staff', label: 'Staff & teachers', icon: BriefcaseBusiness, roles: ['school_admin', 'academic_coordinator', 'teacher', 'hr_staff_administrator'] },
-    { to: '/website-management', label: 'Website content', icon: Globe, roles: ['school_admin', 'website_editor', 'website_publisher'] },
-    { to: '/admin-workflows', label: 'Administrative workflows', icon: BriefcaseBusiness, roles: ['school_admin', 'transport_manager', 'facilities_manager', 'it_support_technician', 'safeguarding_officer', 'procurement_officer', 'compliance_audit_officer'] },
-    { to: '/automations', label: 'Automations', icon: Workflow, roles: ['school_admin', 'academic_coordinator'], module: 'module_automations' },
-    { to: '/classes', label: 'Classes', icon: UsersRound },
-    { to: '/subjects', label: 'Subjects', icon: BookMarked },
-  ] },
-  { title: 'Academics', items: [
     { to: '/timetable', label: 'Timetable', icon: CalendarClock, module: 'module_timetable' },
     { to: '/academic-calendar', label: 'Academic calendar', icon: CalendarDays },
     { to: '/attendance', label: 'Attendance', icon: ClipboardCheck, module: 'module_attendance' },
-    { to: '/learning', label: 'Learning', icon: BookOpenText, module: 'module_learning' },
-    { to: '/courses-lessons', label: 'Courses & lessons', icon: Library, module: 'module_learning' },
-    { to: '/learning-materials', label: 'Learning materials', icon: FileStack, module: 'module_learning' },
-    { to: '/library', label: 'Library', icon: BookCopy, module: 'module_library' },
-    { to: '/health', label: 'Health', icon: HeartPulse, roles: ['school_admin', 'nurse', 'doctor'], module: 'module_health' },
-    { to: '/visitors', label: 'Visitors', icon: ClipboardPlus, roles: ['school_admin', 'secretary'], module: 'module_visitors' },
-    { to: '/assignments', label: 'Assignments & homework', icon: ClipboardList, roles: ['school_admin', 'academic_coordinator', 'teacher', 'student', 'parent'], module: 'module_assignments' },
-    { to: '/grades-results', label: 'Grades & results', icon: Award, roles: ['school_admin', 'academic_coordinator', 'teacher', 'student', 'parent'], module: 'module_assessment_results' },
+    { to: '/classes', label: 'Classes', icon: UsersRound },
+    { to: '/subjects', label: 'Subjects', icon: BookMarked },
     { to: '/calendar', label: 'Calendar', icon: CalendarDays },
   ] },
-  { title: 'Finance', items: [
+  { id: 'people', title: 'People', icon: UsersRound, items: [
+    { to: '/students', label: 'Students', icon: GraduationCap },
+    { to: '/admissions', label: 'Admissions & enrolment', icon: UserRoundPlus, roles: ['school_admin', 'admissions_officer'], module: 'module_admissions' },
+    { to: '/staff', label: 'Staff & teachers', icon: BriefcaseBusiness, roles: ['school_admin', 'academic_coordinator', 'teacher', 'hr_staff_administrator'] },
+  ] },
+  { id: 'finance', title: 'Finance', icon: CircleDollarSign, items: [
     { to: '/finance', label: 'Student fees', icon: CircleDollarSign, roles: ['school_admin', 'finance_manager', 'accountant', 'bursar', 'cashier', 'auditor'], module: 'module_finance' },
     { to: '/accounting-staff', label: 'Accounting & specialist staff', icon: UserRoundPlus, roles: ['school_admin'], module: 'module_finance' },
   ] },
-  { title: 'Communication', items: [
+  { id: 'learning-library', title: 'Learning & Library', icon: Library, items: [
+    { to: '/learning', label: 'Learning', icon: BookOpenText, module: 'module_learning' },
+    { to: '/courses-lessons', label: 'Courses & lessons', icon: Library, module: 'module_learning' },
+    { to: '/learning-materials', label: 'Learning materials', icon: FileStack, module: 'module_learning' },
+    { to: '/assignments', label: 'Assignments & homework', icon: ClipboardList, roles: ['school_admin', 'academic_coordinator', 'teacher', 'student', 'parent'], module: 'module_assignments' },
+    { to: '/grades-results', label: 'Grades & results', icon: Award, roles: ['school_admin', 'academic_coordinator', 'teacher', 'student', 'parent'], module: 'module_assessment_results' },
+    { to: '/library', label: 'Library', icon: BookCopy, module: 'module_library' },
+  ] },
+  { id: 'student-life', title: 'Student Life', icon: HeartPulse, items: [
+    { to: '/health', label: 'Health', icon: HeartPulse, roles: ['school_admin', 'nurse', 'doctor'], module: 'module_health' },
+  ] },
+  { id: 'school-operations', title: 'School Operations', icon: BriefcaseBusiness, items: [
+    { to: '/admin-workflows', label: 'Administrative workflows', icon: BriefcaseBusiness, roles: ['school_admin', 'transport_manager', 'facilities_manager', 'it_support_technician', 'safeguarding_officer', 'procurement_officer', 'compliance_audit_officer'] },
+    { to: '/visitors', label: 'Visitors', icon: ClipboardPlus, roles: ['school_admin', 'secretary'], module: 'module_visitors' },
+  ] },
+  { id: 'website-communication', title: 'Website & Communication', icon: Globe, items: [
+    { to: '/website-management', label: 'Website content', icon: Globe, roles: ['school_admin', 'website_editor', 'website_publisher'] },
     { to: '/messaging', label: 'Messages', icon: MessageCircle, module: 'module_messaging' },
+  ] },
+  { id: 'administration', title: 'Administration', icon: Settings, items: [
+    { to: '/automations', label: 'Automations', icon: Workflow, roles: ['school_admin', 'academic_coordinator'], module: 'module_automations' },
+    { to: '/permissions', label: 'Roles & permissions', icon: ShieldCheck, roles: ['school_admin'] },
     { to: '/audit-log', label: 'Audit log', icon: ShieldCheck, roles: ['school_admin', 'auditor', 'compliance_audit_officer'] },
   ] },
 ];
 
-const teacherNavigation: typeof navigation = [
-  { title: 'Teaching', items: [
-    { to: '/dashboard', label: 'My dashboard', icon: LayoutDashboard },
-    { to: '/timetable', label: 'My timetable', icon: CalendarClock, module: 'module_timetable' },
-    { to: '/classes', label: 'My classes', icon: UsersRound },
-    { to: '/subjects', label: 'My subjects', icon: BookMarked },
-    { to: '/attendance', label: 'Attendance', icon: ClipboardCheck, module: 'module_attendance' },
-    { to: '/learning', label: 'Assessments', icon: BookOpenCheck, module: 'module_learning' },
-    { to: '/assignments', label: 'Assignments', icon: ClipboardList, module: 'module_assignments' },
-    { to: '/grades-results', label: 'Grades & results', icon: Award, module: 'module_assessment_results' },
-    { to: '/courses-lessons', label: 'Courses & lessons', icon: Library, module: 'module_learning' },
-    { to: '/learning-materials', label: 'Learning materials', icon: FileStack, module: 'module_learning' },
-    { to: '/calendar', label: 'Calendar', icon: CalendarDays },
-    { to: '/messaging', label: 'Messages', icon: MessageCircle, module: 'module_messaging' },
-  ] },
-];
+const teacherNavigationPaths = new Set([
+  '/timetable', '/classes', '/subjects', '/attendance', '/grades-results', '/calendar',
+  '/learning', '/assignments', '/courses-lessons', '/learning-materials', '/messaging',
+]);
+const teacherNavigationLabels: Record<string, string> = {
+  '/timetable': 'My timetable',
+  '/classes': 'My classes',
+  '/subjects': 'My subjects',
+  '/learning': 'Assessments',
+  '/assignments': 'Assignments',
+};
+const teacherNavigationGroupTitles: Record<string, string> = {
+  'learning-library': 'Learning',
+  'website-communication': 'Communication',
+};
 
 const pageNames: Record<string, string> = {
   '/dashboard': 'Overview', '/students': 'Students', '/admissions': 'Admissions & enrolment', '/teachers': 'Teachers', '/staff': 'Staff & teachers',
@@ -89,6 +99,9 @@ export function AppShell() {
   const { activeMembership, memberships, selectSchool, signOut, user } = useAuth();
   const { platformName, logoUrl, maintenanceNotice } = usePlatformBranding();
   const [mobileOpen, setMobileOpen] = useState(false);
+  const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
+  const [expandedNavigationGroups, setExpandedNavigationGroups] = useState<string[]>([]);
+  const [loadedSidebarPreferenceKey, setLoadedSidebarPreferenceKey] = useState('');
   const [schoolMenuOpen, setSchoolMenuOpen] = useState(false);
   const [logoutError, setLogoutError] = useState('');
   const [isHeadOfDepartment, setIsHeadOfDepartment] = useState(false);
@@ -98,6 +111,7 @@ export function AppShell() {
   const [maintenance, setMaintenance] = useState<{ active: boolean; scope: string | null; read_only: boolean; notice: string; ends_at: string | null; emergency: boolean } | null>(null);
   const navigate = useNavigate();
   const location = useLocation();
+  const sidebarPreferenceKey = `campus-connect-sidebar:${user?.id ?? 'anonymous'}:${activeMembership?.school_id ?? 'no-school'}`;
   const isHealthcareRole = activeMembership?.role === 'nurse' || activeMembership?.role === 'doctor';
   const isSecretaryRole = activeMembership?.role === 'secretary';
   const isRestrictedRole = isHealthcareRole || isSecretaryRole;
@@ -201,21 +215,80 @@ export function AppShell() {
     ? navigation.map((group) => ({ ...group, items: group.items.filter((item) => rolePaths.includes(item.to)) }))
       .filter((group) => group.items.length > 0)
     : activeMembership?.role === 'teacher'
-    ? teacherNavigation.map((group) => group.title === 'Teaching' && isHeadOfDepartment
-      ? { ...group, items: [...group.items, { to: '/staff', label: 'Department staff', icon: BriefcaseBusiness }] }
-      : group)
+    ? navigation.map((group) => ({
+      ...group,
+      title: teacherNavigationGroupTitles[group.id] ?? group.title,
+      items: group.items.filter((item) => teacherNavigationPaths.has(item.to))
+        .map((item) => ({ ...item, label: teacherNavigationLabels[item.to] ?? item.label })),
+    })).filter((group) => group.items.length > 0)
     : navigation;
+  const roleNavigationWithHod = activeMembership?.role === 'teacher' && isHeadOfDepartment
+    ? [...roleNavigation, { id: 'people', title: 'People', icon: UsersRound, items: [{ to: '/staff', label: 'Department staff', icon: BriefcaseBusiness }] }]
+    : roleNavigation;
   const visibleNavigation = isRestrictedRole
-    ? roleNavigation.map((group) => ({
+    ? roleNavigationWithHod.map((group) => ({
       ...group,
       items: group.items.filter((item) => item.to === (isHealthcareRole ? '/health' : '/visitors')),
     })).filter((group) => group.items.length > 0)
-    : roleNavigation;
-  const accessibleNavigation = visibleNavigation.flatMap((group) => group.items.filter((item) =>
-    (!item.roles || item.roles.includes(activeMembership?.role ?? 'student'))
-    && (!item.module || modules?.[item.module] !== false)
-    && (!permissionModuleForPath[item.to] || permissionSummary?.[permissionModuleForPath[item.to]]?.access !== false)));
+    : roleNavigationWithHod;
+  const accessibleNavigationGroups = visibleNavigation.map((group) => ({
+    ...group,
+    items: group.items.filter((item) =>
+      (!item.roles || item.roles.includes(activeMembership?.role ?? 'student'))
+      && (!item.module || modules?.[item.module] !== false)
+      && (!permissionModuleForPath[item.to] || permissionSummary?.[permissionModuleForPath[item.to]]?.access !== false)),
+  })).filter((group) => group.items.length > 0);
+  const dashboardNavigationItem = activeMembership?.role === 'teacher'
+    ? { ...dashboardItem, label: 'My dashboard' }
+    : dashboardItem;
+  const accessibleNavigation = [
+    ...(!isRestrictedRole ? [dashboardNavigationItem, accountSecurityItem] : []),
+    ...accessibleNavigationGroups.flatMap((group) => group.items),
+  ];
   const canAccessSettings = !isRestrictedRole && !isLimitedRole && !isAccountingRole && activeMembership?.role !== 'teacher';
+  const navigationGroupIds = accessibleNavigationGroups.map((group) => group.id);
+  const navigationGroupIdsKey = navigationGroupIds.join('|');
+
+  useEffect(() => {
+    let collapsed = false;
+    let expanded: string[] = [];
+    try {
+      const saved = JSON.parse(localStorage.getItem(sidebarPreferenceKey) ?? 'null') as unknown;
+      if (saved && typeof saved === 'object' && !Array.isArray(saved)) {
+        const preferences = saved as { collapsed?: unknown; expanded?: unknown };
+        collapsed = preferences.collapsed === true;
+        if (Array.isArray(preferences.expanded)) {
+          expanded = [...new Set(preferences.expanded.filter((id): id is string =>
+            typeof id === 'string' && navigationGroupIds.includes(id)))];
+        }
+      }
+    } catch (error) {
+      console.error('Could not restore sidebar preferences.', error);
+    }
+    setSidebarCollapsed(collapsed);
+    setExpandedNavigationGroups(expanded);
+    setLoadedSidebarPreferenceKey(sidebarPreferenceKey);
+  }, [sidebarPreferenceKey, navigationGroupIdsKey]);
+
+  useEffect(() => {
+    if (loadedSidebarPreferenceKey !== sidebarPreferenceKey) return;
+    try {
+      localStorage.setItem(sidebarPreferenceKey, JSON.stringify({
+        collapsed: sidebarCollapsed,
+        expanded: [...new Set(expandedNavigationGroups.filter((id) => navigationGroupIds.includes(id)))],
+      }));
+    } catch (error) {
+      console.error('Could not save sidebar preferences.', error);
+    }
+  }, [sidebarPreferenceKey, sidebarCollapsed, expandedNavigationGroups, loadedSidebarPreferenceKey, navigationGroupIdsKey]);
+
+  useEffect(() => {
+    const activeGroup = accessibleNavigationGroups.find((group) =>
+      group.items.some((item) => item.to === modulePath));
+    if (activeGroup) {
+      setExpandedNavigationGroups((current) => current.includes(activeGroup.id) ? current : [...current, activeGroup.id]);
+    }
+  }, [location.pathname, navigationGroupIdsKey]);
 
   useEffect(() => {
     let active = true;
@@ -434,14 +507,27 @@ export function AppShell() {
     }
   }
 
-  function sidebarContent() {
+  function toggleNavigationGroup(groupId: string) {
+    setExpandedNavigationGroups((current) => current.includes(groupId)
+      ? current.filter((id) => id !== groupId)
+      : [...current, groupId]);
+  }
+
+  function sidebarContent(collapsed: boolean, idPrefix: string) {
     return <>
       <div className="sidebar-top">
         <a className="brand" href="/"><span className="brand-mark">{logoUrl ? <img src={logoUrl} alt="" /> : <BookOpenCheck size={20} />}</span><span>{platformName}</span></a>
+        <button
+          type="button"
+          className="icon-button sidebar-collapse-toggle"
+          onClick={() => setSidebarCollapsed((current) => !current)}
+          aria-label={collapsed ? 'Expand sidebar' : 'Collapse sidebar'}
+          title={collapsed ? 'Expand sidebar' : 'Collapse sidebar'}
+        ><ChevronLeft size={17} className={collapsed ? 'sidebar-collapse-icon collapsed' : 'sidebar-collapse-icon'} /></button>
         <button className="icon-button mobile-close" onClick={() => setMobileOpen(false)} aria-label="Close navigation"><X size={20} /></button>
       </div>
       {!isRestrictedRole && !isLimitedRole && <div className="school-picker-wrap">
-        <button className="school-picker" onClick={() => setSchoolMenuOpen(!schoolMenuOpen)} aria-expanded={schoolMenuOpen}>
+        <button className="school-picker" onClick={() => setSchoolMenuOpen(!schoolMenuOpen)} aria-label={`Switch school. Current school: ${activeMembership?.school.name ?? 'School'}`} title={collapsed ? activeMembership?.school.name : undefined} aria-expanded={schoolMenuOpen}>
           <span className="school-monogram">{activeMembership?.school.name.slice(0, 1).toUpperCase() ?? 'S'}</span>
           <span className="school-picker-copy"><strong>{activeMembership?.school.name}</strong><small>{activeMembership?.role.replace(/_/g, ' ')}</small></span>
           <ChevronDown size={16} />
@@ -449,15 +535,35 @@ export function AppShell() {
         {schoolMenuOpen && <div className="school-menu">{memberships.map((membership) => <button key={membership.school_id} onClick={() => { selectSchool(membership.school_id); setSchoolMenuOpen(false); setMobileOpen(false); }}><span>{membership.school.name}</span>{membership.school_id === activeMembership?.school_id && <Check size={15} />}</button>)}</div>}
       </div>}
       <nav className="side-navigation" aria-label="Main navigation">
-        {visibleNavigation.map((group) => {
-          const accessiblePaths = new Set(accessibleNavigation.map((item) => item.to));
-          const items = group.items.filter((item) => accessiblePaths.has(item.to));
-          return items.length ? <div className="nav-group" key={group.title}><span className="nav-label">{group.title}</span>{items.map(({ to, label, icon: Icon }) => <NavLink key={to} to={to} onClick={() => setMobileOpen(false)} className={({ isActive }) => `nav-item${isActive ? ' active' : ''}`}><Icon size={18} strokeWidth={1.8} /><span>{label}</span></NavLink>)}</div> : null;
+        {!isRestrictedRole && <NavLink to={dashboardNavigationItem.to} end onClick={() => setMobileOpen(false)} title={collapsed ? dashboardNavigationItem.label : undefined} className={({ isActive }) => `nav-item dashboard-nav-item${isActive ? ' active' : ''}`}><LayoutDashboard size={18} strokeWidth={1.8} /><span>{dashboardNavigationItem.label}</span></NavLink>}
+        {accessibleNavigationGroups.map((group) => {
+          const Icon = group.icon;
+          const expanded = expandedNavigationGroups.includes(group.id);
+          const active = group.items.some((item) => item.to === modulePath);
+          return <section className={`nav-group${active ? ' has-active-route' : ''}`} key={group.id}>
+            <button
+              type="button"
+              className={`nav-group-toggle${active ? ' active' : ''}`}
+              onClick={() => toggleNavigationGroup(group.id)}
+              aria-expanded={expanded}
+              aria-controls={`${idPrefix}-navigation-group-${group.id}`}
+              aria-label={`${expanded ? 'Collapse' : 'Expand'} ${group.title} navigation`}
+              title={collapsed ? group.title : undefined}
+            >
+              <Icon size={18} strokeWidth={1.8} />
+              <span>{group.title}</span>
+              <ChevronDown size={15} className={expanded ? 'nav-group-chevron expanded' : 'nav-group-chevron'} aria-hidden="true" />
+            </button>
+            <div id={`${idPrefix}-navigation-group-${group.id}`} className="nav-group-items" hidden={!expanded}>
+              {group.items.map(({ to, label, icon: ItemIcon }) => <NavLink key={to} to={to} onClick={() => setMobileOpen(false)} title={collapsed ? label : undefined} className={({ isActive }) => `nav-item${isActive ? ' active' : ''}`}><ItemIcon size={17} strokeWidth={1.8} /><span>{label}</span></NavLink>)}
+            </div>
+          </section>;
         })}
       </nav>
       <div className="sidebar-bottom">
-        {!isRestrictedRole && !isLimitedRole && !isAccountingRole && activeMembership?.role !== 'teacher' && <NavLink to="/settings" onClick={() => setMobileOpen(false)} className={({ isActive }) => `nav-item${isActive ? ' active' : ''}`}><Settings size={18} strokeWidth={1.8} /><span>Settings</span></NavLink>}
-        <div className="profile-row"><span className="avatar">{(user?.user_metadata.full_name as string | undefined)?.slice(0, 1).toUpperCase() ?? user?.email?.slice(0, 1).toUpperCase()}</span><span className="profile-copy"><strong>{(user?.user_metadata.full_name as string | undefined) ?? user?.email}</strong><small>{user?.email}</small></span><button className="icon-button" onClick={() => void logout()} aria-label="Sign out"><LogOut size={17} /></button></div>
+        {!isRestrictedRole && <NavLink to={accountSecurityItem.to} onClick={() => setMobileOpen(false)} title={collapsed ? accountSecurityItem.label : undefined} className={({ isActive }) => `nav-item${isActive ? ' active' : ''}`}><ShieldCheck size={18} strokeWidth={1.8} /><span>{accountSecurityItem.label}</span></NavLink>}
+        {!isRestrictedRole && !isLimitedRole && !isAccountingRole && activeMembership?.role !== 'teacher' && <NavLink to="/settings" onClick={() => setMobileOpen(false)} title={collapsed ? 'Settings' : undefined} className={({ isActive }) => `nav-item${isActive ? ' active' : ''}`}><Settings size={18} strokeWidth={1.8} /><span>Settings</span></NavLink>}
+        <div className="profile-row"><span className="avatar">{(user?.user_metadata.full_name as string | undefined)?.slice(0, 1).toUpperCase() ?? user?.email?.slice(0, 1).toUpperCase()}</span><span className="profile-copy"><strong>{(user?.user_metadata.full_name as string | undefined) ?? user?.email}</strong><small>{user?.email}</small></span><button className="icon-button" onClick={() => void logout()} aria-label="Sign out" title={collapsed ? 'Sign out' : undefined}><LogOut size={17} /></button></div>
       </div>
     </>;
   }
@@ -469,8 +575,8 @@ export function AppShell() {
 
   return (
     <div className="app-layout">
-      <aside className="sidebar desktop-sidebar">{sidebarContent()}</aside>
-      {mobileOpen && <div className="mobile-backdrop" onClick={() => setMobileOpen(false)}><aside className="sidebar mobile-sidebar" onClick={(event) => event.stopPropagation()}>{sidebarContent()}</aside></div>}
+      <aside className={`sidebar desktop-sidebar${sidebarCollapsed ? ' is-collapsed' : ''}`}>{sidebarContent(sidebarCollapsed, 'desktop')}</aside>
+      {mobileOpen && <div className="mobile-backdrop" onClick={() => setMobileOpen(false)}><aside className="sidebar mobile-sidebar" onClick={(event) => event.stopPropagation()}>{sidebarContent(false, 'mobile')}</aside></div>}
       <main className="workspace">
         <header className="topbar">
           <div className="topbar-left"><button className="icon-button mobile-menu" onClick={() => setMobileOpen(true)} aria-label="Open navigation"><Menu size={21} /></button><span className="breadcrumbs">Workspace <ChevronLeft size={14} className="crumb-chevron" /> <strong>{title}</strong></span></div>

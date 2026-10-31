@@ -782,8 +782,16 @@ Accounts Payable Officer is available as a restricted core role; supplier-payabl
 - [x] Record school-scoped usage metrics without storing raw search terms.
 - [x] Document the palette and its migration/deployment requirements.
 
-### Features 02–70
-- [ ] Pending: their specifications were not included with the supplied Feature 01 brief.
+### Feature 02: Grouped & Collapsible Sidebar Navigation
+- [x] Organize existing destinations into role-aware groups with a standalone dashboard and fixed account/settings links.
+- [x] Expand/collapse groups independently, preserve active-route highlighting, and auto-expand the active route's group.
+- [x] Persist validated group expansion and collapsed-sidebar preferences per user and school.
+- [x] Provide a compact icon-only desktop mode with tooltips while keeping its navigation destinations accessible.
+- [x] Preserve role, module, permission, and direct-route access checks; keep grouped navigation usable in the mobile drawer.
+- [x] Document navigation groups and preference behavior; no database changes required.
+
+### Features 03–70
+- [ ] Pending: their specifications have not yet been supplied.
 
 ## Priority Order for Next Implementation
 1. Roles and permissions
