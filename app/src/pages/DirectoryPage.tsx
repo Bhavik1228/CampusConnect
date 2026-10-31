@@ -3,6 +3,7 @@ import { useSearchParams } from 'react-router-dom';
 import { Plus, Search, SlidersHorizontal, X } from 'lucide-react';
 import { useAuth } from '../contexts/AuthContext';
 import { requireSupabase } from '../lib/supabase';
+import { createPrerequisiteRecord } from '../lib/prerequisite-records';
 import type { SchoolClass, Student, Subject } from '../types/database';
 import { EmptyState, ErrorState, LoadingState } from '../components/Feedback';
 
@@ -202,30 +203,32 @@ export function DirectoryPage({ kind }: { kind: Kind }) {
           class_id: String(formData.get('class_id')) || null,
         });
       } else if (kind === 'teachers') {
-        result = await client.from('teacher_profiles').insert({
-          school_id: schoolId,
-          first_name: String(formData.get('first_name')).trim(),
-          last_name: String(formData.get('last_name')).trim(),
-          email: String(formData.get('email')).trim() || null,
+        await createPrerequisiteRecord({
+          entity: 'teacher',
+          schoolId,
+          firstName: String(formData.get('first_name')),
+          lastName: String(formData.get('last_name')),
+          email: String(formData.get('email')),
         });
       } else if (kind === 'classes') {
-        const calendarId = String(formData.get('calendar_id')) || null;
-        result = await client.from('school_classes').insert({
-          school_id: schoolId,
+        await createPrerequisiteRecord({
+          entity: 'class',
+          schoolId,
           name: String(formData.get('name')).trim(),
-          grade_level: String(formData.get('grade_level')).trim() || null,
-          calendar_id: calendarId,
-          academic_year_id: String(formData.get('academic_year_id')) || null,
+          gradeLevel: String(formData.get('grade_level')),
+          calendarId: String(formData.get('calendar_id')),
+          academicYearId: String(formData.get('academic_year_id')),
         });
       } else {
-        result = await client.from('subjects').insert({
-          school_id: schoolId,
+        await createPrerequisiteRecord({
+          entity: 'subject',
+          schoolId,
           name: String(formData.get('name')).trim(),
-          code: String(formData.get('code')).trim() || null,
-          department_id: String(formData.get('department_id')) || null,
+          code: String(formData.get('code')),
+          departmentId: String(formData.get('department_id')),
         });
       }
-      if (result.error) throw result.error;
+      if (kind === 'students' && result?.error) throw result.error;
       setFormSuccess(`${meta.singular[0].toUpperCase()}${meta.singular.slice(1)} added.`);
       setShowForm(false);
       setRefreshKey((key) => key + 1);

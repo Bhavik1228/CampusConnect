@@ -1,7 +1,12 @@
 import { useCallback, useEffect, useMemo, useState, type FormEvent } from 'react';
 import { BookOpen, CalendarClock, Check, ClipboardList, Download, FileText, Plus, Send, X } from 'lucide-react';
+import { Link } from 'react-router-dom';
 import { ErrorState, LoadingState } from '../components/Feedback';
+import { PrerequisiteFieldNotice } from '../components/PrerequisiteFieldNotice';
+import { PrerequisiteQuickCreate } from '../components/PrerequisiteQuickCreate';
 import { useAuth } from '../contexts/AuthContext';
+import { getPrerequisiteRule, resolvePrerequisiteAvailability } from '../lib/prerequisite-rules';
+import { type PrerequisiteEntity, type PrerequisiteRecord } from '../lib/prerequisite-records';
 import { requireSupabase } from '../lib/supabase';
 
 type AssignmentStatus = 'draft' | 'published' | 'archived';
@@ -46,8 +51,9 @@ type Material = {
   is_uploaded: boolean;
   is_published: boolean;
 };
-type Teacher = { id: string; profile_id: string | null; first_name: string; last_name: string };
+type Teacher = { id: string; profile_id?: string | null; first_name: string; last_name: string; status: string };
 type TeacherClassAssignment = { teacher_id: string; class_id: string };
+type ClassSubject = { class_id: string; subject_id: string };
 type AssignmentForm = {
   title: string;
   class_id: string;
@@ -113,11 +119,13 @@ export function AssignmentsPage() {
   const [teacherId, setTeacherId] = useState('');
   const [teachers, setTeachers] = useState<Teacher[]>([]);
   const [classTeacherIds, setClassTeacherIds] = useState<Map<string, Set<string>>>(new Map());
+  const [classSubjects, setClassSubjects] = useState<ClassSubject[]>([]);
   const [teacherClasses, setTeacherClasses] = useState<Set<string>>(new Set());
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [refreshKey, setRefreshKey] = useState(0);
   const [showCreate, setShowCreate] = useState(false);
+  const [quickCreateEntity, setQuickCreateEntity] = useState<PrerequisiteEntity | null>(null);
   const [form, setForm] = useState<AssignmentForm>(emptyForm);
   const [error, setError] = useState('');
   const [notice, setNotice] = useState('');
@@ -128,7 +136,7 @@ export function AssignmentsPage() {
     setError('');
     try {
       const client = requireSupabase();
-      const [assignmentResult, submissionResult, classResult, subjectResult, studentResult, materialResult, teacherResult, teacherClassResult] = await Promise.all([
+      const [assignmentResult, submissionResult, classResult, subjectResult, studentResult, materialResult, teacherResult, teacherClassResult, classSubjectResult] = await Promise.all([
         client.from('assignments')
           .select('id,school_id,class_id,subject_id,teacher_id,title,description,due_at,max_marks,status,attached_material_id,created_at')
           .eq('school_id', schoolId).order('due_at', { ascending: true, nullsFirst: false }),
@@ -143,13 +151,14 @@ export function AssignmentsPage() {
         client.from('learning_materials').select('id,title,class_id,storage_path,storage_provider,mime_type,file_name,is_uploaded,is_published')
           .eq('school_id', schoolId).eq('is_uploaded', true).eq('is_published', true).order('title'),
         canManage
-          ? client.from('teacher_profiles').select('id,profile_id,first_name,last_name').eq('school_id', schoolId).order('last_name')
+          ? client.from('teacher_profiles').select('id,profile_id,first_name,last_name,status').eq('school_id', schoolId).order('last_name')
           : Promise.resolve({ data: [] as Teacher[], error: null }),
         canManage
           ? client.from('teacher_class_assignments').select('teacher_id,class_id').eq('school_id', schoolId)
           : Promise.resolve({ data: [] as TeacherClassAssignment[], error: null }),
+        client.from('class_subjects').select('class_id,subject_id').eq('school_id', schoolId),
       ]);
-      const failed = [assignmentResult, submissionResult, classResult, subjectResult, studentResult, materialResult, teacherResult, teacherClassResult].find((result) => result.error)?.error;
+      const failed = [assignmentResult, submissionResult, classResult, subjectResult, studentResult, materialResult, teacherResult, teacherClassResult, classSubjectResult].find((result) => result.error)?.error;
       if (failed) throw failed;
 
       const teacherRecords = (teacherResult.data ?? []) as Teacher[];
@@ -188,6 +197,7 @@ export function AssignmentsPage() {
       setTeacherId(currentTeacherId);
       setTeachers(teacherRecords);
       setClassTeacherIds(assignedTeachersByClass);
+      setClassSubjects((classSubjectResult.data ?? []) as ClassSubject[]);
       setTeacherClasses(assignedClassIds);
       setMaterials((materialResult.data ?? []) as Material[]);
     } catch (loadError) {
@@ -205,13 +215,80 @@ export function AssignmentsPage() {
   const visibleAssignments = isStudent
     ? assignments.filter((assignment) => assignment.status === 'published' && assignment.class_id === student?.class_id)
     : assignments.filter((assignment) => role !== 'teacher' || teacherClasses.has(assignment.class_id) || assignment.teacher_id === teacherId);
-  const teachersForFormClass = teachers.filter((item) => classTeacherIds.get(form.class_id)?.has(item.id));
+  const activeTeachers = teachers.filter((item) => item.status === 'active');
+  const subjectsForFormClass = (() => {
+    const assignedSubjects = classSubjects.filter((item) => item.class_id === form.class_id);
+    return assignedSubjects.length
+      ? subjects.filter((subject) => assignedSubjects.some((item) => item.subject_id === subject.id))
+      : subjects;
+  })();
+  const teachersForFormClass = activeTeachers.filter((item) => classTeacherIds.get(form.class_id)?.has(item.id));
+  const classAvailability = resolvePrerequisiteAvailability({
+    loading,
+    error,
+    totalRecords: classes.length,
+    selectableRecords: classes.length,
+  });
+  const subjectAvailability = resolvePrerequisiteAvailability({
+    loading,
+    error,
+    totalRecords: subjects.length,
+    selectableRecords: subjectsForFormClass.length,
+    filteredRecords: Math.max(0, subjects.length - subjectsForFormClass.length),
+  });
+  const teacherAvailability = resolvePrerequisiteAvailability({
+    loading,
+    error,
+    totalRecords: teachers.length,
+    selectableRecords: teachersForFormClass.length,
+    inactiveRecords: teachers.length > 0 && activeTeachers.length === 0 ? teachers.length : 0,
+    filteredRecords: activeTeachers.length > 0 && teachersForFormClass.length === 0 ? activeTeachers.length : 0,
+  });
+
+  function handlePrerequisiteCreated(entity: PrerequisiteEntity, record: PrerequisiteRecord, selectedExisting: boolean) {
+    if (entity === 'class') {
+      setClasses((current) => current.some((item) => item.id === record.id)
+        ? current : [...current, { id: record.id, name: record.name }]);
+      setForm((current) => ({ ...current, class_id: record.id, teacher_id: '' }));
+    } else if (entity === 'subject') {
+      setSubjects((current) => current.some((item) => item.id === record.id)
+        ? current : [...current, { id: record.id, name: record.name }]);
+      if (form.class_id) {
+        setClassSubjects((current) => current.some((item) => item.class_id === form.class_id && item.subject_id === record.id)
+          ? current : [...current, { class_id: form.class_id, subject_id: record.id }]);
+      }
+      setForm((current) => ({ ...current, subject_id: record.id }));
+    } else {
+      const teacher = record as Teacher;
+      setTeachers((current) => current.some((item) => item.id === teacher.id) ? current : [...current, teacher]);
+      if (form.class_id) {
+        setClassTeacherIds((current) => {
+          const next = new Map(current);
+          const teacherIds = new Set(next.get(form.class_id) ?? []);
+          teacherIds.add(teacher.id);
+          next.set(form.class_id, teacherIds);
+          return next;
+        });
+      }
+      setForm((current) => ({ ...current, teacher_id: teacher.id }));
+    }
+    setNotice(selectedExisting ? `Existing ${entity} selected.` : `${entity[0].toUpperCase()}${entity.slice(1)} created and selected.`);
+  }
 
   async function createAssignment(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
     const assignedTeacherId = form.teacher_id || teacherId;
     if (!schoolId || !assignedTeacherId || !user) {
       setError('A teacher profile must be linked to create an assignment.');
+      return;
+    }
+    if (!classes.some((item) => item.id === form.class_id) || !subjectsForFormClass.some((item) => item.id === form.subject_id)) {
+      setError('Choose a class and subject that are currently available in this school.');
+      return;
+    }
+    if (role === 'teacher' ? !teacherClasses.has(form.class_id) || assignedTeacherId !== teacherId
+      : !teachersForFormClass.some((item) => item.id === assignedTeacherId)) {
+      setError('Choose an active teacher assigned to the selected class.');
       return;
     }
     const maxMarks = form.max_marks.trim() ? Number(form.max_marks) : null;
@@ -411,7 +488,8 @@ export function AssignmentsPage() {
   return (
     <div className="page-stack assignments-page">
       <div className="page-heading"><div><span className="eyebrow">{activeMembership?.school.name}</span><h1>Assignments & homework</h1><p>Create class assignments, share learning resources, collect student work, and return feedback.</p></div>
-        {canManage && <button className="button button-primary" onClick={() => { const firstClass = classes[0]?.id ?? ''; const assignedTeacher = teacherId || teachers.find((item) => classTeacherIds.get(firstClass)?.has(item.id))?.id || ''; setError(''); setForm({ ...emptyForm, class_id: firstClass, subject_id: subjects[0]?.id ?? '', teacher_id: assignedTeacher }); setShowCreate(true); }} disabled={!classes.length || !subjects.length || (role === 'teacher' && !teacherId)}><Plus size={16} /> Create assignment</button>}
+        <Link className="button button-quiet" to="/prerequisite-demo">Preview quick-create demo</Link>
+        {canManage && <button className="button button-primary" onClick={() => { const firstClass = classes[0]?.id ?? ''; const assignedTeacher = teacherId || teachers.find((item) => item.status === 'active' && classTeacherIds.get(firstClass)?.has(item.id))?.id || ''; setError(''); setForm({ ...emptyForm, class_id: firstClass, subject_id: subjects[0]?.id ?? '', teacher_id: assignedTeacher }); setShowCreate(true); }} disabled={role === 'teacher' && !teacherId}><Plus size={16} /> Create assignment</button>}
       </div>
       {notice && <p className="inline-success" role="status">{notice}</p>}
       {error && <ErrorState message={error} />}
@@ -451,15 +529,25 @@ export function AssignmentsPage() {
           <div className="modal-heading"><div><span className="eyebrow">Class work</span><h2 id="assignment-create-title">Create assignment</h2></div><button className="icon-button" onClick={() => setShowCreate(false)} aria-label="Close create assignment"><X size={18} /></button></div>
           <form className="modal-form" onSubmit={(event) => void createAssignment(event)}>
             <label className="field"><span>Assignment title</span><input required minLength={2} maxLength={160} value={form.title} onChange={(event) => setForm({ ...form, title: event.target.value })} placeholder="e.g. Fractions practice" /></label>
-            <div className="form-row"><label className="field"><span>Class</span><select required value={form.class_id} onChange={(event) => { const classId = event.target.value; const assigned = teachers.find((item) => classTeacherIds.get(classId)?.has(item.id))?.id ?? ''; setForm({ ...form, class_id: classId, teacher_id: role === 'teacher' ? teacherId : assigned, attached_material_id: '' }); }}><option value="">Choose class</option>{classes.map((item) => <option key={item.id} value={item.id}>{item.name}</option>)}</select></label><label className="field"><span>Subject</span><select required value={form.subject_id} onChange={(event) => setForm({ ...form, subject_id: event.target.value })}><option value="">Choose subject</option>{subjects.map((item) => <option key={item.id} value={item.id}>{item.name}</option>)}</select></label></div>
-            {role !== 'teacher' && <label className="field"><span>Assigned teacher</span><select required value={form.teacher_id} onChange={(event) => setForm({ ...form, teacher_id: event.target.value })}><option value="">Choose teacher</option>{teachersForFormClass.map((item) => <option key={item.id} value={item.id}>{item.first_name} {item.last_name}</option>)}</select></label>}
+            <div className="form-row"><div><label className="field"><span>Class</span><select required value={form.class_id} onChange={(event) => { const classId = event.target.value; const linkedSubjects = classSubjects.filter((item) => item.class_id === classId); const availableSubjects = linkedSubjects.length ? subjects.filter((subject) => linkedSubjects.some((item) => item.subject_id === subject.id)) : subjects; const assigned = teachers.find((item) => item.status === 'active' && classTeacherIds.get(classId)?.has(item.id))?.id ?? ''; setForm((current) => ({ ...current, class_id: classId, subject_id: availableSubjects.some((item) => item.id === current.subject_id) ? current.subject_id : availableSubjects[0]?.id ?? '', teacher_id: role === 'teacher' ? teacherId : assigned, attached_material_id: '' })); }}><option value="">Choose class</option>{classes.map((item) => <option key={item.id} value={item.id}>{item.name}</option>)}</select></label>{!classes.length && <PrerequisiteFieldNotice rule={getPrerequisiteRule('assignments', 'class')} availability={classAvailability} role={role} onCreate={() => setQuickCreateEntity('class')} />}</div><div><label className="field"><span>Subject</span><select required value={form.subject_id} onChange={(event) => setForm({ ...form, subject_id: event.target.value })}><option value="">Choose subject</option>{subjectsForFormClass.map((item) => <option key={item.id} value={item.id}>{item.name}</option>)}</select></label>{!subjectsForFormClass.length && <PrerequisiteFieldNotice rule={getPrerequisiteRule('assignments', 'subject')} availability={subjectAvailability} role={role} onCreate={() => setQuickCreateEntity('subject')} />}</div></div>
+            {role !== 'teacher' && <><label className="field"><span>Assigned teacher</span><select required value={form.teacher_id} onChange={(event) => setForm({ ...form, teacher_id: event.target.value })}><option value="">Choose teacher</option>{teachersForFormClass.map((item) => <option key={item.id} value={item.id}>{item.first_name} {item.last_name}</option>)}</select></label>{form.class_id && !teachersForFormClass.length && <PrerequisiteFieldNotice rule={getPrerequisiteRule('assignments', 'teacher')} availability={teacherAvailability} role={role} onCreate={() => setQuickCreateEntity('teacher')} />}</>}
             <label className="field"><span>Instructions</span><textarea required maxLength={8000} rows={5} value={form.description} onChange={(event) => setForm({ ...form, description: event.target.value })} placeholder="Explain what students should do and how to submit their work." /></label>
             <div className="form-row"><label className="field"><span>Deadline</span><input type="datetime-local" value={form.due_at} onChange={(event) => setForm({ ...form, due_at: event.target.value })} /></label><label className="field"><span>Maximum marks <small>(optional)</small></span><input type="number" min="0.01" step="0.01" value={form.max_marks} onChange={(event) => setForm({ ...form, max_marks: event.target.value })} /></label></div>
             <label className="field"><span>Attach a learning resource <small>(optional)</small></span><select value={form.attached_material_id} onChange={(event) => setForm({ ...form, attached_material_id: event.target.value })}><option value="">No resource</option>{materials.filter((material) => material.class_id === form.class_id).map((material) => <option key={material.id} value={material.id}>{material.title}</option>)}</select></label>
-            <div className="modal-actions"><button className="button button-quiet" type="button" onClick={() => setShowCreate(false)} disabled={saving}>Cancel</button><button className="button button-primary" type="submit" disabled={saving || !classes.length || !subjects.length}>{saving ? 'Saving…' : 'Save draft'}</button></div>
+            <div className="modal-actions"><button className="button button-quiet" type="button" onClick={() => setShowCreate(false)} disabled={saving}>Cancel</button><button className="button button-primary" type="submit" disabled={saving || !classes.length || !subjects.length || (role !== 'teacher' && !teachersForFormClass.length)}>{saving ? 'Saving…' : 'Save draft'}</button></div>
           </form>
         </section>
       </div>}
+      {quickCreateEntity && schoolId && role && <PrerequisiteQuickCreate
+        entity={quickCreateEntity}
+        open
+        schoolId={schoolId}
+        role={role}
+        contextClassId={form.class_id}
+        contextSubjectId={form.subject_id}
+        onClose={() => setQuickCreateEntity(null)}
+        onCreated={(record, selectedExisting) => handlePrerequisiteCreated(quickCreateEntity, record, selectedExisting)}
+      />}
     </div>
   );
 }

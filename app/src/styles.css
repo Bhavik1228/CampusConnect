@@ -329,6 +329,44 @@ td strong { color: #3e435a; font-weight: 600; }
 .form-success { color: #267856; }
 .modal-backdrop { position: fixed; inset: 0; z-index: 30; display: grid; place-items: center; padding: 20px; background: rgba(28, 31, 55, .35); backdrop-filter: blur(3px); }
 .modal-card { width: min(100%, 510px); max-height: calc(100vh - 40px); overflow-y: auto; padding: 22px; border: 1px solid #ececf3; border-radius: 15px; background: white; box-shadow: 0 20px 70px rgba(20, 24, 55, .2); }
+.prerequisite-drawer-backdrop { position: fixed; inset: 0; z-index: 80; display: flex; justify-content: flex-end; background: rgba(28, 31, 55, .35); backdrop-filter: blur(3px); }
+.prerequisite-drawer { width: min(100%, 480px); height: 100%; overflow-y: auto; padding: 24px; background: white; box-shadow: -16px 0 48px rgba(20, 24, 55, .18); }
+.prerequisite-drawer-context, .prerequisite-inline-note { margin: -8px 0 18px; color: #70768d; font-size: 13px; line-height: 1.5; }
+.prerequisite-inline-note { margin: 0 0 14px; }
+.prerequisite-field-notice { margin: -6px 0 12px; padding: 11px 12px; border: 1px solid #e4e6f0; border-radius: 9px; background: #fafaff; color: #555d77; font-size: 12px; line-height: 1.5; }
+.prerequisite-field-notice > strong { display: flex; align-items: center; gap: 6px; color: #363c56; font-size: 12px; }
+.prerequisite-field-notice p { margin: 5px 0 8px; }
+.prerequisite-field-notice a { color: #4a56a8; font-weight: 600; }
+.prerequisite-field-error { border-color: #efc8c8; background: #fffafa; color: #813e3e; }
+.prerequisite-field-actions { display: flex; align-items: center; gap: 12px; flex-wrap: wrap; }
+.prerequisite-field-actions .button { min-height: 30px; padding: 5px 9px; font-size: 11px; }
+.prerequisite-field-actions small { color: #777d91; }
+.prerequisite-duplicate { margin: 12px 0; padding: 12px; border: 1px solid #ead8a8; border-radius: 9px; background: #fffcf2; color: #5e5439; font-size: 12px; }
+.prerequisite-duplicate > strong { display: flex; align-items: center; gap: 7px; }
+.prerequisite-duplicate > p { margin: 6px 0 10px; }
+.prerequisite-duplicate-row { display: flex; justify-content: space-between; align-items: center; gap: 10px; padding: 7px 0; border-top: 1px solid #eee6d4; }
+.prerequisite-duplicate-row .button { flex: none; }
+.prerequisite-demo-banner { display: flex; justify-content: space-between; gap: 12px; flex-wrap: wrap; padding: 14px 16px; border: 1px solid #dcdff0; border-radius: 10px; background: #f7f8ff; color: #414969; font-size: 13px; }
+.prerequisite-demo-banner span { color: #777e96; }
+.prerequisite-demo-layout { display: grid; grid-template-columns: minmax(0, 1.4fr) minmax(260px, .8fr); gap: 16px; align-items: start; }
+.prerequisite-demo-form, .prerequisite-demo-examples { padding: 20px; }
+.prerequisite-demo-form > .button { margin-top: 12px; }
+.prerequisite-demo-field { margin-bottom: 12px; }
+.prerequisite-demo-field .field { margin-bottom: 6px; }
+.prerequisite-demo-records { margin: 14px 0; padding: 12px; border: 1px solid #e8e9f0; border-radius: 9px; color: #565d75; font-size: 12px; }
+.prerequisite-demo-records p, .prerequisite-demo-records ul { margin: 7px 0 0; }
+.prerequisite-demo-records ul { padding-left: 20px; }
+.prerequisite-demo-examples > p { color: #777d91; font-size: 12px; line-height: 1.5; }
+.prerequisite-demo-example { display: grid; width: 100%; gap: 3px; margin-top: 7px; padding: 10px; border: 1px solid #e7e8ef; border-radius: 8px; background: #fff; color: #515871; text-align: left; cursor: pointer; }
+.prerequisite-demo-example strong { font-size: 12px; }
+.prerequisite-demo-example span { font-size: 11px; line-height: 1.45; }
+.prerequisite-demo-example.is-selected { border-color: #9da5d7; background: #f7f8ff; }
+@media (max-width: 760px) {
+  .prerequisite-demo-layout { grid-template-columns: 1fr; }
+}
+@media (max-width: 560px) {
+  .prerequisite-drawer { width: 100%; padding: 18px; }
+}
 .modal-heading { display: flex; align-items: flex-start; justify-content: space-between; margin-bottom: 22px; }
 .modal-heading .eyebrow { margin-bottom: 5px; }
 .modal-heading h2 { margin: 0; color: #2d3147; font-size: 20px; }

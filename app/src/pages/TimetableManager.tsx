@@ -1,7 +1,11 @@
 import { useEffect, useState, type FormEvent } from 'react';
 import { CalendarClock, Plus, RefreshCw, Trash2 } from 'lucide-react';
 import { ErrorState } from '../components/Feedback';
+import { PrerequisiteFieldNotice } from '../components/PrerequisiteFieldNotice';
+import { PrerequisiteQuickCreate } from '../components/PrerequisiteQuickCreate';
 import { requireSupabase } from '../lib/supabase';
+import { getPrerequisiteRule, resolvePrerequisiteAvailability } from '../lib/prerequisite-rules';
+import { type PrerequisiteEntity, type PrerequisiteRecord } from '../lib/prerequisite-records';
 
 type EntryKind = 'lesson' | 'registration' | 'break' | 'lunch' | 'other';
 type TimetableEntry = {
@@ -32,7 +36,7 @@ type BellPeriod = {
 type BellPeriodSubject = { period_id: string; subject_id: string };
 type SchoolClass = { id: string; name: string; room: string | null; academic_year_id: string | null };
 type Subject = { id: string; name: string };
-type Teacher = { id: string; first_name: string; last_name: string };
+type Teacher = { id: string; first_name: string; last_name: string; status: string };
 type SubjectTeacher = { subject_id: string; teacher_id: string };
 type ClassTeacher = { class_id: string; teacher_id: string };
 type ClassSubject = { class_id: string; subject_id: string };
@@ -335,6 +339,7 @@ export function TimetableManager({
   scheduleStatus,
   calendarId,
   academicYearId,
+  userRole,
   bellScheduleId,
   cycleWeeks,
   weekPatternId,
@@ -347,6 +352,7 @@ export function TimetableManager({
   scheduleStatus: string;
   calendarId: string;
   academicYearId: string | null;
+  userRole: string;
   bellScheduleId: string | null;
   cycleWeeks: number;
   weekPatternId: string;
@@ -355,6 +361,7 @@ export function TimetableManager({
   onSaved: (message: string) => Promise<void>;
 }) {
   const [classes, setClasses] = useState<SchoolClass[]>([]);
+  const [classRecordCount, setClassRecordCount] = useState(0);
   const [subjects, setSubjects] = useState<Subject[]>([]);
   const [teachers, setTeachers] = useState<Teacher[]>([]);
   const [subjectTeachers, setSubjectTeachers] = useState<SubjectTeacher[]>([]);
@@ -365,7 +372,10 @@ export function TimetableManager({
   const [operatingDays, setOperatingDays] = useState<number[]>([1, 2, 3, 4, 5]);
   const [referencesLoading, setReferencesLoading] = useState(false);
   const [referencesReady, setReferencesReady] = useState(false);
+  const [referencesError, setReferencesError] = useState('');
+  const [referencesRetryKey, setReferencesRetryKey] = useState(0);
   const [dialog, setDialog] = useState<'entry' | 'generate' | null>(null);
+  const [quickCreateEntity, setQuickCreateEntity] = useState<PrerequisiteEntity | null>(null);
   const [editing, setEditing] = useState<TimetableEntry | null>(null);
   const [draft, setDraft] = useState<EntryDraft>(initialDraft());
   const [draftCycle, setDraftCycle] = useState(1);
@@ -393,13 +403,14 @@ export function TimetableManager({
     let alive = true;
     async function loadReferences() {
       setReferencesLoading(true);
+      setReferencesError('');
       setError('');
       try {
         const client = requireSupabase();
         const [classResult, subjectResult, teacherResult, subjectTeacherResult, classTeacherResult, classSubjectResult, patternDayResult] = await Promise.all([
           client.from('school_classes').select('id,name,room,academic_year_id').eq('school_id', schoolId).eq('calendar_id', calendarId).order('name'),
           client.from('subjects').select('id,name').eq('school_id', schoolId).order('name'),
-          client.from('teacher_profiles').select('id,first_name,last_name').eq('school_id', schoolId).eq('status', 'active').order('last_name'),
+          client.from('teacher_profiles').select('id,first_name,last_name,status').eq('school_id', schoolId).order('last_name'),
           client.from('teacher_subjects').select('subject_id,teacher_id').eq('school_id', schoolId),
           client.from('teacher_class_assignments').select('class_id,teacher_id').eq('school_id', schoolId),
           client.from('class_subjects').select('class_id,subject_id').eq('school_id', schoolId),
@@ -408,6 +419,7 @@ export function TimetableManager({
         const failed = [classResult.error, subjectResult.error, teacherResult.error, subjectTeacherResult.error, classTeacherResult.error, classSubjectResult.error, patternDayResult.error].find(Boolean);
         if (failed) throw failed;
         if (!alive) return;
+        setClassRecordCount((classResult.data ?? []).length);
         setClasses((classResult.data ?? []).filter((schoolClass) =>
           !academicYearId || !schoolClass.academic_year_id || schoolClass.academic_year_id === academicYearId));
         setSubjects(subjectResult.data ?? []);
@@ -449,15 +461,20 @@ export function TimetableManager({
           periods: 3,
         })));
         setReferencesReady(true);
+        setReferencesError('');
       } catch (loadError) {
-        if (alive) setError(loadError instanceof Error ? loadError.message : 'Could not load classes, subjects, and teacher assignments.');
+        if (alive) {
+          const message = loadError instanceof Error ? loadError.message : 'Could not load classes, subjects, and teacher assignments.';
+          setReferencesError(message);
+          setError(message);
+        }
       } finally {
         if (alive) setReferencesLoading(false);
       }
     }
     void loadReferences();
     return () => { alive = false; };
-  }, [canManage, referencesReady, schoolId, calendarId, academicYearId, weekPatternId, bellScheduleId]);
+  }, [canManage, referencesReady, referencesRetryKey, schoolId, calendarId, academicYearId, weekPatternId, bellScheduleId]);
 
   if (!canManage || !scheduleId) return null;
   const readOnly = scheduleStatus !== 'draft';
@@ -496,8 +513,72 @@ export function TimetableManager({
       .map((assignment) => assignment.teacher_id);
     const classAssignments = classTeachers.filter((assignment) => assignment.class_id === classId);
     const classTeacherIds = classAssignments.map((assignment) => assignment.teacher_id);
-    return teachers.filter((teacher) => candidates.includes(teacher.id)
+    return teachers.filter((teacher) => teacher.status === 'active' && candidates.includes(teacher.id)
       && (!classTeacherIds.length || classTeacherIds.includes(teacher.id)));
+  }
+
+  const draftEligibleSubjects = (() => {
+    const assignedSubjects = classSubjects.filter((item) => item.class_id === draft.class_id);
+    return assignedSubjects.length
+      ? subjects.filter((subject) => assignedSubjects.some((item) => item.subject_id === subject.id))
+      : subjects;
+  })();
+  const draftEligibleTeachers = selectableTeachers(draft.subject_id, draft.class_id);
+  const classAvailability = resolvePrerequisiteAvailability({
+    loading: referencesLoading,
+    error: referencesError,
+    totalRecords: classRecordCount,
+    selectableRecords: classes.length,
+    filteredRecords: Math.max(0, classRecordCount - classes.length),
+  });
+  const subjectAvailability = resolvePrerequisiteAvailability({
+    loading: referencesLoading,
+    error: referencesError,
+    totalRecords: subjects.length,
+    selectableRecords: draftEligibleSubjects.length,
+    filteredRecords: Math.max(0, subjects.length - draftEligibleSubjects.length),
+  });
+  const activeTeacherCount = teachers.filter((teacher) => teacher.status === 'active').length;
+  const teacherAvailability = resolvePrerequisiteAvailability({
+    loading: referencesLoading,
+    error: referencesError,
+    totalRecords: teachers.length,
+    selectableRecords: draftEligibleTeachers.length,
+    inactiveRecords: teachers.length > 0 && activeTeacherCount === 0 ? teachers.length : 0,
+    filteredRecords: activeTeacherCount > 0 && draftEligibleTeachers.length === 0 ? activeTeacherCount : 0,
+  });
+
+  function handlePrerequisiteCreated(entity: PrerequisiteEntity, record: PrerequisiteRecord, selectedExisting: boolean) {
+    if (entity === 'class') {
+      setClasses((current) => current.some((item) => item.id === record.id) ? current : [...current, {
+        id: record.id,
+        name: record.name,
+        room: null,
+        academic_year_id: record.academic_year_id ?? null,
+      }]);
+      if (!classes.some((item) => item.id === record.id)) setClassRecordCount((current) => current + 1);
+      setDraft((current) => ({ ...current, class_id: record.id, teacher_id: '' }));
+    } else if (entity === 'subject') {
+      setSubjects((current) => current.some((item) => item.id === record.id) ? current : [...current, { id: record.id, name: record.name }]);
+      if (draft.class_id) {
+        setClassSubjects((current) => current.some((item) => item.class_id === draft.class_id && item.subject_id === record.id)
+          ? current : [...current, { class_id: draft.class_id, subject_id: record.id }]);
+      }
+      setDraft((current) => ({ ...current, subject_id: record.id, teacher_id: '' }));
+    } else {
+      const teacher = record as Teacher;
+      setTeachers((current) => current.some((item) => item.id === teacher.id) ? current : [...current, teacher]);
+      if (draft.class_id) {
+        setClassTeachers((current) => current.some((item) => item.class_id === draft.class_id && item.teacher_id === teacher.id)
+          ? current : [...current, { class_id: draft.class_id, teacher_id: teacher.id }]);
+      }
+      if (draft.subject_id) {
+        setSubjectTeachers((current) => current.some((item) => item.subject_id === draft.subject_id && item.teacher_id === teacher.id)
+          ? current : [...current, { subject_id: draft.subject_id, teacher_id: teacher.id }]);
+      }
+      setDraft((current) => ({ ...current, teacher_id: teacher.id }));
+    }
+    setError(selectedExisting ? `Existing ${entity} selected.` : `${entity[0].toUpperCase()}${entity.slice(1)} created and selected.`);
   }
 
   async function saveEntry(event: FormEvent<HTMLFormElement>) {
@@ -510,6 +591,15 @@ export function TimetableManager({
     }
     if (draft.entry_type === 'lesson' && (!draft.class_id || !draft.subject_id)) {
       setError('Lessons need a class and subject.');
+      return;
+    }
+    if (draft.entry_type === 'lesson' && (!classes.some((item) => item.id === draft.class_id)
+        || !draftEligibleSubjects.some((item) => item.id === draft.subject_id))) {
+      setError('The selected class or subject is no longer eligible for this timetable.');
+      return;
+    }
+    if (draft.entry_type === 'lesson' && draft.teacher_id && !draftEligibleTeachers.some((item) => item.id === draft.teacher_id)) {
+      setError('The selected teacher is inactive or is not assigned to teach this subject in this class.');
       return;
     }
     if (draft.entry_type !== 'lesson' && !draft.label.trim()) {
@@ -665,10 +755,6 @@ export function TimetableManager({
     }
   }
 
-  const subjectOptions = subjects.map((subject) => ({
-    ...subject,
-    availableTeachers: selectableTeachers(subject.id, draft.class_id),
-  }));
   const availableBellPeriods = bellPeriods.filter((period) =>
     period.cycle_week === draftCycle
     && period.day_of_week === Number(draft.day_of_week)
@@ -736,8 +822,8 @@ export function TimetableManager({
         <div className="modal-heading"><div><span className="eyebrow">Schedule builder</span><h2>{editing ? 'Edit period' : 'Add period'}</h2></div><button className="icon-button" type="button" onClick={() => setDialog(null)} aria-label="Close dialog">×</button></div>
         <div className="form-row"><label className="field"><span>Period type</span><select value={draft.entry_type} onChange={(event) => { setDraft((current) => ({ ...current, entry_type: event.target.value as EntryKind })); setDraftBellPeriodId(''); }}><option value="lesson">Lesson</option><option value="registration">Registration</option><option value="break">Break</option><option value="lunch">Lunch</option><option value="other">Other / assembly</option></select></label><label className="field"><span>Day</span><select value={draft.day_of_week} onChange={(event) => { setDraft((current) => ({ ...current, day_of_week: event.target.value })); setDraftBellPeriodId(''); }}>{weekdayOptions.map((item) => <option key={item.day} value={item.day}>{item.label}</option>)}</select></label></div>
         {draft.entry_type === 'lesson' ? <>
-          <label className="field"><span>Class</span><select required value={draft.class_id} onChange={(event) => setDraft((current) => ({ ...current, class_id: event.target.value, teacher_id: '' }))}><option value="">Choose a class</option>{classes.map((schoolClass) => <option key={schoolClass.id} value={schoolClass.id}>{schoolClass.name}</option>)}</select></label>
-          <div className="form-row"><label className="field"><span>Subject</span><select required value={draft.subject_id} onChange={(event) => setDraft((current) => ({ ...current, subject_id: event.target.value, teacher_id: '' }))}><option value="">Choose a subject</option>{subjects.map((subject) => <option key={subject.id} value={subject.id}>{subject.name}</option>)}</select></label><label className="field"><span>Teacher</span><select value={draft.teacher_id} onChange={(event) => setDraft((current) => ({ ...current, teacher_id: event.target.value }))}><option value="">Unassigned</option>{subjectOptions.find((item) => item.id === draft.subject_id)?.availableTeachers.map((teacher) => <option key={teacher.id} value={teacher.id}>{teacher.first_name} {teacher.last_name}</option>)}</select></label></div>
+          <div><label className="field"><span>Class</span><select required value={draft.class_id} onChange={(event) => setDraft((current) => ({ ...current, class_id: event.target.value, teacher_id: '' }))}><option value="">Choose a class</option>{classes.map((schoolClass) => <option key={schoolClass.id} value={schoolClass.id}>{schoolClass.name}</option>)}</select></label>{!classes.length && <PrerequisiteFieldNotice rule={getPrerequisiteRule('timetable', 'class')} availability={classAvailability} role={userRole} error={referencesError} onCreate={() => setQuickCreateEntity('class')} onRetry={() => setReferencesRetryKey((current) => current + 1)} />}</div>
+          <div className="form-row"><div><label className="field"><span>Subject</span><select required value={draft.subject_id} onChange={(event) => setDraft((current) => ({ ...current, subject_id: event.target.value, teacher_id: '' }))}><option value="">Choose a subject</option>{draftEligibleSubjects.map((subject) => <option key={subject.id} value={subject.id}>{subject.name}</option>)}</select></label>{!draftEligibleSubjects.length && <PrerequisiteFieldNotice rule={getPrerequisiteRule('timetable', 'subject')} availability={subjectAvailability} role={userRole} error={referencesError} onCreate={() => setQuickCreateEntity('subject')} onRetry={() => setReferencesRetryKey((current) => current + 1)} />}</div><div><label className="field"><span>Teacher</span><select value={draft.teacher_id} onChange={(event) => setDraft((current) => ({ ...current, teacher_id: event.target.value }))}><option value="">Unassigned</option>{draftEligibleTeachers.map((teacher) => <option key={teacher.id} value={teacher.id}>{teacher.first_name} {teacher.last_name}</option>)}</select></label>{draft.class_id && draft.subject_id && !draftEligibleTeachers.length && <PrerequisiteFieldNotice rule={getPrerequisiteRule('timetable', 'teacher')} availability={teacherAvailability} role={userRole} error={referencesError} onCreate={() => setQuickCreateEntity('teacher')} onRetry={() => setReferencesRetryKey((current) => current + 1)} />}</div></div>
           <label className="field"><span>Room</span><input value={draft.room} onChange={(event) => setDraft((current) => ({ ...current, room: event.target.value }))} maxLength={80} placeholder={classes.find((item) => item.id === draft.class_id)?.room ?? 'Room or classroom'} /></label>
         </> : <label className="field"><span>Activity name</span><input required maxLength={120} value={draft.label} onChange={(event) => setDraft((current) => ({ ...current, label: event.target.value }))} placeholder="e.g. Morning registration" /></label>}
         {bellScheduleId && <>
@@ -777,5 +863,17 @@ export function TimetableManager({
         <div className="modal-actions"><button className="button button-quiet" type="button" onClick={() => setDialog(null)}>Cancel</button><button className="button button-primary" type="submit" disabled={saving || referencesLoading || !classes.length || !subjects.length}>{saving ? 'Generating…' : 'Generate draft'}</button></div>
       </form>}
     </div>}
+    {quickCreateEntity && <PrerequisiteQuickCreate
+      entity={quickCreateEntity}
+      open
+      schoolId={schoolId}
+      role={userRole}
+      contextClassId={draft.class_id}
+      contextSubjectId={draft.subject_id}
+      calendarId={calendarId}
+      academicYearId={academicYearId}
+      onClose={() => setQuickCreateEntity(null)}
+      onCreated={(record, selectedExisting) => handlePrerequisiteCreated(quickCreateEntity, record, selectedExisting)}
+    />}
   </>;
 }

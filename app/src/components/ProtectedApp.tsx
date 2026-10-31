@@ -49,6 +49,7 @@ import { SetupHealthPage } from '../pages/SetupHealthPage';
 import { DocumentVerificationPage } from '../pages/DocumentVerificationPage';
 import { SupportPage } from '../pages/SupportPage';
 import { SystemOwnerSupportPage } from '../pages/SystemOwnerSupportPage';
+import { PrerequisiteDemoPage } from '../pages/PrerequisiteDemoPage';
 
 function RouteGate({ authOnly = true, requireMembership = true }: { authOnly?: boolean; requireMembership?: boolean }) {
   const { user, loading, memberships } = useAuth();
@@ -192,6 +193,7 @@ export function ProtectedApp() {
           <Route path="/visitors" element={<VisitorsPage />} />
           <Route path="/visitors/verify/:visitId" element={<VisitorsPage />} />
           <Route path="/assignments" element={<AssignmentsPage />} />
+          <Route path="/prerequisite-demo" element={<PrerequisiteDemoPage />} />
           <Route path="/grades-results" element={<GradesResultsPage />} />
           <Route path="/calendar" element={<AcademicPages kind="calendar" />} />
           <Route path="/settings" element={<SchoolSettingsPage />} />

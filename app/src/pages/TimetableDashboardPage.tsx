@@ -519,6 +519,7 @@ export function TimetableDashboardPage() {
           weekPatternId={activeSchedule.week_pattern_id}
           calendarId={activeSchedule.calendar_id}
           academicYearId={activeSchedule.academic_year_id}
+          userRole={activeMembership?.role ?? ''}
           bellScheduleId={activeSchedule.bell_schedule_id}
           cycleWeeks={activeSchedule.cycle_weeks}
           canManage={canManage}
