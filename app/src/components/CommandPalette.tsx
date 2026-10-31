@@ -515,7 +515,7 @@ export function CommandPalette({ routes, schoolId, profileId, canAccessSettings,
 
   return <div className="command-palette-backdrop" role="presentation" onMouseDown={(event) => { if (event.target === event.currentTarget) setOpen(false); }}>
     <div className="command-palette-dialog" role="dialog" aria-modal="true" aria-labelledby="command-palette-title" ref={modalRef} onKeyDown={onPaletteKeyDown}>
-      <h2 id="command-palette-title" className="visually-hidden">Search Campus Connect</h2>
+      <h2 id="command-palette-title" className="sr-only">Search Campus Connect</h2>
       <div className="command-palette-search">
         <Search size={19} aria-hidden="true" />
         <input ref={inputRef} value={query} onChange={(event) => { setQuery(event.target.value); setSelectedIndex(0); setSearchError(''); }} placeholder="Search pages, actions, settings, students, books…" aria-label="Search pages, actions, settings and school records" aria-controls="command-palette-results" autoComplete="off" />

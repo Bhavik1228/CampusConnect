@@ -95,6 +95,9 @@ Deno.serve(async (request: Request) => {
     if (payload.action === 'dashboard') {
       const { data, error } = await serviceClient.rpc('platform_owner_dashboard');
       if (error) throw error;
+      const { data: setupHealth, error: setupHealthError } = await serviceClient
+        .rpc('platform_owner_setup_health_overview');
+      if (setupHealthError) throw setupHealthError;
       const { data: performanceRows, error: performanceError } = await serviceClient
         .from('platform_performance_metrics')
         .select('metric_name, metric_value')
@@ -124,6 +127,7 @@ Deno.serve(async (request: Request) => {
         dashboard: {
           ...data,
           managedStorageConfigured,
+          setupHealth,
           performance: {
             windowDays: 7,
             sampleCount: performanceRows?.length ?? 0,

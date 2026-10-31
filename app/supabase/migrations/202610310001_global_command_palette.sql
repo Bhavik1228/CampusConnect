@@ -1,7 +1,7 @@
 create extension if not exists pg_trgm with schema extensions;
 
 create index if not exists students_command_name_trgm_idx
-  on public.students using gin (lower(concat_ws(' ', first_name, last_name)) extensions.gin_trgm_ops);
+  on public.students using gin (lower(first_name || ' ' || last_name) extensions.gin_trgm_ops);
 create index if not exists students_command_number_trgm_idx
   on public.students using gin (lower(student_number) extensions.gin_trgm_ops);
 create index if not exists school_classes_command_name_trgm_idx
@@ -29,7 +29,7 @@ create table public.command_palette_favourites (
   profile_id uuid not null references public.profiles(id) on delete cascade,
   entry_key text not null check (entry_key ~ '^(page|action|setting):[a-z0-9_-]+$'),
   sort_order integer not null default 0 check (sort_order between 0 and 1000),
-  created_at timestamptz not null default timezone('utc', now()),
+  created_at timestamptz not null default now(),
   primary key (school_id, profile_id, entry_key)
 );
 alter table public.command_palette_favourites enable row level security;
@@ -63,7 +63,7 @@ create table public.command_search_events (
   result_count integer check (result_count is null or result_count between 0 and 30),
   duration_ms integer check (duration_ms is null or duration_ms between 0 and 120000),
   success boolean,
-  created_at timestamptz not null default timezone('utc', now())
+  created_at timestamptz not null default now()
 );
 create index command_search_events_school_created_idx
   on public.command_search_events(school_id, created_at desc);
@@ -76,8 +76,8 @@ create table public.command_no_result_terms (
   school_id uuid not null references public.schools(id) on delete cascade,
   term_digest bytea not null,
   occurrence_count bigint not null default 1 check (occurrence_count > 0),
-  first_seen_at timestamptz not null default timezone('utc', now()),
-  last_seen_at timestamptz not null default timezone('utc', now()),
+  first_seen_at timestamptz not null default now(),
+  last_seen_at timestamptz not null default now(),
   primary key (school_id, term_digest)
 );
 alter table public.command_no_result_terms enable row level security;
@@ -108,7 +108,7 @@ begin
   values (target_school, hmac(convert_to(normalized_term, 'UTF8'), analytics_secret, 'sha256'))
   on conflict (school_id, term_digest) do update
   set occurrence_count = public.command_no_result_terms.occurrence_count + 1,
-      last_seen_at = timezone('utc', now());
+      last_seen_at = now();
 end;
 $$;
 revoke all on function public.record_command_no_result_term(uuid, text) from public, anon;
@@ -377,7 +377,7 @@ begin
     events.category
   from public.command_search_events events
   where events.school_id = target_school
-    and events.created_at >= timezone('utc', now()) - interval '90 days'
+    and events.created_at >= now() - interval '90 days'
   group by events.event_type, events.category
   order by events.event_type, events.category;
 end;

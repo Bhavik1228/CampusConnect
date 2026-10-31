@@ -38,13 +38,29 @@ After signing in, use the **Search** control in the workspace header or press **
 
 Record search is performed by the `search_school_command_records` Supabase RPC and is limited to the active school, existing row-level security, enabled modules, and school permissions. Invoice search requires finance access. Search analytics store event metadata and HMAC digests of terms that return no results; raw query text is not stored. Metrics can be queried by authorized school administrators or users with audit-view permission using `get_command_search_metrics`.
 
-Apply `app/supabase/migrations/202610310001_global_command_palette.sql` before deploying the frontend. The migration creates the record-search indexes, user favorites, analytics tables, and access-checked RPCs. To extend the palette, add navigation results through the existing accessible sidebar routes, add role-gated actions in `actionsForRole`, and add settings destinations to `settingsItems`; ensure each action's destination handles its query parameters and keep any record search school-scoped and permission-checked in the database.
+Apply `app/supabase/migrations/202610310001_global_command_palette.sql` before deploying the frontend. Its student-name trigram index uses an immutable concatenation expression accepted by PostgreSQL. The migration creates the record-search indexes, user favorites, analytics tables, and access-checked RPCs. To extend the palette, add navigation results through the existing accessible sidebar routes, add role-gated actions in `actionsForRole`, and add settings destinations to `settingsItems`; ensure each action's destination handles its query parameters and keep any record search school-scoped and permission-checked in the database.
 
 ## Grouped workspace navigation
 
 The workspace sidebar groups the existing routes into Academics, People, Finance, Learning & Library, Student Life, School Operations, Website & Communication, and Administration. The dashboard remains standalone; account security and authorized settings stay in the fixed footer area. Items are filtered by the current membership role, school module settings, and permission summary, while existing route guards remain responsible for direct URL access.
 
 Groups expand independently and the group containing the current route opens automatically. The desktop sidebar can switch to a compact icon-only mode; its group icons expand their child links, with tooltips identifying the destinations. Both the expanded/collapsed mode and open groups are stored in browser local storage using a key scoped to the signed-in user and active school. The mobile drawer keeps labels visible and uses the same grouped navigation. No database migration or new role is required.
+
+## Setup checklist and data health
+
+School administrators and academic coordinators can open **Setup & Data Health** from Administration. Run a server-side health check to see weighted school readiness, category checks, and readiness for timetables, attendance registers, reports, fee invoicing, and daily operations. Results contain configuration statuses and aggregate affected counts, not student, staff, or financial record details. The server verifies the caller's school role and scopes every evaluation to the requested school.
+
+Severity weights are critical 5, high 3, medium 2, low 1, informational 0. Passed checks earn their full weight; warnings and needs-review checks earn half; failed checks earn zero; checks that do not apply are excluded. The score is earned weight divided by applicable weight. A critical failed blocker prevents a Ready label; otherwise the overall labels are Not Configured (no applicable checks), Needs Attention (critical blocker or score below 50), Partially Ready (50–74.9), Nearly Ready (75–89.9), and Ready (90 or above). Workflow readiness also reports intentionally disabled modules as Module Disabled. Fee checks are excluded when finance is disabled. Fee categories and payment-method checks are not reported because the current schema has no separate fee-category or payment-method configuration tables.
+
+The latest successful snapshot is persisted. Relevant school profile, academic, class, subject, staff, student, module, attendance, fee, and website changes mark it stale; a stale snapshot is refreshed when a user returns to the centre, and snapshots older than 24 hours are also considered stale. Failed evaluations are shown as errors and do not replace the last successful snapshot. Completed run records retain the requesting user and timestamps. The System Owner dashboard provides a separate read-only cross-school overview of readiness scores and stale or unchecked snapshots; detailed school checks remain available only to authorized school administrators and academic coordinators.
+
+Apply both pending migrations from the `app/` directory before deploying the frontend:
+
+```powershell
+npx supabase db push --project-ref <your-project-ref>
+```
+
+This applies `202610310001_global_command_palette.sql` and `202610310002_school_setup_health.sql` in order. The setup-health migration adds the persisted run/results/state tables, row-level security, access-checked RPCs, and stale-result triggers. Then deploy the frontend. Do not mark the remote database as updated until the CLI confirms both migrations completed.
 
 ## Technology
 

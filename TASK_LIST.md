@@ -782,13 +782,22 @@ Accounts Payable Officer is available as a restricted core role; supplier-payabl
 - [x] Record school-scoped usage metrics without storing raw search terms.
 - [x] Document the palette and its migration/deployment requirements.
 
-### Feature 02: Grouped & Collapsible Sidebar Navigation
+### Navigation improvement: Grouped & Collapsible Sidebar
 - [x] Organize existing destinations into role-aware groups with a standalone dashboard and fixed account/settings links.
 - [x] Expand/collapse groups independently, preserve active-route highlighting, and auto-expand the active route's group.
 - [x] Persist validated group expansion and collapsed-sidebar preferences per user and school.
 - [x] Provide a compact icon-only desktop mode with tooltips while keeping its navigation destinations accessible.
 - [x] Preserve role, module, permission, and direct-route access checks; keep grouped navigation usable in the mobile drawer.
 - [x] Document navigation groups and preference behavior; no database changes required.
+
+### Feature 02: Setup Checklist & Data-Health Centre
+- [x] Calculate a weighted readiness score from server-evaluated school configuration rules.
+- [x] Check academic, class, subject, staff, student, attendance, finance, school-profile and website readiness.
+- [x] Group blockers by timetable, attendance, reports, fees and daily-operations workflows.
+- [x] Persist results and audit who ran a check; mark results stale when relevant school data changes.
+- [x] Provide role-aware fix links, return-to-checklist navigation, filters and resolved-issue feedback.
+- [x] Add school-admin/academic-coordinator navigation and document scoring and migration deployment.
+- [x] Provide a read-only System Owner overview of readiness across schools, including stale and unchecked snapshots.
 
 ### Features 03–70
 - [ ] Pending: their specifications have not yet been supplied.

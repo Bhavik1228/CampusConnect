@@ -1,7 +1,7 @@
 import { useEffect, useState } from 'react';
 import { Navigate, NavLink, Outlet, useLocation, useNavigate } from 'react-router-dom';
 import {
-  BookCopy, BookMarked, BookOpenCheck, BookOpenText, CalendarDays, Check, ChevronDown, ClipboardList, Workflow, Globe,
+  Activity, BookCopy, BookMarked, BookOpenCheck, BookOpenText, CalendarDays, Check, ChevronDown, ClipboardList, Workflow, Globe,
   ChevronLeft, ClipboardCheck, GraduationCap, LayoutDashboard, LogOut, Menu,
   Settings, UsersRound, X, CalendarClock, CircleDollarSign, UserRoundPlus,
   Award, BriefcaseBusiness, FileStack, HeartPulse, ClipboardPlus, Search, Library,
@@ -59,6 +59,7 @@ const navigation: NavigationGroup[] = [
     { to: '/messaging', label: 'Messages', icon: MessageCircle, module: 'module_messaging' },
   ] },
   { id: 'administration', title: 'Administration', icon: Settings, items: [
+    { to: '/setup-health', label: 'Setup & data health', icon: Activity, roles: ['school_admin', 'academic_coordinator'] },
     { to: '/automations', label: 'Automations', icon: Workflow, roles: ['school_admin', 'academic_coordinator'], module: 'module_automations' },
     { to: '/permissions', label: 'Roles & permissions', icon: ShieldCheck, roles: ['school_admin'] },
     { to: '/audit-log', label: 'Audit log', icon: ShieldCheck, roles: ['school_admin', 'auditor', 'compliance_audit_officer'] },
@@ -89,6 +90,7 @@ const pageNames: Record<string, string> = {
   '/website-management': 'Website content', '/admin-workflows': 'Administrative workflows',
   '/account-security': 'Account security',
   '/permissions': 'Roles & permissions',
+  '/setup-health': 'Setup & Data Health',
   '/academic-planning': 'Academic planning',
   '/automations': 'Automations',
   '/messaging': 'Messages', '/audit-log': 'Audit log',
@@ -138,6 +140,12 @@ export function AppShell() {
     ? '/health'
     : location.pathname.startsWith('/visitors/verify/') ? '/visitors' : location.pathname;
   const isHealthRoute = modulePath === '/health';
+  const setupHealthReturn = location.state && typeof location.state === 'object'
+    && 'setupHealthReturn' in location.state
+    && location.state.setupHealthReturn
+    && typeof location.state.setupHealthReturn === 'object'
+    && 'from' in location.state.setupHealthReturn
+    && location.state.setupHealthReturn.from === '/setup-health';
   const isVisitorRoute = modulePath === '/visitors';
   const moduleForPath: Record<string, string> = {
     '/admissions': 'module_admissions',
@@ -572,6 +580,7 @@ export function AppShell() {
   if (isSecretaryRole && !isVisitorRoute) return <Navigate to="/visitors" replace />;
   if (rolePaths && !rolePaths.includes(modulePath)) return <Navigate to="/dashboard" replace />;
   if (location.pathname === '/permissions' && activeMembership?.role !== 'school_admin') return <Navigate to="/dashboard" replace />;
+  if (location.pathname === '/setup-health' && !['school_admin', 'academic_coordinator'].includes(activeMembership?.role ?? '')) return <Navigate to="/dashboard" replace />;
 
   return (
     <div className="app-layout">
@@ -583,6 +592,10 @@ export function AppShell() {
           <div className="topbar-actions"><button type="button" className="command-palette-trigger" aria-label="Search Campus Connect (Control K)" onClick={openCommandPalette}><Search size={16} /><span>Search</span><kbd>Ctrl K</kbd></button><span className="role-badge"><span></span>{activeMembership?.role.replace(/_/g, ' ')}</span></div>
         </header>
         <div className="page-content">
+          {setupHealthReturn && location.pathname !== '/setup-health' && <aside className="setup-health-return-banner" role="status">
+            <span>Working on a setup item?</span>
+            <button type="button" onClick={() => navigate('/setup-health', { replace: true, state: null })}>Return to Setup &amp; Data Health</button>
+          </aside>}
           {maintenance?.active && <aside className="platform-maintenance-notice" role="status">{maintenance.notice || maintenanceNotice || 'Maintenance is in progress.'}{maintenance.read_only ? ' This workspace is read-only; changes are temporarily disabled.' : ''}{maintenance.ends_at ? ` Scheduled until ${new Date(maintenance.ends_at).toLocaleString()}.` : ''}</aside>}
           {!maintenance?.active && maintenanceNotice && <aside className="platform-maintenance-notice" role="status">{maintenanceNotice}</aside>}
           {logoutError && <ErrorState message={logoutError} />}

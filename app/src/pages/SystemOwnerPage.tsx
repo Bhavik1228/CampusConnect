@@ -23,6 +23,19 @@ type Dashboard = {
   recentActivity: { id: string; action: string; target_type: string; target_id: string | null; details: Record<string, unknown>; created_at: string; actor_name: string | null }[];
   storageRequests: { id: string; school_id: string; school_name: string; requested_by: string; requester_name: string | null; requester_email: string | null; message: string; status: string; created_at: string }[];
   alerts: { schoolsWithoutAdmin: number; suspendedSchools: number };
+  setupHealth: {
+    totalSchools: number;
+    checkedSchools: number;
+    staleSchools: number;
+    schools: {
+      schoolId: string;
+      schoolName: string;
+      score: number | null;
+      status: string;
+      stale: boolean;
+      lastCheckedAt: string | null;
+    }[];
+  };
   performance: {
     windowDays: number;
     sampleCount: number;
@@ -38,6 +51,10 @@ function formatDate(value: string) {
   return new Date(value).toLocaleString();
 }
 
+function statusClass(value: string) {
+  return value.toLowerCase().replaceAll(' ', '-').replaceAll('_', '-');
+}
+
 export function SystemOwnerPage() {
   const { user } = useAuth();
   const [dashboard, setDashboard] = useState<Dashboard | null>(null);
@@ -46,6 +63,7 @@ export function SystemOwnerPage() {
   const [error, setError] = useState('');
   const [notice, setNotice] = useState('');
   const [query, setQuery] = useState('');
+  const [healthQuery, setHealthQuery] = useState('');
   const [pendingAction, setPendingAction] = useState('');
 
   const loadDashboard = useCallback(async (background = false) => {
@@ -63,7 +81,7 @@ export function SystemOwnerPage() {
         body: { action: 'dashboard' },
       });
       if (dashboardError) throw dashboardError;
-      if (!data?.dashboard?.stats) throw new Error('The system owner service returned an invalid dashboard response.');
+      if (!data?.dashboard?.stats || !data.dashboard.setupHealth) throw new Error('The system owner service returned an invalid dashboard response.');
       setDashboard(data.dashboard as Dashboard);
     } catch (loadError) {
       setError(loadError instanceof Error ? loadError.message : 'Could not load the system owner dashboard.');
@@ -79,6 +97,13 @@ export function SystemOwnerPage() {
     const needle = query.trim().toLocaleLowerCase();
     return (dashboard?.recentSchools ?? []).filter((school) => !needle || school.name.toLocaleLowerCase().includes(needle));
   }, [dashboard?.recentSchools, query]);
+  const filteredSetupHealthSchools = useMemo(() => {
+    const needle = healthQuery.trim().toLocaleLowerCase();
+    return (dashboard?.setupHealth.schools ?? []).filter((school) =>
+      !needle
+      || school.schoolName.toLocaleLowerCase().includes(needle)
+      || school.status.toLocaleLowerCase().includes(needle));
+  }, [dashboard?.setupHealth.schools, healthQuery]);
   const getPerformanceMetric = (name: string) => dashboard?.performance.metrics.find((metric) => metric.name === name);
   const formatPerformanceMetric = (name: string) => {
     const metric = getPerformanceMetric(name);
@@ -169,6 +194,40 @@ export function SystemOwnerPage() {
             </div>
           </section>
         </div>
+
+        <section className="content-card system-owner-panel">
+          <div className="system-owner-panel-heading">
+            <div><span className="eyebrow">Cross-school readiness</span><h2>Setup &amp; data health</h2><p>Read-only readiness snapshots from each school. Detailed records remain in their school workspace.</p></div>
+            <Activity size={18} />
+          </div>
+          <div className="system-owner-health-summary">
+            <div><strong>{dashboard.setupHealth.checkedSchools} / {dashboard.setupHealth.totalSchools}</strong><span>Schools checked</span></div>
+            <div><strong>{dashboard.setupHealth.staleSchools}</strong><span>Stale snapshots</span></div>
+            <div><strong>{dashboard.setupHealth.totalSchools - dashboard.setupHealth.checkedSchools}</strong><span>Not checked</span></div>
+          </div>
+          <label className="table-search system-owner-search">
+            <input value={healthQuery} onChange={(event) => setHealthQuery(event.target.value)} placeholder="Filter schools or status" aria-label="Filter setup health by school or readiness status" />
+          </label>
+          {filteredSetupHealthSchools.length === 0 ? (
+            <p className="system-owner-muted">{dashboard.setupHealth.schools.length ? 'No schools match this filter.' : 'No schools are registered yet.'}</p>
+          ) : (
+            <div className="system-owner-school-list" aria-label="School setup readiness">
+              {filteredSetupHealthSchools.map((school) => (
+                <article className="system-owner-school system-owner-health-school" key={school.schoolId}>
+                  <div>
+                    <strong>{school.schoolName}</strong>
+                    <small>{school.lastCheckedAt ? `Last checked ${formatDate(school.lastCheckedAt)}` : 'No health check has been run'}</small>
+                  </div>
+                  <div className="system-owner-health-result">
+                    <strong>{school.score === null ? '—' : `${Math.round(school.score)}%`}</strong>
+                    <span className={`health-status health-status-${statusClass(school.status)}`}>{school.status}</span>
+                    {school.stale && <small className="system-owner-health-stale">Stale snapshot</small>}
+                  </div>
+                </article>
+              ))}
+            </div>
+          )}
+        </section>
 
         <section className="content-card system-owner-panel">
           <div className="system-owner-panel-heading"><div><span className="eyebrow">Support & billing workflow</span><h2>Managed storage requests</h2><p>Approve to enable the platform-managed R2 bucket for that school.</p></div><CircleDollarSign size={18} /></div>
