@@ -672,17 +672,17 @@ Accounts Payable Officer is available as a restricted core role; supplier-payabl
 - [ ] AI-assisted workflow creation.
 
 ## 23. Document and PDF Management
-- [ ] Generate branded PDFs from authorised records.
+- [ ] Generate branded PDFs consistently across all authorised record types.
 - [ ] Generate report cards, marksheets and attendance registers.
-- [ ] Generate invoices, receipts and statements.
+- [x] Generate individual invoices, receipts and statements from existing authorised finance records.
 - [ ] Generate admission forms and certificates.
 - [ ] Generate timetables and examination schedules.
-- [ ] Generate library stickers and visitor badges.
-- [ ] Preview, download and print PDFs.
+- [x] Generate library stickers and visitor badges.
+- [x] Preview, download and print individual academic reports, invoices, receipts and statements.
 - [ ] Generate documents in bulk.
-- [ ] Store files securely.
+- [x] Store issued academic and finance PDFs in private school-scoped storage.
 - [ ] Manage document categories and versions.
-- [ ] Record generation and download history.
+- [x] Record issuance, authorized views, downloads, verification and revocation events for registered documents.
 - [ ] Configure school branding, headers, footers and page numbering.
 - [ ] Visual document template designer.
 - [ ] Dynamic fields and conditional sections.
@@ -696,7 +696,7 @@ Accounts Payable Officer is available as a restricted core role; supplier-payabl
 - [ ] Accessible PDF validation.
 - [ ] Document retention and legal holds.
 - [ ] Duplicate-document detection.
-- [ ] Secure temporary download links.
+- [x] Provide short-lived signed links for authorized registered-document access.
 
 ### 23.1 Advanced document capabilities
 - [ ] Student Record Pack Generator.
@@ -804,10 +804,11 @@ Accounts Payable Officer is available as a restricted core role; supplier-payabl
 - [x] Correct academic report pagination to keep A4 result rows within page bounds and show per-report page counts.
 - [x] Remove fabricated student/sample marks from the report-design preview.
 - [ ] Unify school letterheads, branding, headers, typography and footers across reports and finance documents.
-- [ ] Add official QR verification references and public/authenticated verification flows.
+- [x] Add opaque QR verification references, a privacy-limited public authenticity page and role-checked authenticated document access for individual reports and finance documents.
 - [ ] Add server-generated document numbering, immutable issued versions, revocation and supersession lifecycle.
-- [ ] Store issued PDFs privately with role-checked access and document audit events.
-- [ ] Add report/invoice/receipt/statement previews of the actual generated PDF and test print output.
+- [x] Store issued PDFs privately with role-checked access and document audit events.
+- [x] Add previews of the actual generated report/invoice/receipt/statement PDFs.
+- [ ] Verify print output and page layout across browsers and printers.
 - [ ] Add regression, financial-accuracy, QR-security and cross-school isolation tests.
 
 ### Features 04–70

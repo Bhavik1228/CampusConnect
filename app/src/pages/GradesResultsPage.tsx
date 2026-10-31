@@ -1,5 +1,6 @@
 import { Fragment, useEffect, useMemo, useState, type FormEvent } from 'react';
 import type { jsPDF } from 'jspdf';
+import QRCode from 'qrcode';
 import {
   Award, Check, Download, FileText, GraduationCap, History, LockKeyhole, MessageSquare,
   Pencil, Plus, Save, Settings2, ShieldCheck, Sparkles, X,
@@ -7,6 +8,13 @@ import {
 import { useAuth } from '../contexts/AuthContext';
 import { ErrorState, LoadingState, SuccessMessage } from '../components/Feedback';
 import { requireSupabase } from '../lib/supabase';
+import { PdfPreviewDialog } from '../components/PdfPreviewDialog';
+import {
+  documentVerificationUrl,
+  prepareOfficialDocument,
+  savePdfBlob,
+  storeOfficialDocument,
+} from '../lib/official-documents';
 
 type ResultStatus = 'draft' | 'approved' | 'published';
 type Result = {
@@ -89,6 +97,23 @@ function errorMessage(error: unknown, fallback: string) {
   return error instanceof Error ? error.message : fallback;
 }
 
+async function loadReportLogo(url: string | null) {
+  if (!url || !/^https:\/\//i.test(url)) return null;
+  const response = await fetch(url);
+  if (!response.ok) throw new Error(`School logo request failed (${response.status}).`);
+  const blob = await response.blob();
+  if (!['image/png', 'image/jpeg'].includes(blob.type) || blob.size > 2_000_000) {
+    throw new Error('School logo must be a PNG or JPEG under 2 MB.');
+  }
+  const data = await new Promise<string>((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onload = () => resolve(String(reader.result));
+    reader.onerror = () => reject(new Error('Could not read the school logo.'));
+    reader.readAsDataURL(blob);
+  });
+  return { data, format: blob.type === 'image/png' ? 'PNG' as const : 'JPEG' as const };
+}
+
 function formatDate(date: string) {
   return new Date(`${date}T00:00:00`).toLocaleDateString(undefined, {
     day: 'numeric', month: 'short', year: 'numeric',
@@ -126,10 +151,14 @@ function drawReportPage(
     contact_email?: string | null;
     contact_phone?: string | null;
     website?: string | null;
+    logo_path?: string | null;
   },
   boundaries: Record<string, number>,
   pageIndex = 0,
   reportPageCount = 1,
+  verificationQr?: string,
+  documentReference?: string,
+  logoData?: { data: string; format: 'PNG' | 'JPEG' },
 ) {
   const width = pdf.internal.pageSize.getWidth();
   const height = pdf.internal.pageSize.getHeight();
@@ -137,6 +166,16 @@ function drawReportPage(
   const margin = 42;
   const headerHeight = template.layout === 'minimal' ? 90 : 116;
   const lightHeader = template.layout === 'minimal' || template.layout === 'academic';
+  if (logoData) {
+    try {
+      const image = pdf.getImageProperties(logoData.data);
+      const scale = Math.min(42 / image.width, 42 / image.height);
+      pdf.addImage(logoData.data, logoData.format, margin + 16, 37,
+        image.width * scale, image.height * scale);
+    } catch (imageError) {
+      console.warn('School logo could not be embedded in the student report.', imageError);
+    }
+  }
   if (template.layout === 'minimal') {
     pdf.setDrawColor(red, green, blue);
     pdf.setLineWidth(2);
@@ -160,21 +199,26 @@ function drawReportPage(
   pdf.setTextColor(lightHeader ? 43 : 255, lightHeader ? 48 : 255, lightHeader ? 66 : 255);
   pdf.setFont('helvetica', 'bold');
   pdf.setFontSize(9);
-  pdf.text(school.name.toUpperCase(), margin + (template.layout === 'minimal' ? 22 : 24), 54, {
-    maxWidth: width - margin * 2 - 48,
+  const schoolNameX = margin + (logoData ? 64 : template.layout === 'minimal' ? 22 : 24);
+  pdf.text(school.name.toUpperCase(), schoolNameX, 54, {
+    maxWidth: width - schoolNameX - margin - 210,
   });
   pdf.setFontSize(template.layout === 'vibrant' ? 20 : 18);
-  pdf.text(pageIndex > 0 ? `${template.title} - CONTINUED` : template.title, margin + 24, 80);
+  pdf.text(pageIndex > 0 ? `${template.title} - CONTINUED` : template.title, schoolNameX, 80, {
+    maxWidth: width - schoolNameX - margin - 20,
+  });
   pdf.setFont('helvetica', 'normal');
   pdf.setFontSize(9);
-  pdf.text(template.subtitle || 'Academic achievement & progress', margin + 24, 98);
+  pdf.text(template.subtitle || 'Academic achievement & progress', schoolNameX, 98, {
+    maxWidth: width - schoolNameX - margin - 20,
+  });
   const schoolDetails = [school.address, school.contact_phone, school.contact_email, school.website]
     .filter((detail): detail is string => Boolean(detail?.trim()));
   if (schoolDetails.length) {
     pdf.setFontSize(8);
     pdf.setTextColor(lightHeader ? 113 : 255, lightHeader ? 120 : 255, lightHeader ? 140 : 255);
-    const contactLines = pdf.splitTextToSize(schoolDetails.join(' · '), 190).slice(0, 2);
-    pdf.text(contactLines, width - margin - 24, 54, { align: 'right', maxWidth: 190 });
+    const contactLines = pdf.splitTextToSize(schoolDetails.join(' · '), 180).slice(0, 2);
+    pdf.text(contactLines, width - margin - 24, 54, { align: 'right', maxWidth: 180 });
   }
 
   let y = 28 + headerHeight + 26;
@@ -290,6 +334,15 @@ function drawReportPage(
   pdf.setTextColor(144, 149, 164);
   pdf.text(template.footer || 'Confidential student report', margin + 10, height - 39);
   pdf.text(`PAGE ${pageIndex + 1} OF ${reportPageCount}`, width - margin - 10, height - 39, { align: 'right' });
+  if (verificationQr) {
+    pdf.addImage(verificationQr, 'PNG', width - margin - 47, height - 101, 34, 34);
+    pdf.setFontSize(5.5);
+    pdf.text('SCAN TO VERIFY', width - margin - 30, height - 62, { align: 'center' });
+    if (documentReference) {
+      pdf.setFontSize(6);
+      pdf.text(documentReference, width - margin - 30, height - 56, { align: 'center', maxWidth: 62 });
+    }
+  }
 }
 
 export function GradesResultsPage() {
@@ -319,6 +372,16 @@ export function GradesResultsPage() {
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState('');
   const [notice, setNotice] = useState('');
+  const [documentBranding, setDocumentBranding] = useState<{
+    logo_path: string | null;
+    primary_color: string | null;
+    motto: string | null;
+    contact_email: string | null;
+    contact_phone: string | null;
+    website: string | null;
+  }>({ logo_path: null, primary_color: null, motto: null, contact_email: null, contact_phone: null, website: null });
+  const [previewUrl, setPreviewUrl] = useState('');
+  const [previewFilename, setPreviewFilename] = useState('');
 
   useEffect(() => {
     if (!schoolId) return;
@@ -328,16 +391,18 @@ export function GradesResultsPage() {
       setError('');
       try {
         const client = requireSupabase();
-        const [resultResponse, studentResponse, assessmentResponse, scaleResponse, templateResponse] = await Promise.all([
+        const [resultResponse, studentResponse, assessmentResponse, scaleResponse, templateResponse, brandingResponse] = await Promise.all([
           client.from('learning_assessment_results').select('*').eq('school_id', schoolId).order('assessment_date', { ascending: false }),
           client.from('students').select('id, student_number, first_name, last_name, status').eq('school_id', schoolId).order('last_name').order('first_name'),
           client.from('learning_assessments').select('id, title, subject, total_marks').eq('school_id', schoolId).order('title'),
           client.from('school_academic_policies').select('grading_scale, grade_boundaries, report_card_template').eq('school_id', schoolId).maybeSingle(),
           client.from('school_report_templates').select('*').eq('school_id', schoolId).order('created_at', { ascending: false }),
+          client.from('schools').select('logo_path,primary_color,motto,contact_email,contact_phone,website').eq('id', schoolId).single(),
         ]);
-        for (const response of [resultResponse, studentResponse, assessmentResponse, scaleResponse, templateResponse]) {
+        for (const response of [resultResponse, studentResponse, assessmentResponse, scaleResponse, templateResponse, brandingResponse]) {
           if (response.error) throw response.error;
         }
+        if (!brandingResponse.data) throw new Error('School document branding could not be loaded.');
         const revisionResponse = canManage
           ? await client.from('learning_result_revisions').select('result_id, previous_marks, previous_comment, reason, created_at').eq('school_id', schoolId).order('created_at', { ascending: false })
           : null;
@@ -348,6 +413,7 @@ export function GradesResultsPage() {
         setStudents((studentResponse.data ?? []) as Student[]);
         setAssessments((assessmentResponse.data ?? []) as Assessment[]);
         setTemplates((templateResponse.data ?? []) as ReportTemplate[]);
+        setDocumentBranding(brandingResponse.data);
         const scale = scaleResponse.data as (GradingScale & { report_card_template: string | null }) | null;
         if (scale) {
           setGradingScale(scale.grading_scale);
@@ -386,11 +452,12 @@ export function GradesResultsPage() {
   const pdfSchool = {
     name: activeMembership?.school.name ?? 'School',
     address: activeMembership?.school.address,
-    motto: activeMembership?.school.motto,
-    primary_color: activeMembership?.school.primary_color,
-    contact_email: activeMembership?.school.contact_email,
-    contact_phone: activeMembership?.school.contact_phone,
-    website: activeMembership?.school.website,
+    ...documentBranding,
+    motto: documentBranding.motto ?? activeMembership?.school.motto,
+    primary_color: documentBranding.primary_color ?? activeMembership?.school.primary_color,
+    contact_email: documentBranding.contact_email ?? activeMembership?.school.contact_email,
+    contact_phone: documentBranding.contact_phone ?? activeMembership?.school.contact_phone,
+    website: documentBranding.website ?? activeMembership?.school.website,
   };
 
   function editResult(result: Result) {
@@ -588,13 +655,34 @@ export function GradesResultsPage() {
       const pdf = new PdfDocument({ unit: 'pt', format: 'a4' });
       const reportTemplate = activeTemplate;
       const pageCount = Math.ceil(rows.length / 10);
+      if (!schoolId) throw new Error('Choose an active school before issuing a student report.');
+      const prepared = await prepareOfficialDocument(schoolId, 'academic_report', studentId);
+      const verificationUrl = documentVerificationUrl(prepared.token);
+      const verificationQr = await QRCode.toDataURL(verificationUrl, {
+        errorCorrectionLevel: 'Q', margin: 1, width: 280,
+      });
+      let reportLogo: { data: string; format: 'PNG' | 'JPEG' } | null = null;
+      try {
+        reportLogo = await loadReportLogo(pdfSchool.logo_path ?? null);
+      } catch (logoError) {
+        console.warn('School logo was omitted from the academic report.', logoError);
+      }
       for (let pageIndex = 0; pageIndex < pageCount; pageIndex += 1) {
         if (pageIndex > 0) pdf.addPage();
-        drawReportPage(pdf, student, rows, assessmentsById, reportTemplate, pdfSchool, boundaries, pageIndex, pageCount);
+        drawReportPage(
+          pdf, student, rows, assessmentsById, reportTemplate, pdfSchool,
+          boundaries, pageIndex, pageCount, verificationQr, prepared.reference, reportLogo ?? undefined,
+        );
       }
-      pdf.save(`student-report-${student.student_number}.pdf`);
+      const output = pdf.output('blob');
+      await storeOfficialDocument(prepared, output);
+      const filename = `student-report-${student.student_number}.pdf`;
+      savePdfBlob(output, filename);
+      if (previewUrl) URL.revokeObjectURL(previewUrl);
+      setPreviewUrl(URL.createObjectURL(output));
+      setPreviewFilename(filename);
       setError('');
-      setNotice(`PDF report downloaded for ${student.first_name} ${student.last_name}.`);
+      setNotice(`Issued ${prepared.reference} · version ${prepared.version}. Report downloaded and its authenticity QR is active.`);
     } catch (pdfError) {
       setError(errorMessage(pdfError, 'Could not create the student PDF report.'));
     }
@@ -642,6 +730,7 @@ export function GradesResultsPage() {
   if (loading) return <LoadingState />;
 
   return (
+    <>
     <div className="page-stack grades-page">
       <header className="page-heading">
         <div><span className="eyebrow">Academic workspace</span><h1>Grades &amp; results</h1><p>Record marks, review achievement, and publish polished student reports.</p></div>
@@ -776,5 +865,14 @@ export function GradesResultsPage() {
       )}
       <section className="grades-privacy-note"><LockKeyhole size={15} /><span>Only approved results can be published. Students and parents see published results only. Corrections to approved marks are restricted to authorized academic staff and written to an audit history.</span></section>
     </div>
+    {previewUrl && <PdfPreviewDialog
+      url={previewUrl}
+      filename={previewFilename || 'student-report.pdf'}
+      onClose={() => {
+        URL.revokeObjectURL(previewUrl);
+        setPreviewUrl('');
+      }}
+    />}
+    </>
   );
 }

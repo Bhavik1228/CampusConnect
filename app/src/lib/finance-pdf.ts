@@ -1,4 +1,6 @@
 import { jsPDF } from 'jspdf';
+import QRCode from 'qrcode';
+import { savePdfBlob } from './official-documents';
 
 export interface FinancePdfSection {
   title: string;
@@ -31,6 +33,11 @@ interface FinancePdfOptions {
   schoolName: string;
   issuerDetails?: string[];
   filename: string;
+  verificationUrl?: string;
+  brandColor?: string | null;
+  motto?: string | null;
+  logoUrl?: string | null;
+  deferDownload?: boolean;
   details?: string[];
   document?: FinancePdfDocument;
   sections: FinancePdfSection[];
@@ -75,16 +82,54 @@ function money(amount: number, currencyCode: string) {
   return `${printable(currencyCode) || 'USD'} ${Math.abs(amount).toFixed(2)}`;
 }
 
-export function downloadFinancePdf({ title, schoolName, issuerDetails = [], filename, details = [], document, sections }: FinancePdfOptions) {
+function rgbFromHex(value: string | null | undefined): [number, number, number] {
+  const match = value?.match(/^#?([0-9a-f]{6})$/i);
+  if (!match) return PURPLE;
+  const hex = match[1];
+  return [
+    Number.parseInt(hex.slice(0, 2), 16),
+    Number.parseInt(hex.slice(2, 4), 16),
+    Number.parseInt(hex.slice(4, 6), 16),
+  ];
+}
+
+async function imageDataFromUrl(url: string) {
+  const response = await fetch(url);
+  if (!response.ok) throw new Error(`School logo request failed (${response.status}).`);
+  const blob = await response.blob();
+  if (!['image/png', 'image/jpeg'].includes(blob.type) || blob.size > 2_000_000) {
+    throw new Error('School logo must be a PNG or JPEG under 2 MB to embed in a PDF.');
+  }
+  return new Promise<{ data: string; format: 'PNG' | 'JPEG' }>((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onload = () => resolve({ data: String(reader.result), format: blob.type === 'image/png' ? 'PNG' : 'JPEG' });
+    reader.onerror = () => reject(new Error('Could not read the school logo for the PDF.'));
+    reader.readAsDataURL(blob);
+  });
+}
+
+export async function downloadFinancePdf({
+  title, schoolName, issuerDetails = [], filename, details = [], document, sections,
+  verificationUrl, brandColor, motto, logoUrl, deferDownload = false,
+}: FinancePdfOptions): Promise<Blob> {
   const pdf = new jsPDF({ orientation: 'portrait', unit: 'mm', format: 'a4' });
-  const pageBottom = PAGE_HEIGHT - 21;
+  const accent = rgbFromHex(brandColor);
+  const pageBottom = PAGE_HEIGHT - (verificationUrl ? 48 : 21);
   let y = 0;
   const issuer = printable(schoolName) || 'School';
+  let logo: { data: string; format: 'PNG' | 'JPEG' } | null = null;
+  if (logoUrl) {
+    try {
+      logo = await imageDataFromUrl(logoUrl);
+    } catch (error) {
+      console.warn('School logo was omitted from the finance PDF.', error);
+    }
+  }
 
   const drawRunningHeader = () => {
     pdf.setFillColor(...NAVY);
     pdf.rect(0, 0, PAGE_WIDTH, 17, 'F');
-    pdf.setFillColor(...PURPLE);
+    pdf.setFillColor(...accent);
     pdf.rect(0, 0, 3, 17, 'F');
     pdf.setFont('helvetica', 'bold');
     pdf.setFontSize(8);
@@ -106,23 +151,31 @@ export function downloadFinancePdf({ title, schoolName, issuerDetails = [], file
   };
 
   const drawBusinessHeader = () => {
-    pdf.setFillColor(...PURPLE);
+    pdf.setFillColor(...accent);
     pdf.rect(0, 0, PAGE_WIDTH, 2.2, 'F');
     pdf.setFont('helvetica', 'bold');
     pdf.setFontSize(12);
     pdf.setTextColor(...NAVY);
     const issuerLines = pdf.splitTextToSize(issuer, CONTENT_WIDTH * 0.46) as string[];
-    pdf.text(issuerLines, MARGIN, 13);
+    let logoOffset = 0;
+    if (logo) {
+      const properties = pdf.getImageProperties(logo.data);
+      const imageScale = Math.min(20 / properties.width, 16 / properties.height);
+      pdf.addImage(logo.data, logo.format, MARGIN, 7,
+        properties.width * imageScale, properties.height * imageScale);
+      logoOffset = 22;
+    }
+    pdf.text(issuerLines, MARGIN + logoOffset, 13, { maxWidth: CONTENT_WIDTH * 0.46 - logoOffset });
     pdf.setFont('helvetica', 'normal');
     pdf.setFontSize(7.5);
     pdf.setTextColor(...MUTED);
     let issuerY = 13 + issuerLines.length * 5 + 2;
-    pdf.text('STUDENT ACCOUNTS', MARGIN, issuerY);
+    pdf.text(motto ? printable(motto) : 'OFFICIAL SCHOOL DOCUMENT', MARGIN + logoOffset, issuerY);
     issuerDetails.forEach((item) => {
       const lines = pdf.splitTextToSize(printable(item), CONTENT_WIDTH * 0.46) as string[];
       issuerY += 4;
       pdf.setFontSize(7);
-      pdf.text(lines, MARGIN, issuerY);
+      pdf.text(lines, MARGIN + logoOffset, issuerY, { maxWidth: CONTENT_WIDTH * 0.46 - logoOffset });
       issuerY += Math.max(0, lines.length - 1) * 3;
     });
 
@@ -435,9 +488,20 @@ export function downloadFinancePdf({ title, schoolName, issuerDetails = [], file
     pdf.setFontSize(7);
     pdf.setTextColor(...MUTED);
     pdf.text(issuer, MARGIN, PAGE_HEIGHT - 9);
+    if (document?.number) {
+      pdf.text(printable(document.number), PAGE_WIDTH / 2, PAGE_HEIGHT - 9, { align: 'center' });
+    }
     pdf.text(`${page} / ${pdf.getNumberOfPages()}`, PAGE_WIDTH - MARGIN, PAGE_HEIGHT - 9, { align: 'right' });
+    if (verificationUrl) {
+      const qr = await QRCode.toDataURL(verificationUrl, { errorCorrectionLevel: 'Q', margin: 1, width: 280 });
+      pdf.addImage(qr, 'PNG', PAGE_WIDTH - MARGIN - 22, PAGE_HEIGHT - 42, 22, 22);
+      pdf.setFontSize(5.5);
+      pdf.text('SCAN TO VERIFY', PAGE_WIDTH - MARGIN - 11, PAGE_HEIGHT - 18, { align: 'center' });
+    }
   }
 
   const safeFilename = printable(filename).replace(/[<>:"/\\|?*]/g, '-').replace(/\s+/g, '-');
-  pdf.save(`${safeFilename || 'finance-document'}.pdf`);
+  const output = pdf.output('blob');
+  if (!deferDownload) savePdfBlob(output, `${safeFilename || 'finance-document'}.pdf`);
+  return output;
 }

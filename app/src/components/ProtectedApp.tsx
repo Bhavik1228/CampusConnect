@@ -46,6 +46,7 @@ import { MfaGate } from './MfaGate';
 import { PermissionsManagementPage } from '../pages/PermissionsManagementPage';
 import { AcademicPlanningPage } from '../pages/AcademicPlanningPage';
 import { SetupHealthPage } from '../pages/SetupHealthPage';
+import { DocumentVerificationPage } from '../pages/DocumentVerificationPage';
 
 function RouteGate({ authOnly = true, requireMembership = true }: { authOnly?: boolean; requireMembership?: boolean }) {
   const { user, loading, memberships } = useAuth();
@@ -145,6 +146,7 @@ export function ProtectedApp() {
       <Route path="/" element={<LandingPage />} />
       <Route path="/login" element={<LoginRoute />} />
       <Route path="/mobile/install" element={<MobileInstallPage />} />
+      <Route path="/verify/document/:token" element={<DocumentVerificationPage />} />
       <Route path="/book/:slug/:barcode" element={<PublicLibraryBookPage />} />
       <Route path="/school/:slug/library/:barcode" element={<PublicLibraryBookPage websitePath />} />
       <Route path="/school/:slug" element={<PublicSchoolWebsitePage />} />
@@ -221,6 +223,10 @@ function LoginRoute() {
     && /^\/visitors\/verify\/[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(requestedDestination)
     ? requestedDestination
     : null;
+  const documentVerificationPath = requestedDestination
+    && /^\/verify\/document\/[0-9a-f]{64}$/.test(requestedDestination)
+    ? requestedDestination
+    : null;
 
   useEffect(() => {
     let active = true;
@@ -247,6 +253,7 @@ function LoginRoute() {
   if (user && publicBookPath) return <Navigate to={publicBookPath} replace />;
   if (user && healthReportPath) return <Navigate to={healthReportPath} replace />;
   if (user && visitorBadgePath) return <Navigate to={visitorBadgePath} replace />;
+  if (user && documentVerificationPath) return <Navigate to={documentVerificationPath} replace />;
   if (user && memberships.length === 0) return <SchoolSetup />;
   if (user) return <Navigate to="/dashboard" replace />;
   return <AuthScreen />;

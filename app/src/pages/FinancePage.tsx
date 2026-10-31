@@ -3,9 +3,16 @@ import { Banknote, Download, FileText, Receipt, WalletCards } from 'lucide-react
 import { useSearchParams } from 'react-router-dom';
 import { useAuth } from '../contexts/AuthContext';
 import { EmptyState, ErrorState, LoadingState, SuccessMessage } from '../components/Feedback';
+import { PdfPreviewDialog } from '../components/PdfPreviewDialog';
 import { requireSupabase } from '../lib/supabase';
 import type { FinancePdfDocument, FinancePdfSection } from '../lib/finance-pdf';
 import type { AppRole } from '../types/database';
+import {
+  documentVerificationUrl,
+  prepareOfficialDocument,
+  savePdfBlob,
+  storeOfficialDocument,
+} from '../lib/official-documents';
 
 type FinanceTab = 'overview' | 'structures' | 'invoices' | 'payments' | 'statements';
 type PaymentMethod = 'cash' | 'bank_transfer' | 'card' | 'mobile_money' | 'cheque' | 'other';
@@ -130,6 +137,13 @@ export function FinancePage() {
   const [paymentAllocations, setPaymentAllocations] = useState<Record<string, string>>({});
   const [paymentCurrency, setPaymentCurrency] = useState('USD');
   const [statementStudent, setStatementStudent] = useState('');
+  const [documentBranding, setDocumentBranding] = useState<{
+    logo_path: string | null;
+    primary_color: string | null;
+    motto: string | null;
+  }>({ logo_path: null, primary_color: null, motto: null });
+  const [previewUrl, setPreviewUrl] = useState('');
+  const [previewFilename, setPreviewFilename] = useState('');
 
   const loadFinance = useCallback(async () => {
     if (!schoolId) return;
@@ -137,14 +151,17 @@ export function FinancePage() {
     setError('');
     try {
       const client = requireSupabase();
-      const [structureResult, studentResult, invoiceResult, adjustmentResult, paymentResult, allocationResult] = await Promise.all([
+      const [structureResult, studentResult, invoiceResult, adjustmentResult, paymentResult, allocationResult, brandingResult] = await Promise.all([
         fetchAllRows((from, to) => client.from('fee_structures').select('id,name,description,amount,currency_code,due_date,is_active').eq('school_id', schoolId).order('name').range(from, to)),
         fetchAllRows((from, to) => client.from('finance_student_directory').select('id,student_number,first_name,last_name').eq('school_id', schoolId).order('last_name').range(from, to)),
         fetchAllRows((from, to) => client.from('student_fee_invoices').select('id,student_id,fee_structure_id,invoice_number,description,amount,discount_amount,discount_reason,currency_code,issued_on,due_on,status').eq('school_id', schoolId).order('issued_on', { ascending: false }).range(from, to)),
         fetchAllRows((from, to) => client.from('student_fee_adjustments').select('id,invoice_id,adjustment_type,amount,reason,created_at').eq('school_id', schoolId).order('created_at').range(from, to)),
         fetchAllRows((from, to) => client.from('student_fee_payments').select('id,student_id,receipt_number,amount,currency_code,payment_date,payment_method,reference').eq('school_id', schoolId).order('payment_date', { ascending: false }).range(from, to)),
         fetchAllRows((from, to) => client.from('student_fee_payment_allocations').select('payment_id,invoice_id,amount').eq('school_id', schoolId).range(from, to)),
+        client.from('schools').select('logo_path,primary_color,motto').eq('id', schoolId).single(),
       ]);
+      if (brandingResult.error) throw brandingResult.error;
+      setDocumentBranding(brandingResult.data);
       setStructures(structureResult as FeeStructure[]);
       setStudents(studentResult as FeeStudent[]);
       setInvoices(invoiceResult as FeeInvoice[]);
@@ -212,15 +229,34 @@ export function FinancePage() {
   const statementInvoices = invoices.filter((invoice) => invoice.student_id === selectedStatementStudent && invoice.status === 'issued');
   const statementPayments = payments.filter((payment) => payment.student_id === selectedStatementStudent);
 
-  async function runPdfExport(createPdf: (pdf: typeof import('../lib/finance-pdf')) => void) {
+  async function runPdfExport(createPdf: (pdf: typeof import('../lib/finance-pdf')) => Promise<Blob | void>) {
     setFormError('');
     try {
-      createPdf(await import('../lib/finance-pdf'));
+      const output = await createPdf(await import('../lib/finance-pdf'));
+      if (output instanceof Blob) {
+        if (previewUrl) URL.revokeObjectURL(previewUrl);
+        setPreviewUrl(URL.createObjectURL(output));
+      }
     } catch (exportError) {
       setFormError(exportError instanceof Error ? exportError.message : 'The PDF could not be created.');
     }
   }
 
+  async function issueFinancePdf(
+    documentType: 'invoice' | 'receipt' | 'statement',
+    sourceId: string,
+    filename: string,
+    createPdf: (verificationUrl: string, documentReference: string) => Promise<Blob>,
+  ) {
+    if (!schoolId) throw new Error('Choose an active school before issuing a document.');
+    const prepared = await prepareOfficialDocument(schoolId, documentType, sourceId);
+    const output = await createPdf(documentVerificationUrl(prepared.token), prepared.reference);
+    await storeOfficialDocument(prepared, output);
+    savePdfBlob(output, `${filename}.pdf`);
+    setPreviewFilename(`${filename}.pdf`);
+    setSuccess(`Issued ${prepared.reference} · version ${prepared.version}. The QR verifies authenticity without exposing account details.`);
+    return output;
+  }
   function invoiceSections(invoice: FeeInvoice): FinancePdfSection[] {
     const invoiceAdjustments = adjustments.filter((adjustment) => adjustment.invoice_id === invoice.id);
     const rows = [
@@ -348,14 +384,19 @@ export function FinancePage() {
       amountPaid,
       balanceDue,
     };
-    void runPdfExport(({ downloadFinancePdf }) => downloadFinancePdf({
+    void runPdfExport(({ downloadFinancePdf }) => issueFinancePdf('invoice', invoice.id, invoice.invoice_number, (verificationUrl) => downloadFinancePdf({
       title: 'Invoice',
       schoolName: activeMembership?.school.name ?? 'School',
       issuerDetails: getIssuerDetails(),
+      brandColor: documentBranding.primary_color,
+      motto: documentBranding.motto,
+      logoUrl: documentBranding.logo_path,
+      verificationUrl,
+      deferDownload: true,
       filename: invoice.invoice_number,
       document,
       sections: invoiceSections(invoice),
-    }));
+    })));
   }
 
   function downloadAllInvoices() {
@@ -385,10 +426,15 @@ export function FinancePage() {
     const receiptAllocations = allocations.filter((allocation) => allocation.payment_id === payment.id);
     const allocatedTotal = receiptAllocations.reduce((total, allocation) => total + allocation.amount, 0);
     const student = studentsById.get(payment.student_id);
-    void runPdfExport(({ downloadFinancePdf }) => downloadFinancePdf({
+    void runPdfExport(({ downloadFinancePdf }) => issueFinancePdf('receipt', payment.id, payment.receipt_number, (verificationUrl) => downloadFinancePdf({
       title: 'Payment receipt',
       schoolName: activeMembership?.school.name ?? 'School',
       issuerDetails: getIssuerDetails(),
+      brandColor: documentBranding.primary_color,
+      motto: documentBranding.motto,
+      logoUrl: documentBranding.logo_path,
+      verificationUrl,
+      deferDownload: true,
       filename: payment.receipt_number,
       document: {
         kind: 'receipt',
@@ -410,7 +456,7 @@ export function FinancePage() {
           : [['Unallocated advance payment', '-', pdfMoney(0, payment.currency_code)]] },
         ...(payment.amount > allocatedTotal ? [{ title: 'Unallocated amount', columns: ['Available credit'], rows: [[pdfMoney(payment.amount - allocatedTotal, payment.currency_code)]] }] : []),
       ],
-    }));
+    })));
   }
 
   function downloadAllReceipts() {
@@ -446,13 +492,19 @@ export function FinancePage() {
     }
     const sections = statementSections(studentId);
     const statementStudent = studentsById.get(studentId);
-    void runPdfExport(({ downloadFinancePdf }) => downloadFinancePdf({
+    void runPdfExport(({ downloadFinancePdf }) => issueFinancePdf('statement', student.id, `statement-${student.student_number}`, (verificationUrl, reference) => downloadFinancePdf({
       title: 'Account statement',
       schoolName: activeMembership?.school.name ?? 'School',
       issuerDetails: getIssuerDetails(),
+      brandColor: documentBranding.primary_color,
+      motto: documentBranding.motto,
+      logoUrl: documentBranding.logo_path,
+      verificationUrl,
+      deferDownload: true,
       filename: `statement-${student.student_number}-${new Date().toISOString().slice(0, 10)}`,
       document: {
         kind: 'statement',
+        number: reference,
         issuedOn: new Date().toISOString().slice(0, 10),
         recipientName: statementStudent ? `${statementStudent.first_name} ${statementStudent.last_name}` : 'Unknown student',
         recipientReference: `Student number: ${student.student_number}`,
@@ -461,7 +513,7 @@ export function FinancePage() {
         ...section,
         rows: [['-', 'No account activity', '-', '-', '-', '-', '0.00']],
       }),
-    }));
+    })));
   }
 
   function downloadAllStatements() {
@@ -678,6 +730,7 @@ export function FinancePage() {
   }
 
   return (
+    <>
     <div className="page-stack">
       <div className="page-heading"><div><span className="eyebrow">School finance</span><h1>Student fees</h1><p>Manage fee structures, student accounts, invoices, and payments.</p></div></div>
       {error && <ErrorState message={error} />}
@@ -763,5 +816,14 @@ export function FinancePage() {
       </>}
       <div className="accounting-currency-note">Financial amounts display in each fee's selected currency. Balances are calculated per invoice and are not combined across currencies.</div>
     </div>
+    {previewUrl && <PdfPreviewDialog
+      url={previewUrl}
+      filename={previewFilename || 'school-finance-document.pdf'}
+      onClose={() => {
+        URL.revokeObjectURL(previewUrl);
+        setPreviewUrl('');
+      }}
+    />}
+    </>
   );
 }
