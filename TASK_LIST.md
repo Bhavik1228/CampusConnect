@@ -805,11 +805,12 @@ Accounts Payable Officer is available as a restricted core role; supplier-payabl
 - [x] Remove fabricated student/sample marks from the report-design preview.
 - [ ] Unify school letterheads, branding, headers, typography and footers across reports and finance documents.
 - [x] Add opaque QR verification references, a privacy-limited public authenticity page and role-checked authenticated document access for individual reports and finance documents.
-- [ ] Add server-generated document numbering, immutable issued versions, revocation and supersession lifecycle.
+- [x] Add server-generated report/statement numbering, versioned issuance, revocation and supersession lifecycle.
 - [x] Store issued PDFs privately with role-checked access and document audit events.
 - [x] Add previews of the actual generated report/invoice/receipt/statement PDFs.
 - [ ] Verify print output and page layout across browsers and printers.
 - [ ] Add regression, financial-accuracy, QR-security and cross-school isolation tests.
+- [ ] Apply the official-documents migration and verify remote issuance, storage policies and cross-school access (deferred until this feature is resumed).
 
 ### Features 04–70
 - [ ] Pending: their specifications have not yet been supplied.
