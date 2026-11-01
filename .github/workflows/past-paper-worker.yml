@@ -1,0 +1,36 @@
+name: Authorized past-paper processing
+
+on:
+  workflow_dispatch:
+  schedule:
+    - cron: "*/15 * * * *"
+
+permissions:
+  contents: read
+
+concurrency:
+  group: past-paper-processing
+  cancel-in-progress: false
+
+jobs:
+  process:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+          cache-dependency-path: app/scripts/requirements-past-paper.txt
+      - name: Install PDF and OCR dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install --yes tesseract-ocr
+          python -m pip install -r app/scripts/requirements-past-paper.txt
+      - name: Process a bounded batch
+        env:
+          PAST_PAPER_FUNCTION_URL: ${{ secrets.PAST_PAPER_FUNCTION_URL }}
+          SUPABASE_ANON_KEY: ${{ secrets.SUPABASE_ANON_KEY }}
+          PAPER_PIPELINE_WORKER_SECRET: ${{ secrets.PAPER_PIPELINE_WORKER_SECRET }}
+        run: python app/scripts/past_paper_worker.py
