@@ -5,7 +5,9 @@ import {
 } from 'lucide-react';
 import { useAuth } from '../contexts/AuthContext';
 import { ErrorState, LoadingState } from '../components/Feedback';
+import { DraftRecoveryControls } from '../components/DraftRecoveryControls';
 import { requireSupabase } from '../lib/supabase';
+import { useRecoverableDraft } from '../lib/recoverable-drafts';
 
 type Difficulty = 'Foundation' | 'Standard' | 'Challenging' | 'Mixed';
 type AssessmentStatus = 'draft' | 'ready';
@@ -192,6 +194,21 @@ export function TestMakerPage() {
   const availableDepartments = isAcademicLead
     ? departments
     : departments.filter((department) => hodDepartmentIds.includes(department.id));
+  const assessmentDraft = useRecoverableDraft({
+    schoolId,
+    userId: user?.id,
+    entity: 'assessment',
+    entityId: activeAssessmentId || 'new-assessment',
+    payload: { activeAssessmentId, form },
+    enabled: !loading && Boolean(schoolId && user && ['school_admin', 'academic_coordinator', 'teacher'].includes(activeMembership?.role ?? '')),
+  });
+
+  function restoreAssessmentDraft(value: { activeAssessmentId: string; form: AssessmentForm }) {
+    setActiveAssessmentId(value.activeAssessmentId);
+    setForm(value.form);
+    setView('assessments');
+    setNotice('Saved test draft restored. Review the fields before saving to the school record.');
+  }
 
   useEffect(() => {
     if (!schoolId) return;
@@ -361,6 +378,7 @@ export function TestMakerPage() {
       setAssessments((current) => [saved, ...current.filter((item) => item.id !== saved.id)]);
       setActiveAssessmentId(saved.id);
       setForm(toAssessmentForm(saved));
+      await assessmentDraft.clearDraft();
       setNotice('Test saved.');
     } catch (saveError) {
       setError(getErrorMessage(saveError, 'Could not save the test.'));
@@ -664,6 +682,7 @@ export function TestMakerPage() {
 
           <section className="content-card test-editor-card">
             <form onSubmit={(event) => void saveAssessment(event)}>
+                <DraftRecoveryControls entity="assessment" draft={assessmentDraft} onRestore={restoreAssessmentDraft} />
               <div className="section-heading"><div><span className="eyebrow">{activeAssessmentId ? 'Edit assessment' : 'New assessment'}</span><h2>{form.title || 'Untitled test'}</h2></div>
                 <div className="editor-heading-actions"><button type="button" className="button button-quiet" disabled={!form.title.trim()} onClick={() => printDocument('paper')}><Printer size={14} /> Paper / PDF</button><button type="button" className="button button-quiet" disabled={!form.title.trim()} onClick={() => printDocument('answer-sheet')}><FileText size={14} /> Answer sheet</button><button className="button button-primary" disabled={saving}><Save size={14} />{saving ? 'Saving…' : 'Save test'}</button></div>
               </div>

@@ -2,6 +2,8 @@ import { useCallback, useEffect, useState } from 'react';
 import { ExternalLink, Globe, RefreshCw, Send, ShieldCheck } from 'lucide-react';
 import { useAuth } from '../contexts/AuthContext';
 import { ErrorState, LoadingState, SuccessMessage } from '../components/Feedback';
+import { DraftRecoveryControls } from '../components/DraftRecoveryControls';
+import { useRecoverableDraft } from '../lib/recoverable-drafts';
 import { requireSupabase } from '../lib/supabase';
 
 type DraftStatus = 'draft' | 'pending_review' | 'published' | 'rejected';
@@ -63,6 +65,15 @@ export function WebsiteManagementPage() {
   const [success, setSuccess] = useState('');
   const [refreshKey, setRefreshKey] = useState(0);
   const selected = versions.find((version) => version.id === selectedId) ?? null;
+  const websiteDraft = useRecoverableDraft({
+    schoolId,
+    userId: user?.id,
+    entity: 'website_content',
+    entityId: selectedId || 'new-website',
+    payload: content,
+    enabled: !loading && canEditDraft && Boolean(schoolId && user && website
+      && (!selected || ['draft', 'rejected'].includes(selected.status))),
+  });
 
   const load = useCallback(async () => {
     if (!schoolId || !canAccess) {
@@ -144,6 +155,7 @@ export function WebsiteManagementPage() {
         });
         if (insertError) throw insertError;
       }
+      await websiteDraft.clearDraft();
       setSuccess(submitForReview ? 'Draft submitted to a website publisher for approval.' : 'Website draft saved.');
       setRefreshKey((key) => key + 1);
     } catch (saveError) {
@@ -208,6 +220,11 @@ export function WebsiteManagementPage() {
           </section>
           <section className="content-card">
             <div className="section-heading"><div><span className="eyebrow">Website content</span><h2>{selected ? 'Edit draft' : 'New draft'}</h2></div></div>
+            {canEditDraft && (!selected || ['draft', 'rejected'].includes(selected.status)) && <DraftRecoveryControls
+              entity="website_content"
+              draft={websiteDraft}
+              onRestore={(value) => setContent({ ...value, slug: website?.slug ?? value.slug })}
+            />}
             <div className="settings-actions">
               <button className="button button-quiet" type="button" onClick={() => setShowDraftPreview((visible) => !visible)}>
                 {showDraftPreview ? 'Hide draft preview' : 'Preview draft'}

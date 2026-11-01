@@ -2,6 +2,8 @@ import { useCallback, useEffect, useState, type FormEvent } from 'react';
 import { BookOpen, Check, Circle, ClipboardList, Pencil, Plus, Trash2, X } from 'lucide-react';
 import { useAuth } from '../contexts/AuthContext';
 import { ErrorState, LoadingState } from '../components/Feedback';
+import { DraftRecoveryControls } from '../components/DraftRecoveryControls';
+import { useRecoverableDraft } from '../lib/recoverable-drafts';
 import { requireSupabase } from '../lib/supabase';
 
 type Course = {
@@ -79,6 +81,22 @@ export function CoursesLessonsPage() {
     )
   )));
   const canManageCompletion = isSchoolManager || (role === 'teacher' && activeCourse?.teacher?.profile_id === user?.id);
+  const lessonDraft = useRecoverableDraft({
+    schoolId,
+    userId: user?.id,
+    entity: 'lesson_plan',
+    entityId: courseId || 'unselected-course',
+    payload: { lessonForm, unitId, lessonId: editingId },
+    enabled: !loading && dialog === 'lesson' && canManageCourse && Boolean(schoolId && user && courseId),
+  });
+
+  function restoreLessonDraft(value: { lessonForm: typeof emptyLesson; unitId: string; lessonId: string }) {
+    setLessonForm(value.lessonForm);
+    setUnitId(value.unitId);
+    setEditingId(value.lessonId);
+    setDialog('lesson');
+    setNotice('Saved lesson draft restored. Review the content before saving to the school record.');
+  }
 
   const load = useCallback(async () => {
     if (!schoolId) return;
@@ -232,6 +250,7 @@ export function CoursesLessonsPage() {
           : await client.from('course_lessons').insert(payload);
       }
       if (result?.error) throw result.error;
+      if (dialog === 'lesson') await lessonDraft.clearDraft();
       setDialog(null);
       setNotice(dialog === 'course' ? 'Course saved.' : dialog === 'unit' ? 'Unit added.' : 'Lesson saved.');
       setRefreshKey((key) => key + 1);
@@ -328,6 +347,7 @@ export function CoursesLessonsPage() {
         <section className="modal-card course-modal" role="dialog" aria-modal="true" aria-labelledby="course-modal-title">
           <div className="modal-heading"><div><span className="eyebrow">Course workspace</span><h2 id="course-modal-title">{dialog === 'course' ? `${editingId ? 'Edit' : 'Create'} course` : dialog === 'unit' ? 'Add course unit' : `${editingId ? 'Edit' : 'Add'} lesson`}</h2></div><button className="icon-button" onClick={() => setDialog(null)} aria-label="Close dialog"><X size={18} /></button></div>
           <form className="modal-form" onSubmit={(event) => void save(event)}>
+            {dialog === 'lesson' && <DraftRecoveryControls entity="lesson_plan" draft={lessonDraft} onRestore={restoreLessonDraft} />}
             {dialog === 'course' ? <>
               <label className="field"><span>Course title</span><input required minLength={2} maxLength={140} value={courseForm.title} onChange={(event) => setCourseForm({ ...courseForm, title: event.target.value })} /></label>
               <div className="form-row"><label className="field"><span>Subject</span><select required value={courseForm.subject_id} onChange={(event) => setCourseForm({ ...courseForm, subject_id: event.target.value })}><option value="">Select subject</option>{availableCourseSubjects.map((subject) => <option key={subject.id} value={subject.id}>{subject.name}</option>)}</select></label><label className="field"><span>Class</span><select required value={courseForm.class_id} onChange={(event) => setCourseForm({ ...courseForm, class_id: event.target.value })}><option value="">Select class</option>{classes.map((schoolClass) => <option key={schoolClass.id} value={schoolClass.id}>{schoolClass.name}</option>)}</select></label></div>

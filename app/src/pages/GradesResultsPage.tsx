@@ -7,7 +7,9 @@ import {
 } from 'lucide-react';
 import { useAuth } from '../contexts/AuthContext';
 import { ErrorState, LoadingState, SuccessMessage } from '../components/Feedback';
+import { DraftRecoveryControls } from '../components/DraftRecoveryControls';
 import { requireSupabase } from '../lib/supabase';
+import { useRecoverableDraft } from '../lib/recoverable-drafts';
 import { PdfPreviewDialog } from '../components/PdfPreviewDialog';
 import {
   documentVerificationUrl,
@@ -382,6 +384,23 @@ export function GradesResultsPage() {
   }>({ logo_path: null, primary_color: null, motto: null, contact_email: null, contact_phone: null, website: null });
   const [previewUrl, setPreviewUrl] = useState('');
   const [previewFilename, setPreviewFilename] = useState('');
+  const reportDraft = useRecoverableDraft({
+    schoolId,
+    userId: user?.id,
+    entity: 'report_comment',
+    entityId: editingResult?.id ?? (form.student_id && form.assessment_id
+      ? `${form.student_id}:${form.assessment_id}`
+      : 'new-result'),
+    payload: { form, editingResultId: editingResult?.id ?? null },
+    enabled: !loading && canRecordResults && Boolean(schoolId && user),
+  });
+
+  function restoreReportDraft(value: { form: ResultForm; editingResultId: string | null }) {
+    setEditingResult(results.find((result) => result.id === value.editingResultId) ?? null);
+    setForm(value.form);
+    setActiveView('results');
+    setNotice('Saved report draft restored. Review the student, marks, and comment before saving.');
+  }
 
   useEffect(() => {
     if (!schoolId) return;
@@ -526,6 +545,7 @@ export function GradesResultsPage() {
       if (response.error) throw response.error;
       const saved = response.data as Result;
       setResults((current) => [saved, ...current.filter((result) => result.id !== saved.id)]);
+      await reportDraft.clearDraft();
       cancelEdit();
       setNotice(editingResult ? 'Result updated and the correction was recorded.' : 'Assessment marks recorded as a draft.');
     } catch (saveError) {
@@ -754,6 +774,7 @@ export function GradesResultsPage() {
           {canRecordResults && <section className="content-card grades-entry-card">
             <div className="section-heading"><div><span className="eyebrow">{editingResult ? 'Update record' : 'New assessment mark'}</span><h2>{editingResult ? 'Edit student result' : 'Record student marks'}</h2></div>{editingResult && <button className="button button-quiet" onClick={cancelEdit}><X size={14} />Cancel</button>}</div>
             <form className="grades-entry-form" onSubmit={(event) => void saveResult(event)}>
+              <DraftRecoveryControls entity="report_comment" draft={reportDraft} onRestore={restoreReportDraft} />
               <label className="field"><span>Student</span><select required value={form.student_id} disabled={Boolean(editingResult)} onChange={(event) => setForm((current) => ({ ...current, student_id: event.target.value }))}><option value="">Choose a student</option>{students.filter((student) => student.status === 'active' || student.id === form.student_id).map((student) => <option key={student.id} value={student.id}>{student.last_name}, {student.first_name} · {student.student_number}</option>)}</select></label>
               <label className="field"><span>Assessment</span><select required value={form.assessment_id} disabled={Boolean(editingResult)} onChange={(event) => setForm((current) => ({ ...current, assessment_id: event.target.value, marks_obtained: '' }))}><option value="">Choose an assessment</option>{recordableAssessments.map((assessment) => <option key={assessment.id} value={assessment.id}>{assessment.subject || 'Assessment'} · {assessment.title} ({assessment.total_marks} marks)</option>)}{editingResult && !recordableAssessments.some((assessment) => assessment.id === editingResult.assessment_id) && <option value={editingResult.assessment_id}>{assessmentsById.get(editingResult.assessment_id)?.title ?? 'Saved assessment'} · {editingResult.maximum_marks} marks</option>}</select></label>
               <label className="field"><span>Marks earned</span><input required type="number" min="0" max={selectedMaximum || undefined} step="0.01" value={form.marks_obtained} onChange={(event) => setForm((current) => ({ ...current, marks_obtained: event.target.value }))} placeholder="0.00" /></label>

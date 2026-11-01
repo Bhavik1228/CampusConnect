@@ -50,6 +50,7 @@ import { DocumentVerificationPage } from '../pages/DocumentVerificationPage';
 import { SupportPage } from '../pages/SupportPage';
 import { SystemOwnerSupportPage } from '../pages/SystemOwnerSupportPage';
 import { PrerequisiteDemoPage } from '../pages/PrerequisiteDemoPage';
+import { DraftRecoveryDemoPage } from '../pages/DraftRecoveryDemoPage';
 
 function RouteGate({ authOnly = true, requireMembership = true }: { authOnly?: boolean; requireMembership?: boolean }) {
   const { user, loading, memberships } = useAuth();
@@ -194,6 +195,7 @@ export function ProtectedApp() {
           <Route path="/visitors/verify/:visitId" element={<VisitorsPage />} />
           <Route path="/assignments" element={<AssignmentsPage />} />
           <Route path="/prerequisite-demo" element={<PrerequisiteDemoPage />} />
+          <Route path="/draft-recovery-demo" element={<DraftRecoveryDemoPage />} />
           <Route path="/grades-results" element={<GradesResultsPage />} />
           <Route path="/calendar" element={<AcademicPages kind="calendar" />} />
           <Route path="/settings" element={<SchoolSettingsPage />} />

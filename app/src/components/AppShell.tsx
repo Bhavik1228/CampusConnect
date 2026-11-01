@@ -5,7 +5,7 @@ import {
   ChevronLeft, ClipboardCheck, GraduationCap, LayoutDashboard, LogOut, Menu,
   Settings, UsersRound, X, CalendarClock, CircleDollarSign, UserRoundPlus,
   Award, BriefcaseBusiness, FileStack, HeartPulse, ClipboardPlus, Search, Library,
-  MessageCircle, ShieldCheck, LifeBuoy,
+  MessageCircle, ShieldCheck, LifeBuoy, RotateCcw,
   type LucideIcon,
 } from 'lucide-react';
 import { useAuth } from '../contexts/AuthContext';
@@ -21,6 +21,7 @@ type NavigationGroup = { id: string; title: string; icon: LucideIcon; items: Nav
 const dashboardItem: NavigationItem = { to: '/dashboard', label: 'Overview', icon: LayoutDashboard };
 const accountSecurityItem: NavigationItem = { to: '/account-security', label: 'Account security', icon: ShieldCheck };
 const supportItem: NavigationItem = { to: '/support', label: 'Support Bot', icon: LifeBuoy };
+const draftDemoItem: NavigationItem = { to: '/draft-recovery-demo', label: 'Draft recovery demo', icon: RotateCcw };
 const navigation: NavigationGroup[] = [
   { id: 'academics', title: 'Academics', icon: CalendarDays, items: [
     { to: '/academic-planning', label: 'Academic planning', icon: CalendarDays, roles: ['school_admin', 'academic_coordinator'] },
@@ -96,6 +97,7 @@ const pageNames: Record<string, string> = {
   '/automations': 'Automations',
   '/messaging': 'Messages', '/audit-log': 'Audit log',
   '/support': 'Support Bot',
+  '/draft-recovery-demo': 'Draft recovery demo',
   '/library': 'Library', '/health': 'Student health', '/health/report': 'Health report', '/visitors': 'Visitor management',
 };
 
@@ -255,6 +257,7 @@ export function AppShell() {
   const accessibleNavigation = [
     ...(!isRestrictedRole ? [dashboardNavigationItem, accountSecurityItem] : []),
     supportItem,
+    draftDemoItem,
     ...accessibleNavigationGroups.flatMap((group) => group.items),
   ];
   const canAccessSettings = !isRestrictedRole && !isLimitedRole && !isAccountingRole && activeMembership?.role !== 'teacher';
