@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useState, type ChangeEvent, type FormEvent } from 'react';
+import { Link } from 'react-router-dom';
 import {
   BookOpenCheck, Check, ClipboardCheck, Copy, ExternalLink, FilePlus2, FileText, Filter,
   History, Library, Pencil, Plus, Printer, Save, Search, Trash2, X,
@@ -23,6 +24,18 @@ type Question = {
   source_name: string;
   source_url: string;
   mark_scheme: string;
+};
+type CatalogueQuestion = {
+  id: string;
+  question_text: string;
+  topic: string;
+  subtopic: string;
+  syllabus_code: string;
+  marks: number;
+  difficulty: string;
+  mark_scheme: string;
+  source_name: string;
+  source_url: string;
 };
 type PastPaper = {
   id: string;
@@ -180,6 +193,9 @@ export function TestMakerPage() {
   const [questionForm, setQuestionForm] = useState<QuestionForm>(EMPTY_QUESTION);
   const [editingQuestionId, setEditingQuestionId] = useState('');
   const [query, setQuery] = useState('');
+  const [catalogueQuery, setCatalogueQuery] = useState('');
+  const [catalogueQuestions, setCatalogueQuestions] = useState<CatalogueQuestion[]>([]);
+  const [catalogueLoading, setCatalogueLoading] = useState(false);
   const [resultQuery, setResultQuery] = useState('');
   const [topicFilter, setTopicFilter] = useState('');
   const [papers, setPapers] = useState<PastPaper[]>([]);
@@ -524,6 +540,56 @@ export function TestMakerPage() {
     }));
   }
 
+  async function searchApprovedCatalogue() {
+    if (!schoolId) return;
+    setCatalogueLoading(true);
+    setError('');
+    try {
+      const { data, error: catalogueError } = await requireSupabase().functions.invoke('past-paper-pipeline', {
+        body: { action: 'search-approved', schoolId, query: catalogueQuery },
+      });
+      if (catalogueError) throw catalogueError;
+      const result = data as { questions?: CatalogueQuestion[] } | null;
+      if (!result || !Array.isArray(result.questions)) throw new Error('The approved catalogue returned an invalid response.');
+      setCatalogueQuestions(result.questions);
+    } catch (catalogueError) {
+      setError(getErrorMessage(catalogueError, 'Could not search the approved question catalogue.'));
+    } finally {
+      setCatalogueLoading(false);
+    }
+  }
+
+  async function addCatalogueQuestion(question: CatalogueQuestion) {
+    if (!schoolId) return;
+    setCatalogueLoading(true);
+    setError('');
+    try {
+      const { data, error: importError } = await requireSupabase().functions.invoke('past-paper-pipeline', {
+        body: { action: 'import-question', schoolId, questionId: question.id },
+      });
+      if (importError) throw importError;
+      const imported = data as { questionId?: string } | null;
+      if (!imported?.questionId) throw new Error('The imported question was not returned by the server.');
+      const { data: row, error: questionError } = await requireSupabase().from('learning_questions')
+        .select('*').eq('school_id', schoolId).eq('id', imported.questionId).single();
+      if (questionError) throw questionError;
+      const addedQuestion = row as Question;
+      setQuestions((current) => [addedQuestion, ...current.filter((item) => item.id !== addedQuestion.id)]);
+      setForm((current) => ({
+        ...current,
+        question_ids: current.question_ids.includes(addedQuestion.id)
+          ? current.question_ids
+          : [...current.question_ids, addedQuestion.id],
+      }));
+      setNotice('Authorized catalogue question added to this test and your school question library.');
+      setView('assessments');
+    } catch (importError) {
+      setError(getErrorMessage(importError, 'Could not add this catalogue question.'));
+    } finally {
+      setCatalogueLoading(false);
+    }
+  }
+
   async function saveQuestion(event: FormEvent) {
     event.preventDefault();
     if (!schoolId || !user) return;
@@ -772,6 +838,24 @@ export function TestMakerPage() {
               <label className="library-topic-filter"><Filter size={14} /><select value={topicFilter} onChange={(event) => setTopicFilter(event.target.value)}><option value="">All topics</option>{topics.map((topic) => <option key={topic}>{topic}</option>)}</select></label>
               <label className="button button-quiet upload-question-button"><FilePlus2 size={14} /> Import CSV / JSON<input type="file" accept=".csv,.json,text/csv,application/json" onChange={(event) => void importQuestionFile(event)} /></label>
             </div>
+            <section className="source-note">
+              <strong>Authorized question catalogue</strong>
+              <p>Search only questions reviewed for this school and currently permitted for reuse.</p>
+              <div className="library-toolbar">
+                <label className="library-search"><Search size={15} /><input value={catalogueQuery} onChange={(event) => setCatalogueQuery(event.target.value)} onKeyDown={(event) => { if (event.key === 'Enter') { event.preventDefault(); void searchApprovedCatalogue(); } }} placeholder="Search approved topic or question" /></label>
+                <button className="button button-quiet" onClick={() => void searchApprovedCatalogue()} disabled={catalogueLoading}><Search size={14} />{catalogueLoading ? 'Searching…' : 'Search catalogue'}</button>
+                <Link className="button button-quiet" to="/past-paper-pipeline">Source review and permissions</Link>
+              </div>
+              {catalogueQuestions.map((question) => <article className="library-question" key={question.id}>
+                <div className="library-question-main">
+                  <div className="library-question-meta"><span>{question.topic}{question.subtopic ? ` · ${question.subtopic}` : ''}</span>{question.syllabus_code && <span>{question.syllabus_code}</span>}<span>{question.marks} marks</span></div>
+                  <p>{question.question_text}</p>
+                  <small>{question.source_name}{question.source_url && <> · <a href={question.source_url} target="_blank" rel="noreferrer">Source <ExternalLink size={10} /></a></>}</small>
+                </div>
+                <button className="button button-quiet" disabled={catalogueLoading} onClick={() => void addCatalogueQuestion(question)}><Plus size={13} /> Add to this test</button>
+              </article>)}
+              {!catalogueQuestions.length && <p className="test-inline-empty">Search to see questions currently approved for school use.</p>}
+            </section>
             <p className="import-hint">CSV headers: <code>question_text,topic,subtopic,marks,difficulty,source_name,source_url,mark_scheme</code>. JSON imports use the same field names as an array of objects.</p>
             <div className="question-library-list">
               {visibleQuestions.map((question) => <article className="library-question" key={question.id}>
@@ -802,7 +886,7 @@ export function TestMakerPage() {
       ) : (
         <section className="content-card authorized-papers-card">
           <div className="section-heading"><div><span className="eyebrow">School resources</span><h2>Authorized past papers</h2></div><span className="test-count">{papers.length}</span></div>
-          <div className="authorized-papers-notice"><strong>Privately stored in Firebase</strong><p>These records are visible to this school only. Paper files are not publicly exposed; authenticated PDF viewing will be available when a signed-link endpoint is configured.</p></div>
+          <div className="authorized-papers-notice"><strong>Privately stored in Firebase</strong><p>These records are visible to this school only. Paper files are not publicly exposed; authenticated PDF viewing will be available when a signed-link endpoint is configured.</p><Link className="button button-quiet" to="/past-paper-pipeline">Discover metadata and review authorized questions</Link></div>
           <label className="library-search authorized-paper-search"><Search size={15} /><input value={query} onChange={(event) => setQuery(event.target.value)} placeholder="Search subject, code, year, or paper type" /></label>
           <div className="authorized-paper-list">
             {papers.filter((paper) => `${paper.subject_name} ${paper.subject_code} ${paper.year} ${paper.paper_number} ${paper.document_type}`.toLowerCase().includes(query.toLowerCase())).map((paper) => (

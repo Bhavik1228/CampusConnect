@@ -33,3 +33,6 @@ verify_jwt = false
 
 [functions.support-bot]
 verify_jwt = false
+
+[functions.past-paper-pipeline]
+verify_jwt = false

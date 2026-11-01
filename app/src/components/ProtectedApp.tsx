@@ -51,6 +51,7 @@ import { SupportPage } from '../pages/SupportPage';
 import { SystemOwnerSupportPage } from '../pages/SystemOwnerSupportPage';
 import { PrerequisiteDemoPage } from '../pages/PrerequisiteDemoPage';
 import { DraftRecoveryDemoPage } from '../pages/DraftRecoveryDemoPage';
+import { PastPaperPipelinePage } from '../pages/PastPaperPipelinePage';
 
 function RouteGate({ authOnly = true, requireMembership = true }: { authOnly?: boolean; requireMembership?: boolean }) {
   const { user, loading, memberships } = useAuth();
@@ -186,6 +187,7 @@ export function ProtectedApp() {
           <Route path="/academic-calendar" element={<AcademicCalendarPage />} />
           <Route path="/attendance" element={<AttendancePage />} />
           <Route path="/learning" element={<TestMakerPage />} />
+          <Route path="/past-paper-pipeline" element={<PastPaperPipelinePage />} />
           <Route path="/courses-lessons" element={<CoursesLessonsPage />} />
           <Route path="/learning-materials" element={<LearningMaterialsPage />} />
           <Route path="/library" element={<LibraryPage />} />

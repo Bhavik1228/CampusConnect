@@ -70,7 +70,7 @@ const navigation: NavigationGroup[] = [
 
 const teacherNavigationPaths = new Set([
   '/timetable', '/classes', '/subjects', '/attendance', '/grades-results', '/calendar',
-  '/learning', '/assignments', '/courses-lessons', '/learning-materials', '/messaging',
+  '/learning', '/past-paper-pipeline', '/assignments', '/courses-lessons', '/learning-materials', '/messaging',
 ]);
 const teacherNavigationLabels: Record<string, string> = {
   '/timetable': 'My timetable',
@@ -88,6 +88,7 @@ const pageNames: Record<string, string> = {
   '/dashboard': 'Overview', '/students': 'Students', '/admissions': 'Admissions & enrolment', '/teachers': 'Teachers', '/staff': 'Staff & teachers',
   '/classes': 'Classes', '/subjects': 'Subjects', '/timetable': 'Timetable', '/attendance': 'Attendance',
   '/learning': 'Learning', '/courses-lessons': 'Courses & lessons', '/learning-materials': 'Learning materials', '/assignments': 'Assignments & homework', '/grades-results': 'Grades & results', '/calendar': 'Calendar', '/academic-calendar': 'Academic calendar', '/settings': 'Settings',
+  '/past-paper-pipeline': 'Past-paper pipeline',
   '/finance': 'Student fees', '/accounting-staff': 'Accounting & specialist staff',
   '/website-management': 'Website content', '/admin-workflows': 'Administrative workflows',
   '/account-security': 'Account security',
@@ -140,7 +141,9 @@ export function AppShell() {
   const isLimitedRole = rolePaths !== undefined;
   const title = pageNames[location.pathname]
     ?? (location.pathname.startsWith('/health/report/') ? 'Health report' : location.pathname.startsWith('/visitors/verify/') ? 'Badge verification' : 'Workspace');
-  const modulePath = location.pathname.startsWith('/health/report/')
+  const modulePath = location.pathname === '/past-paper-pipeline'
+    ? '/learning'
+    : location.pathname.startsWith('/health/report/')
     ? '/health'
     : location.pathname.startsWith('/visitors/verify/') ? '/visitors' : location.pathname;
   const isHealthRoute = modulePath === '/health';
