@@ -121,6 +121,8 @@ const questionGuides: Array<{ keywords: string[]; feature: string; answer: strin
 type SupportRequest = {
   action?: unknown;
   schoolId?: unknown;
+  eventId?: unknown;
+  errorCode?: unknown;
   query?: unknown;
   code?: unknown;
   feature?: unknown;
@@ -194,6 +196,60 @@ Deno.serve(async (request: Request) => {
     }
     const role = membership.role;
     const schoolName = membership.school.name;
+
+    if (payload.action === 'record-error-event') {
+      if (!isUuid(payload.eventId) || typeof payload.errorCode !== 'string') {
+        return respond(400, { error: 'Provide a valid diagnostic event.' });
+      }
+      const codeMatch = payload.errorCode.match(
+        /^CC-([A-Z0-9]{2,8})-([A-Z]{3,12})-([A-F0-9]{8})$/,
+      );
+      if (!codeMatch) return respond(400, { error: 'The diagnostic error code is invalid.' });
+
+      const [, featureCode, errorKind] = codeMatch;
+      const severityByKind: Record<string, string> = {
+        UNEXPECTED: 'high',
+        AUTH: 'medium',
+        ACCESS: 'medium',
+        NETWORK: 'medium',
+        RELATED: 'medium',
+        DUPLICATE: 'low',
+        MAINTENANCE: 'low',
+        INPUT: 'low',
+      };
+      const severity = severityByKind[errorKind];
+      if (!severity) return respond(400, { error: 'The diagnostic error category is invalid.' });
+
+      const tenMinutesAgo = new Date(Date.now() - 10 * 60 * 1000).toISOString();
+      const { count, error: rateLimitError } = await serviceClient
+        .from('application_error_events')
+        .select('event_id', { count: 'exact', head: true })
+        .eq('reporter_id', user.id)
+        .gte('created_at', tenMinutesAgo);
+      if (rateLimitError) throw rateLimitError;
+      if ((count ?? 0) >= 30) return respond(429, { error: 'Too many diagnostic events. Try again later.' });
+
+      const { error: insertError } = await serviceClient
+        .from('application_error_events')
+        .upsert({
+          event_id: payload.eventId,
+          school_id: payload.schoolId,
+          reporter_id: user.id,
+          error_code: payload.errorCode,
+          feature_code: featureCode,
+          error_kind: errorKind,
+          severity,
+        }, { onConflict: 'event_id', ignoreDuplicates: true });
+      if (insertError) throw insertError;
+
+      const retentionCutoff = new Date(Date.now() - 90 * 24 * 60 * 60 * 1000).toISOString();
+      const { error: retentionError } = await serviceClient
+        .from('application_error_events')
+        .delete()
+        .lt('created_at', retentionCutoff);
+      if (retentionError) throw retentionError;
+      return respond(202, { recorded: true });
+    }
 
     const createTicket = async (category: string, title: string, description: string) => {
       if (!ticketCategories.has(category)) throw new Error('The support request category is invalid.');

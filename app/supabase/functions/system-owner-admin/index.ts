@@ -36,6 +36,7 @@ type OwnerRequest = {
   ticketId?: unknown;
   ticketStatus?: unknown;
   ownerResponse?: unknown;
+  windowDays?: unknown;
 };
 
 const schoolTypes = ['primary', 'secondary', 'k12', 'university', 'other'];
@@ -201,6 +202,19 @@ Deno.serve(async (request: Request) => {
         ...recordedHealth,
         historySaved: true,
       });
+    }
+
+    if (payload.action === 'error-dashboard') {
+      const windowDays = payload.windowDays;
+      if (windowDays !== 7 && windowDays !== 30 && windowDays !== 90) {
+        return respond(400, { error: 'Choose a 7, 30, or 90 day error dashboard window.' });
+      }
+      const { data: errorDashboard, error: dashboardError } = await serviceClient.rpc(
+        'platform_owner_error_dashboard',
+        { window_days: windowDays },
+      );
+      if (dashboardError) throw dashboardError;
+      return respond(200, { errorDashboard });
     }
 
     if (payload.action === 'support-inbox') {

@@ -1,6 +1,8 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { Link, useLocation, useNavigate } from 'react-router-dom';
 import { AlertCircle, CheckCircle2, LifeBuoy, LoaderCircle } from 'lucide-react';
+import { useAuth } from '../contexts/AuthContext';
+import { requireSupabase } from '../lib/supabase';
 import {
   createDiagnosticError,
   explainDiagnosticError,
@@ -14,11 +16,48 @@ export function LoadingState({ label = 'Loading your workspace…' }: { label?: 
 }
 
 export function ErrorState({ message }: { message: string }) {
+  const { activeMembership } = useAuth();
   const location = useLocation();
   const navigate = useNavigate();
   const [copyNotice, setCopyNotice] = useState('');
+  const eventId = useRef(crypto.randomUUID());
   const { feature, code } = createDiagnosticError(location.pathname, message);
   const supportLink = makeSupportErrorLink(location.pathname, code);
+
+  useEffect(() => {
+    const schoolId = activeMembership?.school_id;
+    if (!schoolId) return;
+
+    const storageKey = `campus-connect-error-event:${schoolId}:${code}`;
+    const now = Date.now();
+    try {
+      const lastRecordedAt = Number(sessionStorage.getItem(storageKey));
+      if (Number.isFinite(lastRecordedAt) && now - lastRecordedAt < 5 * 60 * 1000) return;
+      sessionStorage.setItem(storageKey, String(now));
+    } catch (error) {
+      console.error('Could not deduplicate diagnostic event capture.', error);
+    }
+
+    void Promise.resolve().then(() => requireSupabase().functions.invoke('support-bot', {
+      body: { action: 'record-error-event', schoolId, eventId: eventId.current, errorCode: code },
+    })).then(({ error }) => {
+      if (error) {
+        console.warn('Could not record this diagnostic event.', error);
+        try {
+          sessionStorage.removeItem(storageKey);
+        } catch (storageError) {
+          console.error('Could not clear the diagnostic event capture marker.', storageError);
+        }
+      }
+    }).catch((error: unknown) => {
+      console.warn('Could not record this diagnostic event.', error);
+      try {
+        sessionStorage.removeItem(storageKey);
+      } catch (storageError) {
+        console.error('Could not clear the diagnostic event capture marker.', storageError);
+      }
+    });
+  }, [activeMembership?.school_id, code]);
 
   useEffect(() => {
     let pending: unknown;

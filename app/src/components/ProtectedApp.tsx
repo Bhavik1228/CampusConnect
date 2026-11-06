@@ -49,6 +49,7 @@ import { SetupHealthPage } from '../pages/SetupHealthPage';
 import { DocumentVerificationPage } from '../pages/DocumentVerificationPage';
 import { SupportPage } from '../pages/SupportPage';
 import { SystemOwnerSupportPage } from '../pages/SystemOwnerSupportPage';
+import { SystemOwnerErrorsPage } from '../pages/SystemOwnerErrorsPage';
 import { PrerequisiteDemoPage } from '../pages/PrerequisiteDemoPage';
 import { DraftRecoveryDemoPage } from '../pages/DraftRecoveryDemoPage';
 import { PastPaperPipelinePage } from '../pages/PastPaperPipelinePage';
@@ -168,6 +169,7 @@ export function ProtectedApp() {
             <Route path="schools" element={<SystemOwnerSchoolsPage />} />
             <Route path="settings" element={<SystemOwnerSettingsPage />} />
             <Route path="maintenance" element={<SystemOwnerMaintenancePage />} />
+            <Route path="errors" element={<SystemOwnerErrorsPage />} />
             <Route path="support" element={<SystemOwnerSupportPage />} />
           </Route>
         </Route>
