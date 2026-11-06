@@ -1,13 +1,14 @@
 import unittest
 
 import hashlib
+import os
 import sys
 import types
 import unittest
 from email.message import Message
 from unittest.mock import patch
 
-from past_paper_worker import classify_question, segment_questions
+from past_paper_worker import _api_request, classify_question, segment_questions
 from past_paper_worker import DownloadedDocument, WorkerError, download_pdf, extract_pdf, question_fingerprint
 from past_paper_worker import validate_pdf_payload
 
@@ -90,6 +91,25 @@ class RetrievalTests(unittest.TestCase):
         self.assertNotEqual(first, question_fingerprint(
             "Explain cell structure.", {**metadata, "paper_number": "4"}
         ))
+
+
+class WorkerConnectionTests(unittest.TestCase):
+    def test_api_url_is_derived_from_supabase_url(self):
+        response = FakeResponse(b"{}")
+        with patch.dict(os.environ, {
+            "SUPABASE_URL": "https://campus.example/",
+            "SUPABASE_ANON_KEY": "anon-key",
+            "PAPER_PIPELINE_WORKER_SECRET": "worker-secret",
+        }, clear=True), patch(
+            "past_paper_worker.urllib.request.urlopen",
+            return_value=response,
+        ) as urlopen:
+            _api_request("scheduled-discover", {})
+
+        self.assertEqual(
+            urlopen.call_args.args[0].full_url,
+            "https://campus.example/functions/v1/past-paper-pipeline",
+        )
 
 
 class SegmentationTests(unittest.TestCase):

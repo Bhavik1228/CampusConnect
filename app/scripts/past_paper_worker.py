@@ -334,10 +334,16 @@ def extract_pdf(content: bytes, ocr_allowed: bool) -> dict[str, Any]:
 
 def _api_request(action: str, values: dict[str, Any]) -> dict[str, Any]:
     endpoint = os.environ.get("PAST_PAPER_FUNCTION_URL", "").strip()
+    if not endpoint:
+        supabase_url = os.environ.get("SUPABASE_URL", "").strip().rstrip("/")
+        if supabase_url:
+            endpoint = f"{supabase_url}/functions/v1/past-paper-pipeline"
     anon_key = os.environ.get("SUPABASE_ANON_KEY", "").strip()
     secret = os.environ.get("PAPER_PIPELINE_WORKER_SECRET", "").strip()
     if not endpoint or not anon_key or not secret:
-        raise WorkerError("Set PAST_PAPER_FUNCTION_URL, SUPABASE_ANON_KEY, and PAPER_PIPELINE_WORKER_SECRET.")
+        raise WorkerError(
+            "Set SUPABASE_URL or PAST_PAPER_FUNCTION_URL, SUPABASE_ANON_KEY, and PAPER_PIPELINE_WORKER_SECRET."
+        )
     body = json.dumps({"action": action, **values}).encode()
     request = urllib.request.Request(
         endpoint,

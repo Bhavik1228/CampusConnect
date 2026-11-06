@@ -44,11 +44,7 @@ function getSourceAddress(request: Request) {
 async function sendEmail(to: string, subject: string, textBody: string) {
   const resendApiKey = Deno.env.get('RESEND_API_KEY');
   const resendFrom = Deno.env.get('RESEND_FROM_EMAIL');
-  if (resendApiKey || resendFrom) {
-    if (!resendApiKey || !resendFrom) {
-      throw new Error('Resend sender configuration is incomplete.');
-    }
-
+  if (resendApiKey && resendFrom) {
     const response = await fetch('https://api.resend.com/emails', {
       method: 'POST',
       headers: {
@@ -73,7 +69,10 @@ async function sendEmail(to: string, subject: string, textBody: string) {
 
   const token = Deno.env.get('POSTMARK_SERVER_TOKEN');
   const from = Deno.env.get('POSTMARK_FROM_EMAIL');
-  if (!token || !from) throw new Error('Postmark sender configuration is missing.');
+  if (!token || !from) {
+    if (resendApiKey || resendFrom) throw new Error('Resend sender configuration is incomplete.');
+    throw new Error('Postmark sender configuration is missing.');
+  }
 
   const response = await fetch('https://api.postmarkapp.com/email', {
     method: 'POST',
@@ -109,15 +108,13 @@ Deno.serve(async (request: Request) => {
   try {
     const payload = await request.json() as AlertRequest;
     const supabaseUrl = Deno.env.get('SUPABASE_URL');
-    const anonKey = Deno.env.get('SUPABASE_ANON_KEY');
-    const serviceRoleKey = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY');
-    if (!supabaseUrl || !anonKey || !serviceRoleKey) {
-      throw new Error('Supabase function configuration is incomplete.');
-    }
+    if (!supabaseUrl) throw new Error('Supabase URL configuration is incomplete.');
 
     if (payload.action === 'login_succeeded') {
       const bearer = request.headers.get('Authorization')?.match(/^Bearer\s+(.+)$/i)?.[1];
       if (!bearer) return jsonResponse(401, { error: 'Authentication is required.' });
+      const anonKey = Deno.env.get('SUPABASE_ANON_KEY');
+      if (!anonKey) throw new Error('Supabase anonymous key configuration is incomplete.');
 
       const userClient = createClient(supabaseUrl, anonKey, {
         auth: { persistSession: false, autoRefreshToken: false },
@@ -148,6 +145,8 @@ Deno.serve(async (request: Request) => {
     if (!securityEmail || !fingerprintSecret) {
       throw new Error('Login security alert configuration is missing.');
     }
+    const serviceRoleKey = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY');
+    if (!serviceRoleKey) throw new Error('Supabase service-role configuration is incomplete.');
 
     const emailHash = await fingerprint(payload.email.trim().toLowerCase(), fingerprintSecret);
     const sourceHash = await fingerprint(getSourceAddress(request), fingerprintSecret);

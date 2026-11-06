@@ -31,6 +31,7 @@ jobs:
       - name: Process a bounded batch
         env:
           PAST_PAPER_FUNCTION_URL: ${{ secrets.PAST_PAPER_FUNCTION_URL }}
+          SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
           SUPABASE_ANON_KEY: ${{ secrets.SUPABASE_ANON_KEY }}
           PAPER_PIPELINE_WORKER_SECRET: ${{ secrets.PAPER_PIPELINE_WORKER_SECRET }}
         run: python app/scripts/past_paper_worker.py

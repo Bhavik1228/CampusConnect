@@ -161,8 +161,9 @@ export function StudentsPage() {
           .select('phone,address,city,region,postal_code,country,gender,nationality,admission_date')
           .eq('school_id', schoolId).eq('student_id', selectedStudent.id).maybeSingle(),
         client.from('student_emergency_contacts')
-          .select('contact_name,relationship,phone,email').eq('school_id', schoolId)
-          .eq('student_id', selectedStudent.id).order('is_primary', { ascending: false }),
+          .select('id,is_primary,created_at,contact_name,relationship,phone,email').eq('school_id', schoolId)
+          .eq('student_id', selectedStudent.id).order('is_primary', { ascending: false })
+          .order('created_at').order('id'),
         client.from('student_lifecycle_records')
           .select('id,event_type,event_date,previous_status,new_status,previous_class_id,new_class_id,destination_school,reason')
           .eq('school_id', schoolId).eq('student_id', selectedStudent.id)

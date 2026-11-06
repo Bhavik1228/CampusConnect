@@ -619,7 +619,7 @@ export function StaffManagementPage() {
     link.href = url;
     link.download = `staff-directory-${new Date().toISOString().slice(0, 10)}.csv`;
     link.click();
-    URL.revokeObjectURL(url);
+    window.setTimeout(() => URL.revokeObjectURL(url), 1000);
     setSuccess(`Exported ${records.length} authorized staff directory record(s).`);
   }
 

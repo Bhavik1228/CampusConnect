@@ -372,38 +372,38 @@ export function PastPaperPipelinePage() {
     } finally {
       setSaving(false);
     }
+  }
 
-    async function previewDocument(itemId: string) {
-      setError('');
-      try {
-        const result = await request<{ url: string }>('preview-document', { itemId });
-        setPreviewUrl(result.url);
-      } catch (previewError) {
-        setError(messageOf(previewError, 'Could not open the authorized private document.'));
-      }
+  async function previewDocument(itemId: string) {
+    setError('');
+    try {
+      const result = await request<{ url: string }>('preview-document', { itemId });
+      setPreviewUrl(result.url);
+    } catch (previewError) {
+      setError(messageOf(previewError, 'Could not open the authorized private document.'));
     }
+  }
 
-    async function submitSyllabusTopic(event: FormEvent<HTMLFormElement>) {
-      event.preventDefault();
-      setSaving(true);
-      setError('');
-      try {
-        await request('upsert-syllabus-topic', {
-          syllabusTopicId: editingSyllabusTopicId || null,
-          syllabusTopic: {
-            ...syllabusForm,
-            approvedPhrases: syllabusForm.approvedPhrases.split(/\r?\n/).map((phrase) => phrase.trim()).filter(Boolean),
-          },
-        });
-        setEditingSyllabusTopicId('');
-        setSyllabusForm((current) => ({ ...current, subjectName: '', syllabusCode: '', syllabusVersion: '', topic: '', subtopic: '', approvedPhrases: '', sourceUrl: '' }));
-        setNotice('Verified syllabus topic saved. Changes are retained in the syllabus history.');
-        await load();
-      } catch (saveError) {
-        setError(messageOf(saveError, 'Could not save this verified syllabus topic.'));
-      } finally {
-        setSaving(false);
-      }
+  async function submitSyllabusTopic(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    setSaving(true);
+    setError('');
+    try {
+      await request('upsert-syllabus-topic', {
+        syllabusTopicId: editingSyllabusTopicId || null,
+        syllabusTopic: {
+          ...syllabusForm,
+          approvedPhrases: syllabusForm.approvedPhrases.split(/\r?\n/).map((phrase) => phrase.trim()).filter(Boolean),
+        },
+      });
+      setEditingSyllabusTopicId('');
+      setSyllabusForm((current) => ({ ...current, subjectName: '', syllabusCode: '', syllabusVersion: '', topic: '', subtopic: '', approvedPhrases: '', sourceUrl: '' }));
+      setNotice('Verified syllabus topic saved. Changes are retained in the syllabus history.');
+      await load();
+    } catch (saveError) {
+      setError(messageOf(saveError, 'Could not save this verified syllabus topic.'));
+    } finally {
+      setSaving(false);
     }
   }
 
@@ -505,7 +505,9 @@ export function PastPaperPipelinePage() {
             })}</div> : <p>Run a permitted discovery job to add metadata links for review.</p>}
           </section>
 
-          {selectedSource?.question_extraction_allowed && selectedSource.question_reuse_allowed && selectedItem?.review_status === 'approved' &&           {isAcademicLead && <section className="content-card">
+          {selectedSource?.question_extraction_allowed && selectedSource.question_reuse_allowed
+            && selectedItem?.review_status === 'approved' && <>
+          {isAcademicLead && <section className="content-card">
             <div className="section-heading"><div><span className="eyebrow">Verified classification catalogue</span><h2>Manage syllabus topics</h2></div></div>
             <p>Classification only matches a unique administrator-verified phrase within this exact curriculum, subject, syllabus code, and version. Ambiguous or unmatched questions remain in review.</p>
             <form className="test-question-form" onSubmit={(event) => void submitSyllabusTopic(event)}>
@@ -557,7 +559,7 @@ export function PastPaperPipelinePage() {
               <p>Questions are not published or added to school tests until a school academic lead reviews them.</p>
               <div className="test-form-actions"><button className="button button-primary" disabled={saving}><Plus size={14} /> Submit for review</button></div>
             </form>
-          </section>}
+          </section></>}
           {!selectedItemId && <section className="content-card">
             <p>Select an approved metadata item above to submit authorized question content for review.</p>
           </section>}
