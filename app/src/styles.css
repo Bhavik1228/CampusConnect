@@ -2410,6 +2410,30 @@ td strong { color: #3e435a; font-weight: 600; }
 .system-owner-error-table td code { color: #43485c; font-size: 9px; }
 .system-owner-error-table td small { color: #898ea0; font-size: 8px; }
 .system-owner-error-severity { display: inline-flex; padding: 4px 7px; border-radius: 6px; font-size: 8px; font-weight: 700; text-transform: uppercase; }
+.system-owner-release-list { display: grid; gap: 12px; }
+.system-owner-release-card { gap: 14px; padding: 17px; }
+.system-owner-release-heading { display: flex; align-items: flex-start; justify-content: space-between; gap: 14px; }
+.system-owner-release-version { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; }
+.system-owner-release-version h2 { margin: 0; color: #353a50; font-size: 15px; font-family: ui-monospace, monospace; }
+.system-owner-release-version > span:last-child { color: #858a9b; font-size: 9px; }
+.system-owner-release-status { padding: 4px 7px; border-radius: 6px; background: #edf7f0; color: #4b7f5a; font-size: 8px; font-weight: 700; }
+.system-owner-release-links { display: flex; flex-wrap: wrap; gap: 10px; }
+.system-owner-release-links a { display: inline-flex; align-items: center; gap: 4px; color: #655ac5; font-size: 9px; text-decoration: none; }
+.system-owner-release-meta { display: flex; flex-wrap: wrap; align-items: center; gap: 11px; color: #858a9b; font-size: 9px; }
+.system-owner-release-meta span { display: inline-flex; align-items: center; gap: 5px; }
+.system-owner-release-meta code { color: #6b7083; font-size: 8px; }
+.system-owner-release-changes { display: grid; gap: 5px; padding: 11px; border-radius: 8px; background: #f8f8fc; }
+.system-owner-release-changes h3, .system-owner-release-issues > label { margin: 0; color: #484d62; font-size: 10px; font-weight: 700; }
+.system-owner-release-changes p, .system-owner-release-saved, .system-owner-release-none { margin: 0; color: #72778a; font-size: 9px; line-height: 1.55; white-space: pre-wrap; overflow-wrap: anywhere; }
+.system-owner-release-issues { display: grid; gap: 8px; }
+.system-owner-release-issues textarea { width: 100%; min-height: 66px; padding: 9px; resize: vertical; border: 1px solid #e7e8ef; border-radius: 8px; outline-color: #786fda; color: #4b5064; font: inherit; font-size: 9px; line-height: 1.5; }
+.system-owner-release-issue-footer { display: flex; align-items: center; justify-content: space-between; gap: 10px; }
+.system-owner-release-issue-footer small { color: #8a8fa0; font-size: 8px; }
+.system-owner-release-issue-footer .button { display: inline-flex; align-items: center; gap: 6px; }
+.system-owner-release-notice { margin: 0; color: #3c7950; font-size: 10px; }
+.system-owner-release-empty { display: grid; justify-items: center; gap: 8px; padding: 28px 12px; color: #858a9b; text-align: center; }
+.system-owner-release-empty strong { color: #4b5064; font-size: 11px; }
+.system-owner-release-empty span { max-width: 430px; font-size: 9px; line-height: 1.55; }
 .system-owner-school-filters { display: grid; grid-template-columns: minmax(180px, 1.5fr) repeat(3, minmax(115px, 1fr)) auto; align-items: end; gap: 9px; }
 .system-owner-school-filters .field { margin: 0; }
 .system-owner-school-filters .field > span { font-size: 9px; }

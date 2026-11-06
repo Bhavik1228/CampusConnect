@@ -37,6 +37,8 @@ type OwnerRequest = {
   ticketStatus?: unknown;
   ownerResponse?: unknown;
   windowDays?: unknown;
+  vercelDeploymentId?: unknown;
+  knownIssues?: unknown;
 };
 
 const schoolTypes = ['primary', 'secondary', 'k12', 'university', 'other'];
@@ -74,6 +76,108 @@ function secretMatches(provided: string | null, expected: string) {
     mismatch |= provided.charCodeAt(index) ^ expected.charCodeAt(index);
   }
   return mismatch === 0;
+}
+
+type VercelDeployment = {
+  id: string;
+  name: string;
+  url: string;
+  inspectorUrl: string;
+  state: string;
+  createdAt: number;
+  readyAt: number | null;
+  commit: {
+    message: string;
+    sha: string;
+    branch: string;
+  };
+};
+
+function isNonEmptyString(value: unknown): value is string {
+  return typeof value === 'string' && value.length > 0;
+}
+
+function safeVercelUrl(value: unknown, allowedHost: (hostname: string) => boolean) {
+  if (!isNonEmptyString(value)) return null;
+  try {
+    const url = new URL(value.startsWith('http') ? value : `https://${value}`);
+    return url.protocol === 'https:' && allowedHost(url.hostname) ? url.toString() : null;
+  } catch {
+    return null;
+  }
+}
+
+async function getVercelProductionDeployments() {
+  const token = Deno.env.get('VERCEL_TOKEN');
+  const projectId = Deno.env.get('VERCEL_PROJECT_ID');
+  const teamId = Deno.env.get('VERCEL_TEAM_ID');
+  if (!token || !projectId) {
+    throw new Error('Vercel release history is not configured. Set VERCEL_TOKEN and VERCEL_PROJECT_ID as system-owner-admin Edge Function secrets. Set VERCEL_TEAM_ID for a team-owned project.');
+  }
+
+  const url = new URL('https://api.vercel.com/v7/deployments');
+  url.searchParams.set('projectId', projectId);
+  url.searchParams.set('target', 'production');
+  url.searchParams.set('state', 'READY');
+  url.searchParams.set('limit', '30');
+  if (teamId) url.searchParams.set('teamId', teamId);
+
+  const response = await fetch(url, {
+    headers: { Authorization: `Bearer ${token}` },
+    signal: AbortSignal.timeout(15_000),
+  });
+  if (!response.ok) {
+    console.error('Vercel deployment history request failed.', {
+      status: response.status,
+      statusText: response.statusText,
+    });
+    if (response.status === 401 || response.status === 403) {
+      throw new Error('Vercel rejected the configured token. Check its validity and deployment-read permissions.');
+    }
+    if (response.status === 404) {
+      throw new Error('Vercel could not find the configured project. Check VERCEL_PROJECT_ID and VERCEL_TEAM_ID.');
+    }
+    throw new Error(`Vercel deployment history is unavailable (HTTP ${response.status}).`);
+  }
+
+  const payload: unknown = await response.json();
+  if (!isRecord(payload) || !Array.isArray(payload.deployments)) {
+    throw new Error('Vercel returned an invalid deployment history response.');
+  }
+
+  return payload.deployments.map((item): VercelDeployment => {
+    if (!isRecord(item)
+      || !isNonEmptyString(item.uid)
+      || !isNonEmptyString(item.name)
+      || !isNonEmptyString(item.url)
+      || typeof item.createdAt !== 'number'
+      || !Number.isFinite(item.createdAt)) {
+      throw new Error('Vercel returned a deployment with an invalid release record.');
+    }
+
+    const deploymentUrl = safeVercelUrl(item.url, (hostname) => hostname.endsWith('.vercel.app'));
+    const inspectorUrl = safeVercelUrl(item.inspectorUrl, (hostname) =>
+      hostname === 'vercel.com' || hostname.endsWith('.vercel.com'));
+    if (!deploymentUrl || !inspectorUrl) {
+      throw new Error('Vercel returned a deployment with an invalid link.');
+    }
+
+    const meta = isRecord(item.meta) ? item.meta : {};
+    return {
+      id: item.uid,
+      name: item.name,
+      url: deploymentUrl,
+      inspectorUrl,
+      state: isNonEmptyString(item.readyState) ? item.readyState : 'READY',
+      createdAt: item.createdAt,
+      readyAt: typeof item.ready === 'number' && Number.isFinite(item.ready) ? item.ready : null,
+      commit: {
+        message: isNonEmptyString(meta.githubCommitMessage) ? meta.githubCommitMessage.slice(0, 1000) : '',
+        sha: isNonEmptyString(meta.githubCommitSha) ? meta.githubCommitSha.slice(0, 40) : '',
+        branch: isNonEmptyString(meta.githubCommitRef) ? meta.githubCommitRef.slice(0, 120) : '',
+      },
+    };
+  });
 }
 
 async function collectSystemHealth(serviceClient: ReturnType<typeof createClient>) {
@@ -215,6 +319,73 @@ Deno.serve(async (request: Request) => {
       );
       if (dashboardError) throw dashboardError;
       return respond(200, { errorDashboard });
+    }
+
+    if (payload.action === 'release-history') {
+      const deployments = await getVercelProductionDeployments();
+      const deploymentIds = deployments.map((deployment) => deployment.id);
+      let notesByDeployment = new Map<string, { knownIssues: string; updatedAt: string }>();
+      if (deploymentIds.length) {
+        const { data: notes, error: notesError } = await serviceClient
+          .from('platform_release_known_issues')
+          .select('vercel_deployment_id,known_issues,updated_at')
+          .in('vercel_deployment_id', deploymentIds);
+        if (notesError) throw notesError;
+        notesByDeployment = new Map((notes ?? []).map((note) => [
+          note.vercel_deployment_id,
+          { knownIssues: note.known_issues, updatedAt: note.updated_at },
+        ]));
+      }
+      return respond(200, {
+        deployments: deployments.map((deployment) => ({
+          ...deployment,
+          knownIssues: notesByDeployment.get(deployment.id)?.knownIssues ?? '',
+          knownIssuesUpdatedAt: notesByDeployment.get(deployment.id)?.updatedAt ?? null,
+        })),
+      });
+    }
+
+    if (payload.action === 'save-release-known-issues') {
+      const deploymentId = payload.vercelDeploymentId;
+      const knownIssues = payload.knownIssues;
+      if (typeof deploymentId !== 'string'
+        || !/^[A-Za-z0-9_-]{5,128}$/.test(deploymentId)
+        || typeof knownIssues !== 'string'
+        || knownIssues.length > 3000) {
+        return respond(400, { error: 'Provide a valid deployment and known-issues note under 3,000 characters.' });
+      }
+
+      const deployments = await getVercelProductionDeployments();
+      if (!deployments.some((deployment) => deployment.id === deploymentId)) {
+        return respond(404, { error: 'That deployment is no longer in the recent production release history. Refresh the page and try again.' });
+      }
+
+      const trimmedIssues = knownIssues.trim();
+      if (!trimmedIssues) {
+        const { error: deleteError } = await serviceClient
+          .from('platform_release_known_issues')
+          .delete()
+          .eq('vercel_deployment_id', deploymentId);
+        if (deleteError) throw deleteError;
+        return respond(200, { vercelDeploymentId: deploymentId, knownIssues: '', updatedAt: null });
+      }
+
+      const { data: savedNote, error: saveError } = await serviceClient
+        .from('platform_release_known_issues')
+        .upsert({
+          vercel_deployment_id: deploymentId,
+          known_issues: trimmedIssues,
+          updated_by: user.id,
+          updated_at: new Date().toISOString(),
+        })
+        .select('vercel_deployment_id,known_issues,updated_at')
+        .single();
+      if (saveError) throw saveError;
+      return respond(200, {
+        vercelDeploymentId: savedNote.vercel_deployment_id,
+        knownIssues: savedNote.known_issues,
+        updatedAt: savedNote.updated_at,
+      });
     }
 
     if (payload.action === 'support-inbox') {

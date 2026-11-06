@@ -1,5 +1,5 @@
 import { useState } from 'react';
-import { AlertTriangle, Building2, Gauge, LifeBuoy, LogOut, Menu, Settings, ShieldAlert, X } from 'lucide-react';
+import { AlertTriangle, Building2, Gauge, History, LifeBuoy, LogOut, Menu, Settings, ShieldAlert, X } from 'lucide-react';
 import { NavLink, Outlet, useLocation, useNavigate } from 'react-router-dom';
 import { useAuth } from '../contexts/AuthContext';
 import { ErrorState } from './Feedback';
@@ -10,6 +10,7 @@ const links = [
   { to: '/system-owner/settings', label: 'Platform settings', icon: Settings },
   { to: '/system-owner/maintenance', label: 'Maintenance mode', icon: ShieldAlert },
   { to: '/system-owner/errors', label: 'Error dashboard', icon: AlertTriangle },
+  { to: '/system-owner/releases', label: 'Release history', icon: History },
   { to: '/system-owner/support', label: 'Support requests', icon: LifeBuoy },
 ];
 
@@ -19,6 +20,7 @@ const titles: Record<string, string> = {
   '/system-owner/settings': 'Platform settings',
   '/system-owner/maintenance': 'Maintenance mode',
   '/system-owner/errors': 'Error dashboard',
+  '/system-owner/releases': 'Release history',
   '/system-owner/support': 'Support requests',
 };
 
