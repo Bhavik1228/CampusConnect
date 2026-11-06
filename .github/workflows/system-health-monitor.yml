@@ -1,0 +1,39 @@
+name: System health monitor
+
+on:
+  workflow_dispatch:
+  schedule:
+    - cron: "*/5 * * * *"
+
+permissions:
+  contents: read
+
+concurrency:
+  group: system-health-monitor
+  cancel-in-progress: false
+
+jobs:
+  monitor:
+    runs-on: ubuntu-latest
+    timeout-minutes: 2
+    steps:
+      - name: Record platform health sample
+        env:
+          SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+          SUPABASE_ANON_KEY: ${{ secrets.SUPABASE_ANON_KEY }}
+          SYSTEM_HEALTH_MONITOR_SECRET: ${{ secrets.SYSTEM_HEALTH_MONITOR_SECRET }}
+        run: |
+          test -n "$SUPABASE_URL"
+          test -n "$SUPABASE_ANON_KEY"
+          test -n "$SYSTEM_HEALTH_MONITOR_SECRET"
+          response_file="$(mktemp)"
+          trap 'rm -f "$response_file"' EXIT
+          curl --fail --silent --show-error --max-time 60 \
+            -X POST "$SUPABASE_URL/functions/v1/system-owner-admin" \
+            -H "apikey: $SUPABASE_ANON_KEY" \
+            -H "Content-Type: application/json" \
+            -H "x-system-health-monitor-secret: $SYSTEM_HEALTH_MONITOR_SECRET" \
+            --data '{"action":"system-health-monitor"}' \
+            --output "$response_file"
+          jq -e '.historySaved == true' "$response_file" > /dev/null
+          jq '{observedAt, checks: [.checks[] | {name, status, latencyMs}], historySaved}' "$response_file"

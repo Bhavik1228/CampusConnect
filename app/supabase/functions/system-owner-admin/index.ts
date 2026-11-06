@@ -66,19 +66,121 @@ function isShortText(value: unknown, max: number): value is string {
   return typeof value === 'string' && value.length <= max;
 }
 
+function secretMatches(provided: string | null, expected: string) {
+  if (!provided || !expected || provided.length !== expected.length) return false;
+  let mismatch = 0;
+  for (let index = 0; index < expected.length; index += 1) {
+    mismatch |= provided.charCodeAt(index) ^ expected.charCodeAt(index);
+  }
+  return mismatch === 0;
+}
+
+async function collectSystemHealth(serviceClient: ReturnType<typeof createClient>) {
+  const check = async (name: string, operation: () => Promise<unknown>) => {
+    const startedAt = performance.now();
+    try {
+      await operation();
+      return { name, status: 'operational', latencyMs: Math.round(performance.now() - startedAt), message: 'Connected' };
+    } catch (error) {
+      return {
+        name,
+        status: 'unavailable',
+        latencyMs: Math.round(performance.now() - startedAt),
+        message: error instanceof Error ? error.message : 'Health check failed.',
+      };
+    }
+  };
+  const [database, authentication, storage] = await Promise.all([
+    check('database', async () => {
+      const { error } = await serviceClient.from('platform_maintenance').select('id').eq('id', 1).single();
+      if (error) throw error;
+    }),
+    check('authentication', async () => {
+      const { error } = await serviceClient.auth.admin.listUsers({ page: 1, perPage: 1 });
+      if (error) throw error;
+    }),
+    check('storage', async () => {
+      const { error } = await serviceClient.storage.listBuckets();
+      if (error) throw error;
+    }),
+  ]);
+  return {
+    observedAt: new Date().toISOString(),
+    checks: [
+      {
+        name: 'application',
+        status: 'operational',
+        latencyMs: null,
+        message: `System owner service responding · Deno ${Deno.version.deno}`,
+      },
+      database,
+      authentication,
+      storage,
+    ],
+  };
+}
+
+async function recordSystemHealth(serviceClient: ReturnType<typeof createClient>) {
+  const health = await collectSystemHealth(serviceClient);
+  const probeId = crypto.randomUUID();
+  const { error: insertError } = await serviceClient.from('system_health_observations').insert(
+    health.checks.map((check) => ({
+      probe_id: probeId,
+      component: check.name,
+      status: check.status,
+      latency_ms: check.latencyMs,
+      message: check.message.slice(0, 1000),
+      checked_at: health.observedAt,
+    })),
+  );
+  if (insertError) throw insertError;
+
+  const cutoff = new Date(Date.now() - 90 * 24 * 60 * 60 * 1000).toISOString();
+  const { error: retentionError } = await serviceClient.from('system_health_observations')
+    .delete().lt('checked_at', cutoff);
+  if (retentionError) throw retentionError;
+
+  const { data: uptimeHistory, error: historyError } = await serviceClient.rpc('platform_owner_uptime_history');
+  if (historyError) throw historyError;
+  return { ...health, uptimeHistory };
+}
+
 Deno.serve(async (request: Request) => {
   if (request.method === 'OPTIONS') return new Response(null, { status: 200, headers: corsHeaders });
   if (request.method !== 'POST') return respond(405, { error: 'Method not allowed.' });
 
   try {
+    const payload = await request.json() as OwnerRequest;
+    if (!isRecord(payload) || typeof payload.action !== 'string') {
+      return respond(400, { error: 'Provide a system owner action.' });
+    }
+    const monitorRequest = payload.action === 'system-health-monitor';
     const accessToken = request.headers.get('Authorization')?.match(/^Bearer\s+(.+)$/i)?.[1];
-    if (!accessToken) return respond(401, { error: 'Sign in to access the system owner panel.' });
+    if (!accessToken && !monitorRequest) return respond(401, { error: 'Sign in to access the system owner panel.' });
 
     const supabaseUrl = Deno.env.get('SUPABASE_URL');
     const anonKey = Deno.env.get('SUPABASE_ANON_KEY');
     const serviceRoleKey = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY');
     const ownerId = Deno.env.get('SYSTEM_OWNER_USER_ID');
-    if (!supabaseUrl || !anonKey || !serviceRoleKey) throw new Error('System owner function configuration is incomplete.');
+    if (!supabaseUrl || !serviceRoleKey || (!monitorRequest && !anonKey)) {
+      throw new Error('System owner function configuration is incomplete.');
+    }
+    if (monitorRequest) {
+      const monitorSecret = Deno.env.get('SYSTEM_HEALTH_MONITOR_SECRET') ?? '';
+      if (!secretMatches(request.headers.get('x-system-health-monitor-secret'), monitorSecret)) {
+        return respond(401, { error: 'Invalid system health monitor credentials.' });
+      }
+      const monitorClient = createClient(supabaseUrl, serviceRoleKey, {
+        auth: { persistSession: false, autoRefreshToken: false },
+      });
+      const recordedHealth = await recordSystemHealth(monitorClient);
+      return respond(200, {
+        observedAt: recordedHealth.observedAt,
+        checks: recordedHealth.checks,
+        uptimeHistory: recordedHealth.uptimeHistory,
+        historySaved: true,
+      });
+    }
     if (!ownerId || !isUuid(ownerId)) throw new Error('Set SYSTEM_OWNER_USER_ID to the platform owner Supabase Auth user ID.');
 
     const userClient = createClient(supabaseUrl, anonKey, {
@@ -91,52 +193,13 @@ Deno.serve(async (request: Request) => {
     const serviceClient = createClient(supabaseUrl, serviceRoleKey, {
       auth: { persistSession: false, autoRefreshToken: false },
     });
-    const payload = await request.json() as OwnerRequest;
-
     if (payload.action === 'check') return respond(200, { authorized: true });
 
     if (payload.action === 'system-health') {
-      const check = async (name: string, operation: () => Promise<unknown>) => {
-        const startedAt = performance.now();
-        try {
-          await operation();
-          return { name, status: 'operational', latencyMs: Math.round(performance.now() - startedAt), message: 'Connected' };
-        } catch (error) {
-          return {
-            name,
-            status: 'unavailable',
-            latencyMs: Math.round(performance.now() - startedAt),
-            message: error instanceof Error ? error.message : 'Health check failed.',
-          };
-        }
-      };
-      const [database, authentication, storage] = await Promise.all([
-        check('database', async () => {
-          const { error } = await serviceClient.from('platform_maintenance').select('id').eq('id', 1).single();
-          if (error) throw error;
-        }),
-        check('authentication', async () => {
-          const { error } = await serviceClient.auth.admin.listUsers({ page: 1, perPage: 1 });
-          if (error) throw error;
-        }),
-        check('storage', async () => {
-          const { error } = await serviceClient.storage.listBuckets();
-          if (error) throw error;
-        }),
-      ]);
+      const recordedHealth = await recordSystemHealth(serviceClient);
       return respond(200, {
-        observedAt: new Date().toISOString(),
-        checks: [
-          {
-            name: 'application',
-            status: 'operational',
-            latencyMs: null,
-            message: `System owner service responding · Deno ${Deno.version.deno}`,
-          },
-          database,
-          authentication,
-          storage,
-        ],
+        ...recordedHealth,
+        historySaved: true,
       });
     }
 

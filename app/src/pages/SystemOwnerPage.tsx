@@ -45,6 +45,19 @@ type Dashboard = {
 type SystemHealth = {
   observedAt: string;
   checks: { name: string; status: string; latencyMs: number | null; message: string }[];
+  uptimeHistory: {
+    windowDays: number;
+    windowStart: string;
+    components: {
+      name: string;
+      sampleCount: number;
+      uptimePercent: number | null;
+      lastStatus: string | null;
+      firstCheckedAt: string | null;
+      lastCheckedAt: string | null;
+      incidents: { startedAt: string; recoveredAt: string | null; durationSeconds: number }[];
+    }[];
+  };
 };
 
 function formatLabel(value: string) {
@@ -57,6 +70,15 @@ function formatDate(value: string) {
 
 function statusClass(value: string) {
   return value.toLowerCase().replaceAll(' ', '-').replaceAll('_', '-');
+}
+
+function formatDuration(seconds: number) {
+  const days = Math.floor(seconds / 86400);
+  const hours = Math.floor((seconds % 86400) / 3600);
+  const minutes = Math.floor((seconds % 3600) / 60);
+  if (days) return `${days}d ${hours}h`;
+  if (hours) return `${hours}h ${minutes}m`;
+  return `${minutes}m`;
 }
 
 export function SystemOwnerPage() {
@@ -96,7 +118,10 @@ export function SystemOwnerPage() {
       if (healthResult.error) {
         setSystemHealth(null);
         setSystemHealthError(healthResult.error.message);
-      } else if (Array.isArray(healthResult.data?.checks) && typeof healthResult.data?.observedAt === 'string') {
+      } else if (Array.isArray(healthResult.data?.checks)
+        && typeof healthResult.data?.observedAt === 'string'
+        && healthResult.data?.uptimeHistory
+        && Array.isArray(healthResult.data.uptimeHistory.components)) {
         setSystemHealth(healthResult.data as SystemHealth);
         setSystemHealthError('');
       } else {
@@ -197,6 +222,32 @@ export function SystemOwnerPage() {
             })}
           </div>
           <p className="system-owner-muted">Last checked {formatDate(systemHealth.observedAt)}. A successful check confirms the service responds; it is not a full data-integrity audit.</p>
+          <div className="system-owner-panel-heading"><div><span className="eyebrow">Last {systemHealth.uptimeHistory.windowDays} days</span><h3>Uptime history</h3><p>Availability is calculated from recorded checks. Outage starts and recovery times show the first failed and first succeeding observations.</p></div><Activity size={17} /></div>
+          <div className="system-owner-stat-grid" aria-label="Sampled service availability">
+            {systemHealth.uptimeHistory.components.map((component) => (
+              <article className="system-owner-stat" key={component.name}>
+                <span><Activity size={17} /></span>
+                <small>{formatLabel(component.name)} · sampled uptime</small>
+                <strong>{component.uptimePercent === null ? 'No data' : `${component.uptimePercent.toFixed(2)}%`}</strong>
+                <p>{component.sampleCount.toLocaleString()} checks · {component.lastStatus ? `last ${formatLabel(component.lastStatus)}` : 'not yet checked'}</p>
+              </article>
+            ))}
+          </div>
+          {(() => {
+            const incidents = systemHealth.uptimeHistory.components.flatMap((component) =>
+              component.incidents.map((incident) => ({ ...incident, component: component.name })))
+              .sort((left, right) => right.startedAt.localeCompare(left.startedAt));
+            return incidents.length ? <div className="system-owner-activity-list" aria-label="Recorded outages and recoveries">
+              {incidents.map((incident) => <article key={`${incident.component}-${incident.startedAt}`}>
+                <span className="system-owner-activity-icon"><AlertTriangle size={14} /></span>
+                <div><strong>{formatLabel(incident.component)} · {incident.recoveredAt ? 'Recovered' : 'Ongoing at last check'}</strong>
+                  <small>First unavailable check: {formatDate(incident.startedAt)} · {incident.recoveredAt ? `First successful check: ${formatDate(incident.recoveredAt)}` : 'Awaiting a successful check'}</small>
+                </div>
+                <time>{formatDuration(incident.durationSeconds)}</time>
+              </article>)}
+            </div> : <p className="system-owner-muted"><Check size={15} /> No unavailable health checks were recorded in this period.</p>;
+          })()}
+          <p className="system-owner-muted">Dashboard refreshes record checks. For automatic checks every 5 minutes, configure the matching monitor secret in Supabase and GitHub Actions. Times reflect observations, not the exact moment an outage began; missed runs create gaps and are not counted as downtime.</p>
         </>}
         {!systemHealth && !systemHealthError && <LoadingState label="Checking platform services…" />}
       </section>
