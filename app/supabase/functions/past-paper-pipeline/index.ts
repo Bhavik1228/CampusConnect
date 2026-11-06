@@ -80,6 +80,16 @@ function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === 'object' && value !== null && !Array.isArray(value);
 }
 
+function getErrorMessage(error: unknown) {
+  if (error instanceof Error) return error.message;
+  if (typeof error === 'string') return error;
+  if (isRecord(error) && typeof error.message === 'string') {
+    const code = typeof error.code === 'string' ? ` (${error.code})` : '';
+    return `${error.message}${code}`;
+  }
+  return 'Past-paper pipeline request failed.';
+}
+
 function isUuid(value: unknown): value is string {
   return typeof value === 'string'
     && /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(value);
@@ -1627,6 +1637,6 @@ Deno.serve(async (request: Request) => {
   } catch (error) {
     if (error instanceof Response) return respond(error.status, { error: await error.text() });
     console.error('Past-paper pipeline request failed.', error);
-    return respond(500, { error: error instanceof Error ? error.message : 'Past-paper pipeline request failed.' });
+    return respond(500, { error: getErrorMessage(error) });
   }
 });
