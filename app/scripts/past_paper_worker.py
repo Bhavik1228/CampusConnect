@@ -16,7 +16,7 @@ import urllib.robotparser
 from dataclasses import dataclass
 from typing import Any
 
-MAX_PAGES = 250
+MAX_PAGES = 100
 MIN_TEXT_CHARACTERS = 25
 MAX_PAGE_TEXT_CHARACTERS = 60_000
 USER_AGENT = "CampusConnectPastPaperBot"
@@ -43,7 +43,32 @@ class DownloadedDocument:
 
 
 def _normalized_phrase(value: str) -> str:
-    return " ".join(re.sub(r"[^\w]+", " ", value.casefold()).split())
+    return " ".join(re.sub(r"[\W_]+", " ", value.lower()).split())
+
+
+def question_fingerprint(question_text: str, metadata: dict[str, Any]) -> str:
+    parts = [
+        _normalized_phrase(question_text),
+        str(metadata.get("syllabus_code") or ""),
+        str(metadata.get("syllabus_version") or ""),
+        str(metadata.get("examination_year") or ""),
+        str(metadata.get("examination_session") or ""),
+        str(metadata.get("paper_number") or ""),
+        str(metadata.get("variant") or ""),
+        str(metadata.get("question_number") or ""),
+        str(metadata.get("marks") or ""),
+    ]
+    return hashlib.sha256("|".join(parts).encode("utf-8")).hexdigest()
+
+
+def validate_pdf_payload(content: bytes, content_type: str, max_bytes: int) -> str:
+    if content_type.casefold() not in {"application/pdf", "application/octet-stream"}:
+        raise WorkerError(f"Source returned unsupported content type: {content_type}.")
+    if not content or len(content) > max_bytes:
+        raise WorkerError("PDF is empty or exceeds the configured document size limit.")
+    if not content.startswith(b"%PDF-"):
+        raise WorkerError("The downloaded file does not have a valid PDF signature.")
+    return hashlib.sha256(content).hexdigest()
 
 
 def classify_question(question_text: str, catalogue: list[dict[str, Any]], source: dict[str, Any]) -> dict[str, Any]:
@@ -103,6 +128,7 @@ def segment_questions(pages: list[dict[str, Any]]) -> list[dict[str, Any]]:
         current["question_structure"] = {
             "parent_number": current["parent_number"],
             "part_number": current["question_number"],
+            "table_references": current["table_references"],
         }
         questions.append(current)
         current = None
@@ -131,6 +157,7 @@ def segment_questions(pages: list[dict[str, Any]]) -> list[dict[str, Any]]:
                         "page_start": page_number,
                         "page_end": page_number,
                         "diagram_references": [],
+                        "table_references": [],
                         "_lines": [],
                     }
                 current["page_end"] = page_number
@@ -141,6 +168,12 @@ def segment_questions(pages: list[dict[str, Any]]) -> list[dict[str, Any]]:
             if current and diagram_references:
                 current["diagram_references"] = sorted(set(
                     current["diagram_references"] + [str(value) for value in diagram_references]
+                ))
+            if current and page.get("tables"):
+                current["table_references"] = sorted(set(
+                    current["table_references"]
+                    + [f"page:{page_number}:table:{table_index + 1}"
+                       for table_index, _ in enumerate(page["tables"])]
                 ))
             if current and DIAGRAM.search(line):
                 current["diagram_references"] = sorted(set(
@@ -171,10 +204,14 @@ class SameHostRedirectHandler(urllib.request.HTTPRedirectHandler):
     def __init__(self, expected_host: str) -> None:
         super().__init__()
         self.expected_host = expected_host.casefold()
+        self.redirects = 0
 
     def redirect_request(self, request: Any, response: Any, code: int, message: str, headers: Any, new_url: str) -> Any:
         redirected = urllib.parse.urlparse(new_url)
-        if redirected.scheme != "https" or redirected.hostname != self.expected_host:
+        self.redirects += 1
+        if (self.redirects > 3 or redirected.scheme != "https"
+                or redirected.hostname != self.expected_host or redirected.port
+                or redirected.username or redirected.password):
             raise WorkerError("Cross-host or non-HTTPS redirects are not followed.")
         return super().redirect_request(request, response, code, message, headers, new_url)
 
@@ -182,8 +219,12 @@ class SameHostRedirectHandler(urllib.request.HTTPRedirectHandler):
 def download_pdf(item: dict[str, Any]) -> DownloadedDocument:
     original = urllib.parse.urlparse(str(item["canonical_url"]))
     expected_host = str(item["canonical_host"]).casefold()
-    if original.scheme != "https" or original.hostname != expected_host:
+    if (original.scheme != "https" or original.hostname != expected_host or original.port
+            or original.username or original.password):
         raise WorkerError("The PDF URL is outside the registered HTTPS source host.")
+    if any(re.search(r"token|key|auth|secret|signature|session|password|credential", key, re.I)
+           for key, _ in urllib.parse.parse_qsl(original.query)):
+        raise WorkerError("Credential-like PDF URL parameters are not permitted.")
     if not _robots_allowed(original):
         raise WorkerError("robots.txt disallows access to this PDF.")
     opener = urllib.request.build_opener(SameHostRedirectHandler(expected_host))
@@ -197,8 +238,6 @@ def download_pdf(item: dict[str, Any]) -> DownloadedDocument:
         raise WorkerError(f"Document source returned HTTP {error.code}.") from error
     with response:
         content_type = response.headers.get_content_type().casefold()
-        if content_type not in {"application/pdf", "application/octet-stream"}:
-            raise WorkerError(f"Source returned unsupported content type: {content_type}.")
         limit = min(int(item["document_max_bytes"]), 50 * 1024 * 1024)
         declared_size = int(response.headers.get("Content-Length", "0") or "0")
         if declared_size > limit:
@@ -206,8 +245,7 @@ def download_pdf(item: dict[str, Any]) -> DownloadedDocument:
         content = response.read(limit + 1)
         if len(content) > limit:
             raise WorkerError("PDF exceeds the configured document size limit.")
-        if not content.startswith(b"%PDF-"):
-            raise WorkerError("The downloaded file does not have a valid PDF signature.")
+        validate_pdf_payload(content, content_type, limit)
         final_url = urllib.parse.urlparse(response.geturl())
         if final_url.scheme != "https" or final_url.hostname != expected_host:
             raise WorkerError("The final PDF URL is outside the registered HTTPS source host.")
@@ -274,11 +312,16 @@ def extract_pdf(content: bytes, ocr_allowed: bool) -> dict[str, Any]:
             warnings.append(f"Page {index + 1} table extraction needs review.")
             needs_review = True
         diagram_references = [f"page:{index + 1}"] if page.get_images(full=True) or DIAGRAM.search(text) else []
+        instructions = [
+            line.strip()[:500] for line in text.splitlines()
+            if re.search(r"\b(?:answer all|answer the|do not|show your|write your|each question|you should)\b", line, re.I)
+        ][:30]
         pages.append({
             "page_number": index + 1,
             "text_content": text[:MAX_PAGE_TEXT_CHARACTERS],
             "tables": tables,
             "diagram_references": diagram_references,
+            "instructions": instructions,
             "extraction_method": method,
             "ocr_confidence": confidence,
             "needs_review": needs_review,
@@ -337,13 +380,24 @@ def process_item(task: dict[str, Any]) -> None:
     item = task["item"]
     source = task["source"]
     downloaded = download_pdf(item)
-    checksum = hashlib.sha256(downloaded.content).hexdigest()
-    extracted = extract_pdf(downloaded.content, bool(source.get("ocr_allowed")))
-    for question in extracted["questions"]:
-        question.update(classify_question(question["question_text"], task.get("syllabusTopics", []), source))
+    checksum = validate_pdf_payload(
+        downloaded.content, downloaded.content_type, min(int(item["document_max_bytes"]), 50 * 1024 * 1024)
+    )
     document_path = task["documentPath"]
     extraction_path = task["extractionPath"]
     _upload_signed_url(task["documentUploadUrl"], downloaded.content, "application/pdf")
+    download_result = _api_request("worker-downloaded", {
+        "itemId": item["id"],
+        "documentPath": document_path,
+        "sha256": checksum,
+        "fileSize": len(downloaded.content),
+        "canonicalUrl": downloaded.canonical_url,
+    })
+    if download_result.get("status") == "DUPLICATE":
+        return
+    extracted = extract_pdf(downloaded.content, bool(source.get("ocr_allowed")))
+    for question in extracted["questions"]:
+        question.update(classify_question(question["question_text"], task.get("syllabusTopics", []), source))
     manifest = json.dumps(extracted, ensure_ascii=False, separators=(",", ":")).encode()
     _upload_signed_url(task["extractionUploadUrl"], manifest, "application/json")
     _api_request("worker-complete", {
@@ -358,9 +412,13 @@ def process_item(task: dict[str, Any]) -> None:
     })
 
 
-def run_worker(max_items: int = 3) -> int:
+def run_worker(max_items: int = 1) -> int:
     failures = 0
-    _api_request("scheduled-discover", {})
+    schedule_result = _api_request("scheduled-discover", {})
+    for result in schedule_result.get("scheduledSources", []):
+        if result.get("error"):
+            failures += 1
+            print(f"Scheduled source {result.get('sourceId')} failed: {result['error']}", file=sys.stderr)
     for _ in range(max_items):
         task = _api_request("worker-claim", {}).get("task")
         if not task:
@@ -372,6 +430,8 @@ def run_worker(max_items: int = 3) -> int:
             try:
                 _api_request("worker-fail", {
                     "itemId": task["item"]["id"],
+                    "documentPath": task["documentPath"],
+                    "extractionPath": task["extractionPath"],
                     "failureReason": str(error)[:1000],
                     "retryable": True,
                 })

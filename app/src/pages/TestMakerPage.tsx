@@ -36,6 +36,25 @@ type CatalogueQuestion = {
   mark_scheme: string;
   source_name: string;
   source_url: string;
+  curriculum: string | null;
+  subject_name: string | null;
+  examination_year: number | null;
+  examination_session: string | null;
+  paper_number: string | null;
+  variant: string | null;
+};
+type CatalogueFilters = {
+  curriculum: string;
+  subject: string;
+  year: string;
+  session: string;
+  topic: string;
+  subtopic: string;
+  paper: string;
+  variant: string;
+};
+const EMPTY_CATALOGUE_FILTERS: CatalogueFilters = {
+  curriculum: '', subject: '', year: '', session: '', topic: '', subtopic: '', paper: '', variant: '',
 };
 type PastPaper = {
   id: string;
@@ -194,6 +213,7 @@ export function TestMakerPage() {
   const [editingQuestionId, setEditingQuestionId] = useState('');
   const [query, setQuery] = useState('');
   const [catalogueQuery, setCatalogueQuery] = useState('');
+  const [catalogueFilters, setCatalogueFilters] = useState(EMPTY_CATALOGUE_FILTERS);
   const [catalogueQuestions, setCatalogueQuestions] = useState<CatalogueQuestion[]>([]);
   const [catalogueLoading, setCatalogueLoading] = useState(false);
   const [resultQuery, setResultQuery] = useState('');
@@ -546,7 +566,7 @@ export function TestMakerPage() {
     setError('');
     try {
       const { data, error: catalogueError } = await requireSupabase().functions.invoke('past-paper-pipeline', {
-        body: { action: 'search-approved', schoolId, query: catalogueQuery },
+        body: { action: 'search-approved', schoolId, query: catalogueQuery, filters: catalogueFilters },
       });
       if (catalogueError) throw catalogueError;
       const result = data as { questions?: CatalogueQuestion[] } | null;
@@ -844,11 +864,21 @@ export function TestMakerPage() {
               <div className="library-toolbar">
                 <label className="library-search"><Search size={15} /><input value={catalogueQuery} onChange={(event) => setCatalogueQuery(event.target.value)} onKeyDown={(event) => { if (event.key === 'Enter') { event.preventDefault(); void searchApprovedCatalogue(); } }} placeholder="Search approved topic or question" /></label>
                 <button className="button button-quiet" onClick={() => void searchApprovedCatalogue()} disabled={catalogueLoading}><Search size={14} />{catalogueLoading ? 'Searching…' : 'Search catalogue'}</button>
-                <Link className="button button-quiet" to="/past-paper-pipeline">Source review and permissions</Link>
+                {isAcademicLead && <Link className="button button-quiet" to="/past-paper-pipeline">Source review and permissions</Link>}
+              </div>
+              <div className="test-form-grid">
+                <label>Curriculum<select value={catalogueFilters.curriculum} onChange={(event) => setCatalogueFilters((current) => ({ ...current, curriculum: event.target.value }))}><option value="">All curricula</option>{['Cambridge Primary', 'Cambridge Lower Secondary', 'O Level', 'IGCSE', 'AS Level', 'A Level'].map((value) => <option key={value}>{value}</option>)}</select></label>
+                <label>Subject<input value={catalogueFilters.subject} onChange={(event) => setCatalogueFilters((current) => ({ ...current, subject: event.target.value }))} placeholder="Biology" /></label>
+                <label>Year<input type="number" min="1900" max="2200" value={catalogueFilters.year} onChange={(event) => setCatalogueFilters((current) => ({ ...current, year: event.target.value }))} /></label>
+                <label>Session<select value={catalogueFilters.session} onChange={(event) => setCatalogueFilters((current) => ({ ...current, session: event.target.value }))}><option value="">All sessions</option><option value="m">March</option><option value="s">June</option><option value="w">November</option></select></label>
+                <label>Topic<input value={catalogueFilters.topic} onChange={(event) => setCatalogueFilters((current) => ({ ...current, topic: event.target.value }))} /></label>
+                <label>Subtopic<input value={catalogueFilters.subtopic} onChange={(event) => setCatalogueFilters((current) => ({ ...current, subtopic: event.target.value }))} /></label>
+                <label>Paper<input value={catalogueFilters.paper} onChange={(event) => setCatalogueFilters((current) => ({ ...current, paper: event.target.value }))} /></label>
+                <label>Variant<input value={catalogueFilters.variant} onChange={(event) => setCatalogueFilters((current) => ({ ...current, variant: event.target.value }))} /></label>
               </div>
               {catalogueQuestions.map((question) => <article className="library-question" key={question.id}>
                 <div className="library-question-main">
-                  <div className="library-question-meta"><span>{question.topic}{question.subtopic ? ` · ${question.subtopic}` : ''}</span>{question.syllabus_code && <span>{question.syllabus_code}</span>}<span>{question.marks} marks</span></div>
+                  <div className="library-question-meta"><span>{question.topic}{question.subtopic ? ` · ${question.subtopic}` : ''}</span>{question.syllabus_code && <span>{question.syllabus_code}</span>}<span>{question.examination_year ?? 'Year n/a'} · {question.examination_session ?? 'Session n/a'} · Paper {question.paper_number ?? 'n/a'} · Variant {question.variant ?? 'n/a'}</span><span>{question.marks} marks</span></div>
                   <p>{question.question_text}</p>
                   <small>{question.source_name}{question.source_url && <> · <a href={question.source_url} target="_blank" rel="noreferrer">Source <ExternalLink size={10} /></a></>}</small>
                 </div>
@@ -886,7 +916,7 @@ export function TestMakerPage() {
       ) : (
         <section className="content-card authorized-papers-card">
           <div className="section-heading"><div><span className="eyebrow">School resources</span><h2>Authorized past papers</h2></div><span className="test-count">{papers.length}</span></div>
-          <div className="authorized-papers-notice"><strong>Privately stored in Firebase</strong><p>These records are visible to this school only. Paper files are not publicly exposed; authenticated PDF viewing will be available when a signed-link endpoint is configured.</p><Link className="button button-quiet" to="/past-paper-pipeline">Discover metadata and review authorized questions</Link></div>
+          <div className="authorized-papers-notice"><strong>Privately stored in Firebase</strong><p>These records are visible to this school only. Paper files are not publicly exposed; authenticated PDF viewing will be available when a signed-link endpoint is configured.</p>{isAcademicLead && <Link className="button button-quiet" to="/past-paper-pipeline">Discover metadata and review authorized questions</Link>}</div>
           <label className="library-search authorized-paper-search"><Search size={15} /><input value={query} onChange={(event) => setQuery(event.target.value)} placeholder="Search subject, code, year, or paper type" /></label>
           <div className="authorized-paper-list">
             {papers.filter((paper) => `${paper.subject_name} ${paper.subject_code} ${paper.year} ${paper.paper_number} ${paper.document_type}`.toLowerCase().includes(query.toLowerCase())).map((paper) => (

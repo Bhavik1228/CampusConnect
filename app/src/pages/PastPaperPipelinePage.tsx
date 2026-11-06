@@ -13,6 +13,16 @@ type Source = {
   metadata_discovery_allowed: boolean;
   question_extraction_allowed: boolean;
   question_reuse_allowed: boolean;
+  document_download_allowed: boolean;
+  document_storage_allowed: boolean;
+  ocr_allowed: boolean;
+  curriculum: string | null;
+  subject_name: string | null;
+  syllabus_code: string | null;
+  syllabus_version: string | null;
+  schedule_enabled: boolean;
+  schedule_interval_hours: number;
+  document_max_bytes: number;
   status: 'active' | 'paused';
   last_discovery_at: string | null;
 };
@@ -31,6 +41,8 @@ type DiscoveryItem = {
   title: string;
   link_text: string;
   review_status: 'pending' | 'approved' | 'rejected';
+  pipeline_status: string;
+  failure_reason: string | null;
 };
 type CatalogueQuestion = {
   id: string;
@@ -46,6 +58,34 @@ type CatalogueQuestion = {
   mark_scheme: string;
   review_status: 'pending' | 'approved' | 'rejected';
   reviewer_note: string;
+  validation_status: string;
+  validation_reasons: string[];
+  content_use_status: string;
+  curriculum: string | null;
+  subject_name: string | null;
+  syllabus_version: string | null;
+  examination_year: number | null;
+  examination_session: string | null;
+  paper_number: string | null;
+  variant: string | null;
+  question_number: string | null;
+  page_start: number | null;
+  page_end: number | null;
+  classification_status: string;
+  document_id: string | null;
+  syllabus_topic_id: string | null;
+  extraction_status: string;
+};
+type SyllabusTopic = {
+  id: string;
+  curriculum: string;
+  subject_name: string;
+  syllabus_code: string;
+  syllabus_version: string;
+  topic: string;
+  subtopic: string;
+  approved_phrases: string[];
+  source_url: string;
 };
 type RestrictedQuestion = {
   id: string;
@@ -64,6 +104,7 @@ type PipelineState = {
   items: DiscoveryItem[];
   questions: CatalogueQuestion[];
   restrictedQuestions: RestrictedQuestion[];
+  syllabusTopics: SyllabusTopic[];
 };
 type SourceForm = {
   name: string;
@@ -73,6 +114,16 @@ type SourceForm = {
   metadataDiscoveryAllowed: boolean;
   questionExtractionAllowed: boolean;
   questionReuseAllowed: boolean;
+  documentDownloadAllowed: boolean;
+  documentStorageAllowed: boolean;
+  ocrAllowed: boolean;
+  curriculum: string;
+  subjectName: string;
+  syllabusCode: string;
+  syllabusVersion: string;
+  scheduleEnabled: boolean;
+  scheduleIntervalHours: number;
+  documentMaxBytes: number;
 };
 type QuestionForm = {
   questionText: string;
@@ -84,7 +135,7 @@ type QuestionForm = {
   markScheme: string;
 };
 
-const EMPTY_STATE: PipelineState = { sources: [], jobs: [], items: [], questions: [], restrictedQuestions: [] };
+const EMPTY_STATE: PipelineState = { sources: [], jobs: [], items: [], questions: [], restrictedQuestions: [], syllabusTopics: [] };
 const EMPTY_SOURCE: SourceForm = {
   name: '',
   listingUrl: '',
@@ -93,6 +144,16 @@ const EMPTY_SOURCE: SourceForm = {
   metadataDiscoveryAllowed: true,
   questionExtractionAllowed: false,
   questionReuseAllowed: false,
+  documentDownloadAllowed: false,
+  documentStorageAllowed: false,
+  ocrAllowed: false,
+  curriculum: '',
+  subjectName: '',
+  syllabusCode: '',
+  syllabusVersion: '',
+  scheduleEnabled: false,
+  scheduleIntervalHours: 24,
+  documentMaxBytes: 25 * 1024 * 1024,
 };
 const EMPTY_QUESTION: QuestionForm = {
   questionText: '',
@@ -120,6 +181,18 @@ export function PastPaperPipelinePage() {
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState('');
   const [notice, setNotice] = useState('');
+  const [syllabusForm, setSyllabusForm] = useState({
+    curriculum: 'IGCSE',
+    subjectName: '',
+    syllabusCode: '',
+    syllabusVersion: '',
+    topic: '',
+    subtopic: '',
+    approvedPhrases: '',
+    sourceUrl: '',
+  });
+  const [previewUrl, setPreviewUrl] = useState('');
+  const [editingSyllabusTopicId, setEditingSyllabusTopicId] = useState('');
 
   const request = useCallback(async <T,>(action: string, values: Record<string, unknown> = {}) => {
     if (!schoolId) throw new Error('Choose a school before using the past-paper pipeline.');
@@ -185,7 +258,7 @@ export function PastPaperPipelinePage() {
         sourceId: source.id,
         idempotencyKey: crypto.randomUUID(),
       });
-      setNotice(`Discovery finished: ${result.discoveredCount} new metadata link(s). Correlation ID: ${result.correlationId}`);
+      setNotice(`Discovery and processing queue updated: ${result.discoveredCount} new paper link(s). Correlation ID: ${result.correlationId}`);
       await load();
     } catch (discoverError) {
       await load();
@@ -272,18 +345,65 @@ export function PastPaperPipelinePage() {
     }
   }
 
-  async function reviewQuestion(question: CatalogueQuestion, decision: 'approved' | 'rejected') {
+  async function reviewQuestion(
+    question: CatalogueQuestion,
+    decision: 'approved' | 'rejected',
+    corrections: Record<string, unknown> = {},
+    syllabusTopicId = '',
+    contentUseEligible = false,
+  ) {
     setSaving(true);
     setError('');
     setNotice('');
     try {
-      await request('review-question', { questionId: question.id, decision });
-      setNotice(decision === 'approved' ? 'Question approved for the school question catalogue.' : 'Question rejected.');
+      const result = await request<{ validationStatus: string; contentUseStatus: string }>('review-question', {
+        questionId: question.id,
+        decision,
+        corrections,
+        syllabusTopicId: syllabusTopicId || null,
+        contentUseEligible,
+      });
+      setNotice(decision === 'approved'
+        ? `Validation ${result.validationStatus}; content use ${result.contentUseStatus}.`
+        : 'Question rejected and recorded in validation history.');
       await load();
     } catch (reviewError) {
       setError(messageOf(reviewError, 'Could not review this question.'));
     } finally {
       setSaving(false);
+    }
+
+    async function previewDocument(itemId: string) {
+      setError('');
+      try {
+        const result = await request<{ url: string }>('preview-document', { itemId });
+        setPreviewUrl(result.url);
+      } catch (previewError) {
+        setError(messageOf(previewError, 'Could not open the authorized private document.'));
+      }
+    }
+
+    async function submitSyllabusTopic(event: FormEvent<HTMLFormElement>) {
+      event.preventDefault();
+      setSaving(true);
+      setError('');
+      try {
+        await request('upsert-syllabus-topic', {
+          syllabusTopicId: editingSyllabusTopicId || null,
+          syllabusTopic: {
+            ...syllabusForm,
+            approvedPhrases: syllabusForm.approvedPhrases.split(/\r?\n/).map((phrase) => phrase.trim()).filter(Boolean),
+          },
+        });
+        setEditingSyllabusTopicId('');
+        setSyllabusForm((current) => ({ ...current, subjectName: '', syllabusCode: '', syllabusVersion: '', topic: '', subtopic: '', approvedPhrases: '', sourceUrl: '' }));
+        setNotice('Verified syllabus topic saved. Changes are retained in the syllabus history.');
+        await load();
+      } catch (saveError) {
+        setError(messageOf(saveError, 'Could not save this verified syllabus topic.'));
+      } finally {
+        setSaving(false);
+      }
     }
   }
 
@@ -306,12 +426,13 @@ export function PastPaperPipelinePage() {
           <div><span className="eyebrow">Rights-first workflow</span><h2>Source and content safeguards</h2></div>
           <ShieldCheck size={20} />
         </div>
-        <p>Only configured HTTPS hosts are contacted. Discovery checks robots.txt, reads one listing page, and stores matching links and titles only; it never downloads PDFs. Question text is entered for human review only when this school has recorded permission to extract and reuse it.</p>
+        <p>Discovery and document processing only contact configured HTTPS hosts, obey robots.txt, and require explicit recorded permissions for download, private storage, extraction, OCR, and assessment reuse. Downloads are size-limited, signature-checked, checksummed, and processed in resumable scheduled batches. Extracted questions stay out of Test Maker until validation and content-use eligibility are independently approved.</p>
         <p>Public availability does not grant copying rights. Do not register a source until its terms and permission basis have been checked.</p>
       </section>
 
       {error && <ErrorState message={error} />}
       {notice && <div className="feedback feedback-success" role="status"><Check size={15} />{notice}</div>}
+      {previewUrl && <a className="button button-quiet" href={previewUrl} target="_blank" rel="noreferrer">Open private PDF preview (expires in 60 seconds)</a>}
       {loading ? <LoadingState label="Loading source and review records…" /> : (
         <>
           {isAcademicLead && <section className="content-card">
@@ -322,10 +443,20 @@ export function PastPaperPipelinePage() {
                 <label>Listing URL<input required type="url" value={sourceForm.listingUrl} onChange={(event) => setSourceForm((current) => ({ ...current, listingUrl: event.target.value }))} placeholder="https://approved-host.example/papers" /></label>
                 <label>Terms / permission URL<input required type="url" value={sourceForm.termsUrl} onChange={(event) => setSourceForm((current) => ({ ...current, termsUrl: event.target.value }))} placeholder="https://approved-host.example/terms" /></label>
                 <label className="span-2">Documented rights basis<textarea required minLength={8} maxLength={2000} value={sourceForm.rightsBasis} onChange={(event) => setSourceForm((current) => ({ ...current, rightsBasis: event.target.value }))} placeholder="Identify the license, written permission, or other basis and scope." /></label>
+                <label>Curriculum<select value={sourceForm.curriculum} onChange={(event) => setSourceForm((current) => ({ ...current, curriculum: event.target.value }))}><option value="">Not specified</option>{['Cambridge Primary', 'Cambridge Lower Secondary', 'O Level', 'IGCSE', 'AS Level', 'A Level'].map((value) => <option key={value}>{value}</option>)}</select></label>
+                <label>Subject<input maxLength={160} value={sourceForm.subjectName} onChange={(event) => setSourceForm((current) => ({ ...current, subjectName: event.target.value }))} /></label>
+                <label>Syllabus code<input maxLength={40} value={sourceForm.syllabusCode} onChange={(event) => setSourceForm((current) => ({ ...current, syllabusCode: event.target.value }))} /></label>
+                <label>Syllabus version<input maxLength={80} value={sourceForm.syllabusVersion} onChange={(event) => setSourceForm((current) => ({ ...current, syllabusVersion: event.target.value }))} /></label>
+                <label>Schedule interval (hours)<input type="number" min={1} max={720} value={sourceForm.scheduleIntervalHours} onChange={(event) => setSourceForm((current) => ({ ...current, scheduleIntervalHours: Number(event.target.value) }))} /></label>
+                <label>Maximum PDF size (MB)<input type="number" min={1} max={50} value={Math.round(sourceForm.documentMaxBytes / (1024 * 1024))} onChange={(event) => setSourceForm((current) => ({ ...current, documentMaxBytes: Number(event.target.value) * 1024 * 1024 }))} /></label>
               </div>
               <label className="draft-recovery-check"><input type="checkbox" checked={sourceForm.metadataDiscoveryAllowed} onChange={(event) => setSourceForm((current) => ({ ...current, metadataDiscoveryAllowed: event.target.checked }))} />The source terms and robots policy permit metadata discovery.</label>
-              <label className="draft-recovery-check"><input type="checkbox" checked={sourceForm.questionExtractionAllowed} onChange={(event) => setSourceForm((current) => ({ ...current, questionExtractionAllowed: event.target.checked, questionReuseAllowed: event.target.checked ? current.questionReuseAllowed : false }))} />The recorded rights permit extracting question content.</label>
+              <label className="draft-recovery-check"><input type="checkbox" checked={sourceForm.documentDownloadAllowed} onChange={(event) => setSourceForm((current) => ({ ...current, documentDownloadAllowed: event.target.checked, documentStorageAllowed: event.target.checked && current.documentStorageAllowed, ocrAllowed: event.target.checked && current.ocrAllowed }))} />The rights basis permits retrieving the PDF documents.</label>
+              <label className="draft-recovery-check"><input type="checkbox" checked={sourceForm.documentStorageAllowed} disabled={!sourceForm.documentDownloadAllowed} onChange={(event) => setSourceForm((current) => ({ ...current, documentStorageAllowed: event.target.checked, ocrAllowed: event.target.checked && current.ocrAllowed }))} />The rights basis permits storing the documents in private school-scoped storage.</label>
+              <label className="draft-recovery-check"><input type="checkbox" checked={sourceForm.questionExtractionAllowed} onChange={(event) => setSourceForm((current) => ({ ...current, questionExtractionAllowed: event.target.checked, questionReuseAllowed: event.target.checked && current.questionReuseAllowed, ocrAllowed: event.target.checked && current.ocrAllowed }))} />The recorded rights permit extracting question content.</label>
+              <label className="draft-recovery-check"><input type="checkbox" checked={sourceForm.ocrAllowed} disabled={!sourceForm.documentDownloadAllowed || !sourceForm.documentStorageAllowed || !sourceForm.questionExtractionAllowed} onChange={(event) => setSourceForm((current) => ({ ...current, ocrAllowed: event.target.checked }))} />The recorded rights permit OCR processing of scanned pages.</label>
               <label className="draft-recovery-check"><input type="checkbox" checked={sourceForm.questionReuseAllowed} disabled={!sourceForm.questionExtractionAllowed} onChange={(event) => setSourceForm((current) => ({ ...current, questionReuseAllowed: event.target.checked }))} />The recorded rights permit storing and reusing question content in school assessments.</label>
+              <label className="draft-recovery-check"><input type="checkbox" checked={sourceForm.scheduleEnabled} onChange={(event) => setSourceForm((current) => ({ ...current, scheduleEnabled: event.target.checked }))} />Enable scheduled discovery and processing (worker checks every 15 minutes).</label>
               <div className="test-form-actions"><button className="button button-primary" disabled={saving}><Plus size={14} /> Register source</button></div>
             </form>
           </section>}
@@ -337,7 +468,7 @@ export function PastPaperPipelinePage() {
                 <div>
                   <strong>{source.name}</strong>
                   <p><a href={source.listing_url} target="_blank" rel="noreferrer">{source.listing_url} <ExternalLink size={12} /></a></p>
-                  <small>{source.metadata_discovery_allowed ? 'Metadata discovery enabled' : 'Metadata discovery disabled'} · {source.question_extraction_allowed && source.question_reuse_allowed ? 'Question extraction and reuse permitted' : 'Question content disabled'} · {source.status}</small>
+                  <small>{source.document_download_allowed && source.document_storage_allowed ? `PDF retrieval and private storage allowed (max ${Math.round(source.document_max_bytes / (1024 * 1024))} MB)` : 'PDF retrieval disabled'} · {source.question_extraction_allowed ? 'Extraction allowed' : 'Extraction disabled'} · {source.question_reuse_allowed ? 'Reuse permitted' : 'Reuse not authorized'} · {source.schedule_enabled ? `Scheduled every ${source.schedule_interval_hours}h` : 'Manual discovery'} · {source.status}</small>
                 </div>
                 {isAcademicLead && <div className="test-form-actions">
                   <button className="button button-quiet" disabled={saving || source.status !== 'active'} onClick={() => void discover(source)}><FileSearch size={14} /> Discover metadata</button>
@@ -361,17 +492,56 @@ export function PastPaperPipelinePage() {
                 <div>
                   <strong>{item.title}</strong>
                   <p><a href={item.canonical_url} target="_blank" rel="noreferrer">{item.canonical_url} <ExternalLink size={12} /></a></p>
-                  <small>{source?.name ?? 'Source'} · {item.review_status}</small>
+                  <small>{source?.name ?? 'Source'} · Metadata: {item.review_status} · Pipeline: {item.pipeline_status}{item.failure_reason ? ` · ${item.failure_reason}` : ''}</small>
                 </div>
                 {isAcademicLead && item.review_status === 'pending' && <div className="test-form-actions">
                   <button className="button button-quiet" disabled={saving} onClick={() => void reviewItem(item, 'approved')}>Approve metadata</button>
                   <button className="button button-quiet" disabled={saving} onClick={() => void reviewItem(item, 'rejected')}>Reject</button>
                 </div>}
+                {isAcademicLead && item.pipeline_status !== 'DISCOVERED'
+                  && item.pipeline_status !== 'PERMISSION_BLOCKED' && item.pipeline_status !== 'DUPLICATE'
+                  && <button className="button button-quiet" disabled={saving} onClick={() => void previewDocument(item.id)}>Preview private PDF</button>}
               </article>;
             })}</div> : <p>Run a permitted discovery job to add metadata links for review.</p>}
           </section>
 
-          {selectedSource?.question_extraction_allowed && selectedSource.question_reuse_allowed && selectedItem?.review_status === 'approved' && <section className="content-card">
+          {selectedSource?.question_extraction_allowed && selectedSource.question_reuse_allowed && selectedItem?.review_status === 'approved' &&           {isAcademicLead && <section className="content-card">
+            <div className="section-heading"><div><span className="eyebrow">Verified classification catalogue</span><h2>Manage syllabus topics</h2></div></div>
+            <p>Classification only matches a unique administrator-verified phrase within this exact curriculum, subject, syllabus code, and version. Ambiguous or unmatched questions remain in review.</p>
+            <form className="test-question-form" onSubmit={(event) => void submitSyllabusTopic(event)}>
+              <div className="test-form-grid">
+                <label>Curriculum<select value={syllabusForm.curriculum} onChange={(event) => setSyllabusForm((current) => ({ ...current, curriculum: event.target.value }))}>{['Cambridge Primary', 'Cambridge Lower Secondary', 'O Level', 'IGCSE', 'AS Level', 'A Level'].map((value) => <option key={value}>{value}</option>)}</select></label>
+                <label>Subject<input required maxLength={160} value={syllabusForm.subjectName} onChange={(event) => setSyllabusForm((current) => ({ ...current, subjectName: event.target.value }))} /></label>
+                <label>Syllabus code<input required maxLength={40} value={syllabusForm.syllabusCode} onChange={(event) => setSyllabusForm((current) => ({ ...current, syllabusCode: event.target.value }))} /></label>
+                <label>Syllabus version<input required maxLength={80} value={syllabusForm.syllabusVersion} onChange={(event) => setSyllabusForm((current) => ({ ...current, syllabusVersion: event.target.value }))} /></label>
+                <label>Topic<input required maxLength={200} value={syllabusForm.topic} onChange={(event) => setSyllabusForm((current) => ({ ...current, topic: event.target.value }))} /></label>
+                <label>Subtopic<input maxLength={200} value={syllabusForm.subtopic} onChange={(event) => setSyllabusForm((current) => ({ ...current, subtopic: event.target.value }))} /></label>
+                <label className="span-2">Verified syllabus source URL<input required type="url" value={syllabusForm.sourceUrl} onChange={(event) => setSyllabusForm((current) => ({ ...current, sourceUrl: event.target.value }))} /></label>
+                <label className="span-2">Approved exact phrases (one per line)<textarea value={syllabusForm.approvedPhrases} onChange={(event) => setSyllabusForm((current) => ({ ...current, approvedPhrases: event.target.value }))} /></label>
+              </div>
+              <button className="button button-primary" disabled={saving}><Plus size={14} /> {editingSyllabusTopicId ? 'Update verified topic' : 'Save verified topic'}</button>
+            </form>
+            {state.syllabusTopics.length > 0 && <div className="authorized-paper-list">{state.syllabusTopics.map((topic) => (
+              <article className="authorized-paper-item" key={topic.id}>
+                <div><strong>{topic.curriculum} · {topic.subject_name} · {topic.syllabus_code} ({topic.syllabus_version})</strong><p>{topic.topic}{topic.subtopic ? ` · ${topic.subtopic}` : ''}</p><small>{topic.approved_phrases.join(' · ') || 'No automatic matching phrases'} · <a href={topic.source_url} target="_blank" rel="noreferrer">Verification source <ExternalLink size={10} /></a></small></div>
+                <button className="button button-quiet" onClick={() => {
+                  setEditingSyllabusTopicId(topic.id);
+                  setSyllabusForm({
+                    curriculum: topic.curriculum,
+                    subjectName: topic.subject_name,
+                    syllabusCode: topic.syllabus_code,
+                    syllabusVersion: topic.syllabus_version,
+                    topic: topic.topic,
+                    subtopic: topic.subtopic,
+                    approvedPhrases: topic.approved_phrases.join('\n'),
+                    sourceUrl: topic.source_url,
+                  });
+                }}>Edit</button>
+              </article>
+            ))}</div>}
+          </section>}
+
+          <section className="content-card">
             <div className="section-heading"><div><span className="eyebrow">Manual extraction</span><h2>Submit a question for review</h2></div></div>
             <form className="test-question-form" onSubmit={(event) => void submitQuestion(event)}>
               <label>Approved source paper<select required value={selectedItemId} onChange={(event) => setSelectedItemId(event.target.value)}>{state.items.filter((item) => item.review_status === 'approved' && state.sources.some((source) => source.id === item.source_id && source.question_extraction_allowed && source.question_reuse_allowed)).map((item) => <option value={item.id} key={item.id}>{item.title}</option>)}</select></label>
@@ -397,13 +567,59 @@ export function PastPaperPipelinePage() {
             {state.questions.length ? <div className="question-library-list">{state.questions.map((question) => (
               <article className="library-question" key={question.id}>
                 <div className="library-question-main">
-                  <div className="library-question-meta"><span>{question.topic}{question.subtopic ? ` · ${question.subtopic}` : ''}</span><span>{question.marks} marks</span><span>{question.difficulty}</span><span>{question.review_status}</span></div>
+                  <div className="library-question-meta"><span>{question.topic ?? 'Topic needs review'}{question.subtopic ? ` · ${question.subtopic}` : ''}</span><span>{question.marks ?? 'Marks n/a'}</span><span>{question.validation_status} · {question.content_use_status}</span><span>{question.question_number ?? 'Question number n/a'} · pages {question.page_start ?? '?'}–{question.page_end ?? '?'}</span></div>
                   <p>{question.question_text}</p>
+                  <small>{question.curriculum ?? 'Curriculum missing'} · {question.subject_name ?? 'Subject missing'} · {question.syllabus_code} · {question.examination_year ?? 'Year n/a'} · {question.examination_session ?? 'Session n/a'} · Paper {question.paper_number ?? 'n/a'} · Variant {question.variant ?? 'n/a'}</small>
+                  {question.validation_reasons.length > 0 && <small>Validation: {question.validation_reasons.join(' · ')}</small>}
+                  {question.document_id && <small>Extraction: {question.extraction_status} · Classification: {question.classification_status}</small>}
                   {question.mark_scheme && <small>Mark scheme: {question.mark_scheme}</small>}
                   {question.reviewer_note && <small>Review note: {question.reviewer_note}</small>}
                 </div>
-                {isAcademicLead && question.review_status === 'pending' && <div className="test-form-actions">
-                  <button className="button button-quiet" disabled={saving} onClick={() => void reviewQuestion(question, 'approved')}>Approve for Test Maker</button>
+                {isAcademicLead && (question.review_status === 'pending'
+                  || (question.validation_status === 'APPROVED' && question.content_use_status !== 'ELIGIBLE'
+                    && state.sources.some((source) => source.id === question.source_id && source.question_reuse_allowed))) && <div className="test-form-actions">
+                  <details>
+                    <summary className="button button-quiet">Correct and review</summary>
+                    <form className="test-question-form" onSubmit={(event) => {
+                      event.preventDefault();
+                      const fields = new FormData(event.currentTarget);
+                      const yearValue = String(fields.get('examinationYear') ?? '');
+                      void reviewQuestion(question, 'approved', {
+                        questionText: fields.get('questionText'),
+                        topic: fields.get('topic'),
+                        subtopic: fields.get('subtopic'),
+                        questionSyllabusCode: fields.get('questionSyllabusCode'),
+                        marks: fields.get('marks'),
+                        curriculum: fields.get('curriculum'),
+                        subjectName: fields.get('subjectName'),
+                        syllabusCode: fields.get('syllabusCode'),
+                        syllabusVersion: fields.get('syllabusVersion'),
+                        examinationYear: yearValue ? Number(yearValue) : null,
+                        examinationSession: fields.get('examinationSession'),
+                        paperNumber: fields.get('paperNumber'),
+                        variant: fields.get('variant'),
+                      }, String(fields.get('syllabusTopicId') ?? ''), fields.get('contentUseEligible') === 'on');
+                    }}>
+                      <label>Question text<textarea name="questionText" required minLength={10} maxLength={12000} defaultValue={question.question_text} /></label>
+                      <div className="test-form-grid">
+                        <label>Topic<input name="topic" maxLength={160} defaultValue={question.topic ?? ''} /></label>
+                        <label>Subtopic<input name="subtopic" maxLength={160} defaultValue={question.subtopic ?? ''} /></label>
+                        <label>Question syllabus code<input name="questionSyllabusCode" maxLength={40} defaultValue={question.syllabus_code} /></label>
+                        <label>Marks<input name="marks" type="number" min="0.01" max="1000" step="0.01" defaultValue={question.marks ?? ''} /></label>
+                        <label>Curriculum<select name="curriculum" defaultValue={question.curriculum ?? ''}><option value="">Missing</option>{['Cambridge Primary', 'Cambridge Lower Secondary', 'O Level', 'IGCSE', 'AS Level', 'A Level'].map((value) => <option key={value}>{value}</option>)}</select></label>
+                        <label>Subject<input name="subjectName" defaultValue={question.subject_name ?? ''} /></label>
+                        <label>Syllabus code<input name="syllabusCode" defaultValue={question.syllabus_code ?? ''} /></label>
+                        <label>Syllabus version<input name="syllabusVersion" defaultValue={question.syllabus_version ?? ''} /></label>
+                        <label>Year<input name="examinationYear" type="number" min="1900" max="2200" defaultValue={question.examination_year ?? ''} /></label>
+                        <label>Session<select name="examinationSession" defaultValue={question.examination_session ?? ''}><option value="">Missing</option><option value="m">March</option><option value="s">June</option><option value="w">November</option></select></label>
+                        <label>Paper number<input name="paperNumber" defaultValue={question.paper_number ?? ''} /></label>
+                        <label>Variant<input name="variant" defaultValue={question.variant ?? ''} /></label>
+                        <label className="span-2">Verified syllabus topic<select name="syllabusTopicId" defaultValue={question.syllabus_topic_id ?? ''}><option value="">Needs review / no verified match</option>{state.syllabusTopics.map((topic) => <option value={topic.id} key={topic.id}>{topic.curriculum} · {topic.subject_name} · {topic.syllabus_code} · {topic.topic}{topic.subtopic ? ` / ${topic.subtopic}` : ''}</option>)}</select></label>
+                      </div>
+                      <label className="draft-recovery-check"><input type="checkbox" name="contentUseEligible" />I separately verified that this content may be reused in school assessments.</label>
+                      <button className="button button-primary" disabled={saving}>{question.validation_status === 'APPROVED' ? 'Update content-use review' : 'Approve validation'}</button>
+                    </form>
+                  </details>
                   <button className="button button-quiet" disabled={saving} onClick={() => void reviewQuestion(question, 'rejected')}>Reject</button>
                 </div>}
               </article>

@@ -144,6 +144,12 @@ function BookOpenCheckIcon() {
   return <span aria-hidden="true">CC</span>;
 }
 
+function AcademicLeadGate() {
+  const { activeMembership } = useAuth();
+  const allowed = activeMembership?.role === 'school_admin' || activeMembership?.role === 'academic_coordinator';
+  return allowed ? <Outlet /> : <Navigate to="/learning" replace />;
+}
+
 export function ProtectedApp() {
   return (
     <PlatformBrandingProvider>
@@ -187,7 +193,9 @@ export function ProtectedApp() {
           <Route path="/academic-calendar" element={<AcademicCalendarPage />} />
           <Route path="/attendance" element={<AttendancePage />} />
           <Route path="/learning" element={<TestMakerPage />} />
-          <Route path="/past-paper-pipeline" element={<PastPaperPipelinePage />} />
+          <Route element={<AcademicLeadGate />}>
+            <Route path="/past-paper-pipeline" element={<PastPaperPipelinePage />} />
+          </Route>
           <Route path="/courses-lessons" element={<CoursesLessonsPage />} />
           <Route path="/learning-materials" element={<LearningMaterialsPage />} />
           <Route path="/library" element={<LibraryPage />} />

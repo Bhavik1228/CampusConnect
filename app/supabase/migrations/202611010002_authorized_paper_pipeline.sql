@@ -45,7 +45,7 @@ alter table public.past_paper_sources enable row level security;
 create policy "School members read paper sources"
   on public.past_paper_sources for select to authenticated
   using (
-    public.is_school_member(school_id)
+    public.has_school_role(school_id, array['school_admin', 'academic_coordinator']::public.app_role[])
     and public.school_permission_allowed(school_id, 'learning', 'view')
   );
 
@@ -101,7 +101,7 @@ alter table public.past_paper_discovery_jobs enable row level security;
 create policy "School members read paper discovery jobs"
   on public.past_paper_discovery_jobs for select to authenticated
   using (
-    public.is_school_member(school_id)
+    public.has_school_role(school_id, array['school_admin', 'academic_coordinator']::public.app_role[])
     and public.school_permission_allowed(school_id, 'learning', 'view')
   );
 
@@ -135,7 +135,7 @@ alter table public.past_paper_discovery_items enable row level security;
 create policy "School members read discovered paper metadata"
   on public.past_paper_discovery_items for select to authenticated
   using (
-    public.is_school_member(school_id)
+    public.has_school_role(school_id, array['school_admin', 'academic_coordinator']::public.app_role[])
     and public.school_permission_allowed(school_id, 'learning', 'view')
   );
 
@@ -228,6 +228,43 @@ create unique index learning_questions_school_catalogue_question_idx
   on public.learning_questions(school_id, catalogue_question_id)
   where catalogue_question_id is not null;
 
+create or replace function public.past_paper_question_is_currently_eligible(
+  target_school uuid,
+  target_question uuid
+)
+returns boolean
+language plpgsql
+security definer
+set search_path = public
+as $$
+declare
+  eligible boolean;
+begin
+  execute $query$
+    select exists (
+      select 1
+      from public.past_paper_catalogue_questions catalogue
+      join public.past_paper_sources source
+        on source.school_id = catalogue.school_id and source.id = catalogue.source_id
+      join public.past_paper_discovery_items item
+        on item.school_id = catalogue.school_id and item.id = catalogue.discovery_item_id
+      where catalogue.school_id = $1
+        and catalogue.id = $2
+        and catalogue.review_status = 'approved'
+        and catalogue.validation_status = 'APPROVED'
+        and catalogue.content_use_status = 'ELIGIBLE'
+        and source.status = 'active'
+        and source.question_reuse_allowed
+        and item.review_status = 'approved'
+    )
+  $query$ into eligible using target_school, target_question;
+  return coalesce(eligible, false);
+end;
+$$;
+
+revoke all on function public.past_paper_question_is_currently_eligible(uuid, uuid) from public, anon;
+grant execute on function public.past_paper_question_is_currently_eligible(uuid, uuid) to authenticated, service_role;
+
 drop policy "Authors and department leads manage questions" on public.learning_questions;
 create policy "Authors read currently eligible questions"
   on public.learning_questions for select to authenticated
@@ -255,9 +292,9 @@ create policy "Authors read currently eligible questions"
           on item.school_id = catalogue.school_id and item.id = catalogue.discovery_item_id
         where catalogue.school_id = learning_questions.school_id
           and catalogue.id = learning_questions.catalogue_question_id
-          and catalogue.review_status = 'approved'
-          and catalogue.validation_status = 'APPROVED'
-          and catalogue.content_use_status = 'ELIGIBLE'
+          and public.past_paper_question_is_currently_eligible(
+            catalogue.school_id, catalogue.id
+          )
           and source.status = 'active'
           and source.question_reuse_allowed
           and item.review_status = 'approved'
@@ -309,9 +346,9 @@ create policy "School staff update eligible questions"
           on item.school_id = catalogue.school_id and item.id = catalogue.discovery_item_id
         where catalogue.school_id = learning_questions.school_id
           and catalogue.id = learning_questions.catalogue_question_id
-          and catalogue.review_status = 'approved'
-          and catalogue.validation_status = 'APPROVED'
-          and catalogue.content_use_status = 'ELIGIBLE'
+          and public.past_paper_question_is_currently_eligible(
+            catalogue.school_id, catalogue.id
+          )
           and source.status = 'active'
           and source.question_reuse_allowed
           and item.review_status = 'approved'
@@ -342,9 +379,9 @@ create policy "School staff update eligible questions"
           on item.school_id = catalogue.school_id and item.id = catalogue.discovery_item_id
         where catalogue.school_id = learning_questions.school_id
           and catalogue.id = learning_questions.catalogue_question_id
-          and catalogue.review_status = 'approved'
-          and catalogue.validation_status = 'APPROVED'
-          and catalogue.content_use_status = 'ELIGIBLE'
+          and public.past_paper_question_is_currently_eligible(
+            catalogue.school_id, catalogue.id
+          )
           and source.status = 'active'
           and source.question_reuse_allowed
           and item.review_status = 'approved'
@@ -561,11 +598,12 @@ alter table public.past_paper_discovery_items
   add column failure_reason text,
   add column document_sha256 text check (document_sha256 ~ '^[0-9a-f]{64}$'),
   add column duplicate_document_id uuid,
+  add column duplicate_item_id uuid,
   add column updated_at timestamptz not null default timezone('utc', now());
 
 create index past_paper_items_work_queue_idx
   on public.past_paper_discovery_items(pipeline_status, next_retry_at, created_at)
-  where pipeline_status in ('DISCOVERED', 'SOURCE_UNAVAILABLE');
+  where pipeline_status in ('DISCOVERED', 'DOWNLOADED', 'SOURCE_UNAVAILABLE');
 
 create table public.past_paper_documents (
   id uuid primary key default gen_random_uuid(),
@@ -601,7 +639,7 @@ alter table public.past_paper_documents enable row level security;
 create policy "School learning staff read paper document metadata"
   on public.past_paper_documents for select to authenticated
   using (
-    public.is_school_member(school_id)
+    public.has_school_role(school_id, array['school_admin', 'academic_coordinator']::public.app_role[])
     and public.school_permission_allowed(school_id, 'learning', 'view')
   );
 
@@ -615,6 +653,7 @@ create table public.past_paper_document_pages (
   text_content text not null default '',
   tables jsonb not null default '[]'::jsonb check (jsonb_typeof(tables) = 'array'),
   diagram_references jsonb not null default '[]'::jsonb check (jsonb_typeof(diagram_references) = 'array'),
+  instructions text[] not null default '{}',
   extraction_method text not null check (extraction_method in ('pdf-text', 'ocr', 'mixed', 'empty')),
   ocr_confidence numeric(5,2) check (ocr_confidence between 0 and 100),
   needs_review boolean not null default false,
@@ -632,7 +671,7 @@ alter table public.past_paper_document_pages enable row level security;
 create policy "School learning staff read paper extraction pages"
   on public.past_paper_document_pages for select to authenticated
   using (
-    public.is_school_member(school_id)
+    public.has_school_role(school_id, array['school_admin', 'academic_coordinator']::public.app_role[])
     and public.school_permission_allowed(school_id, 'learning', 'view')
   );
 
@@ -650,7 +689,12 @@ alter table public.past_paper_catalogue_questions
     'Cambridge Primary', 'Cambridge Lower Secondary', 'O Level',
     'IGCSE', 'AS Level', 'A Level'
   )),
+  add column subject_name text check (subject_name is null or length(subject_name) <= 160),
   add column syllabus_version text,
+  add column examination_year integer check (examination_year between 1900 and 2200),
+  add column examination_session text check (examination_session in ('m', 's', 'w')),
+  add column paper_number text check (paper_number is null or length(paper_number) <= 30),
+  add column variant text check (variant is null or length(variant) <= 30),
   add column syllabus_topic_id uuid,
   add column classification_confidence numeric(5,2) check (classification_confidence between 0 and 100),
   add column classification_status text not null default 'NEEDS_REVIEW'
@@ -720,7 +764,7 @@ alter table public.past_paper_validation_events enable row level security;
 create policy "School learning staff read paper validation events"
   on public.past_paper_validation_events for select to authenticated
   using (
-    public.is_school_member(school_id)
+    public.has_school_role(school_id, array['school_admin', 'academic_coordinator']::public.app_role[])
     and public.school_permission_allowed(school_id, 'learning', 'view')
   );
 grant select on public.past_paper_validation_events to authenticated;
@@ -728,7 +772,10 @@ grant select on public.past_paper_validation_events to authenticated;
 alter table public.past_paper_discovery_items
   add constraint past_paper_duplicate_document_fk
   foreign key (school_id, duplicate_document_id)
-  references public.past_paper_documents(school_id, id) on delete set null (duplicate_document_id);
+  references public.past_paper_documents(school_id, id) on delete set null (duplicate_document_id),
+  add constraint past_paper_duplicate_item_fk
+  foreign key (school_id, duplicate_item_id)
+  references public.past_paper_discovery_items(school_id, id) on delete set null (duplicate_item_id);
 
 create table public.past_paper_syllabus_topics (
   id uuid primary key default gen_random_uuid(),
@@ -814,7 +861,10 @@ create policy "School members read authorized past-paper objects"
   using (
     bucket_id = 'past-paper-documents'
     and (storage.foldername(name))[1] ~* '^[0-9a-f-]{36}$'
-    and public.is_school_member(((storage.foldername(name))[1])::uuid)
+    and public.has_school_role(
+      ((storage.foldername(name))[1])::uuid,
+      array['school_admin', 'academic_coordinator']::public.app_role[]
+    )
     and public.school_permission_allowed(((storage.foldername(name))[1])::uuid, 'learning', 'view')
     and exists (
       select 1
@@ -848,7 +898,7 @@ begin
     from public.past_paper_discovery_items item
     join public.past_paper_sources source
       on source.school_id = item.school_id and source.id = item.source_id
-    where item.pipeline_status in ('DISCOVERED', 'SOURCE_UNAVAILABLE')
+    where item.pipeline_status in ('DISCOVERED', 'DOWNLOADED', 'SOURCE_UNAVAILABLE')
       and item.review_status <> 'rejected'
       and item.download_attempts < 5
       and (item.next_retry_at is null or item.next_retry_at <= now())
@@ -864,7 +914,7 @@ begin
   )
   update public.past_paper_discovery_items item
   set download_attempts = item.download_attempts + 1,
-      lease_expires_at = now() + interval '10 minutes',
+      lease_expires_at = now() + interval '30 minutes',
       lease_document_path = item.school_id::text || '/' || item.id::text || '/' || gen_random_uuid()::text || '.pdf',
       lease_extraction_path = item.school_id::text || '/' || item.id::text || '/' || gen_random_uuid()::text || '.json',
       updated_at = now()

@@ -42,10 +42,10 @@ type PipelineRequest = {
   ocrAllowed?: unknown;
   curriculum?: unknown;
   subjectName?: unknown;
-  syllabusCode?: unknown;
   syllabusVersion?: unknown;
   scheduleEnabled?: unknown;
   scheduleIntervalHours?: unknown;
+  documentMaxBytes?: unknown;
   documentPath?: unknown;
   extractionPath?: unknown;
   sha256?: unknown;
@@ -63,6 +63,10 @@ type PipelineRequest = {
   classificationStatus?: unknown;
   validationStatus?: unknown;
   filters?: unknown;
+  corrections?: unknown;
+  syllabusTopic?: unknown;
+  sourceUrl?: unknown;
+  approvedPhrases?: unknown;
 };
 
 function respond(status: number, body: Record<string, unknown>) {
@@ -131,8 +135,12 @@ function workerSecretMatches(actual: string | null, expected: string) {
 function paperMetadata(title: string, source: Record<string, unknown>) {
   const years = [...title.matchAll(/\b(?:19|20)\d{2}\b/g)].map((match) => Number(match[0]));
   const year = [...new Set(years)].length === 1 ? years[0] : null;
-  const sessionMatches = [...title.matchAll(/\b(feb(?:ruary)?|may|jun(?:e)?|oct(?:ober)?|nov(?:ember)?)\b/gi)]
-    .map((match) => /^(?:feb|may|jun)/i.test(match[1]) ? 'm' : /^(?:oct|nov)/i.test(match[1]) ? 'w' : 's');
+  const monthTitle = title.toLowerCase();
+  const sessionMatches = [
+    ...( /\b(?:feb(?:ruary)?|mar(?:ch)?)\b/i.test(monthTitle) ? ['m'] : []),
+    ...( /\b(?:may|jun(?:e)?)\b/i.test(monthTitle) ? ['s'] : []),
+    ...( /\b(?:oct(?:ober)?|nov(?:ember)?)\b/i.test(monthTitle) ? ['w'] : []),
+  ];
   const sessions = [...new Set(sessionMatches)];
   const paperMatches = [...title.matchAll(/\bpaper\s*[-:]?\s*(\d{1,2})\b/gi)].map((match) => match[1]);
   const variants = [...title.matchAll(/\bvariant\s*[-:]?\s*(\d{1,2})\b/gi)].map((match) => match[1]);
@@ -188,16 +196,10 @@ async function handleWorkerAction(payload: PipelineRequest, service: any) {
     if (error) throw error;
     const results: Array<{ sourceId: string; discoveredCount: number; error?: string }> = [];
     for (const source of sources ?? []) {
+      let scheduledJobId: string | null = null;
       try {
         const listingUrl = validateSourceUrl(source.listing_url, hosts);
         if (listingUrl.hostname !== source.canonical_host) throw new Error('Configured source host no longer matches.');
-        const robotsUrl = new URL('/robots.txt', listingUrl);
-        const { text: robotsText } = await fetchSameHost(robotsUrl, 256 * 1024, 'text/plain');
-        if (!robotsAllows(robotsText, listingUrl)) throw new Error('robots.txt disallows the listing URL.');
-        const { response, text: html } = await fetchSameHost(listingUrl, MAX_LISTING_BYTES, 'text/html', false);
-        if (!(response.headers.get('content-type') ?? '').toLowerCase().includes('text/html')) {
-          throw new Error('The configured listing did not return HTML.');
-        }
         const idempotencyKey = crypto.randomUUID();
         const correlationId = crypto.randomUUID();
         const { data: job, error: jobError } = await service.from('past_paper_discovery_jobs').insert({
@@ -210,16 +212,38 @@ async function handleWorkerAction(payload: PipelineRequest, service: any) {
           started_at: new Date().toISOString(),
         }).select('id').single();
         if (jobError) throw jobError;
+        scheduledJobId = job.id;
+        const robotsUrl = new URL('/robots.txt', listingUrl);
+        const { text: robotsText } = await fetchSameHost(robotsUrl, 256 * 1024, 'text/plain');
+        if (!robotsAllows(robotsText, listingUrl)) throw new Error('robots.txt disallows the listing URL.');
+        const { response, text: html } = await fetchSameHost(listingUrl, MAX_LISTING_BYTES, 'text/html', false);
+        if (!(response.headers.get('content-type') ?? '').toLowerCase().includes('text/html')) {
+          throw new Error('The configured listing did not return HTML.');
+        }
         const links = parseListingLinks(html, listingUrl);
         let insertedCount = 0;
         for (const link of links) {
           const { data: existing, error: existingError } = await service.from('past_paper_discovery_items')
-            .select('id').eq('school_id', source.school_id).eq('source_id', source.id)
+            .select('id,pipeline_status').eq('school_id', source.school_id).eq('source_id', source.id)
             .eq('canonical_url', link.url).maybeSingle();
           if (existingError) throw existingError;
-          if (existing) continue;
+          if (existing) {
+            if (existing.pipeline_status === 'PERMISSION_BLOCKED' && source.document_download_allowed
+              && source.document_storage_allowed && source.question_extraction_allowed) {
+              const { error: requeueError } = await service.from('past_paper_discovery_items').update({
+                pipeline_status: 'DISCOVERED', failure_reason: null, updated_at: new Date().toISOString(),
+              }).eq('id', existing.id);
+              if (requeueError) throw requeueError;
+            }
+            continue;
+          }
+          const { data: crossSourceMatch, error: crossSourceError } = await service.from('past_paper_discovery_items')
+            .select('id').eq('school_id', source.school_id).eq('canonical_url', link.url)
+            .neq('pipeline_status', 'DUPLICATE').limit(1).maybeSingle();
+          if (crossSourceError) throw crossSourceError;
           const metadata = paperMetadata(link.title, source);
-          const pipelineStatus = !source.document_download_allowed || !source.document_storage_allowed
+          const pipelineStatus = crossSourceMatch ? 'DUPLICATE'
+            : !source.document_download_allowed || !source.document_storage_allowed
             || !source.question_extraction_allowed ? 'PERMISSION_BLOCKED' : 'DISCOVERED';
           const { error: insertError } = await service.from('past_paper_discovery_items').insert({
             school_id: source.school_id,
@@ -231,8 +255,11 @@ async function handleWorkerAction(payload: PipelineRequest, service: any) {
             link_text: link.linkText,
             ...metadata,
             pipeline_status: pipelineStatus,
-            failure_reason: pipelineStatus === 'PERMISSION_BLOCKED'
-              ? 'The source permissions do not authorize download, private storage, and question extraction.' : null,
+            duplicate_item_id: crossSourceMatch?.id ?? null,
+            failure_reason: crossSourceMatch
+              ? 'Canonical source URL is already registered for another source in this school.'
+              : pipelineStatus === 'PERMISSION_BLOCKED'
+                ? 'The source permissions do not authorize download, private storage, and question extraction.' : null,
           });
           if (insertError) throw insertError;
           insertedCount += 1;
@@ -254,11 +281,18 @@ async function handleWorkerAction(payload: PipelineRequest, service: any) {
         results.push({ sourceId: source.id, discoveredCount: insertedCount });
       } catch (discoveryError) {
         const message = discoveryError instanceof Error ? discoveryError.message : 'Scheduled discovery failed.';
-        const { error: updateError } = await service.from('past_paper_sources').update({
-          next_discovery_at: new Date(Date.now() + 60 * 60 * 1000).toISOString(),
-          updated_at: new Date().toISOString(),
-        }).eq('id', source.id);
-        if (updateError) throw updateError;
+        const updateResults = await Promise.all([
+          service.from('past_paper_sources').update({
+            next_discovery_at: new Date(Date.now() + 60 * 60 * 1000).toISOString(),
+            updated_at: new Date().toISOString(),
+          }).eq('id', source.id),
+          ...(scheduledJobId ? [service.from('past_paper_discovery_jobs').update({
+            status: 'failed',
+            failure_reason: message.slice(0, 1000),
+            completed_at: new Date().toISOString(),
+          }).eq('id', scheduledJobId)] : []),
+        ]);
+        for (const result of updateResults) if (result.error) throw result.error;
         results.push({ sourceId: source.id, discoveredCount: 0, error: message });
       }
     }
@@ -310,31 +344,32 @@ async function handleWorkerAction(payload: PipelineRequest, service: any) {
   }
 
   if (payload.action === 'worker-fail') {
-    if (!isUuid(payload.itemId) || typeof payload.failureReason !== 'string') {
+    if (!isUuid(payload.itemId) || typeof payload.failureReason !== 'string'
+      || typeof payload.documentPath !== 'string' || typeof payload.extractionPath !== 'string') {
       return respond(400, { error: 'Worker failure report is incomplete.' });
     }
     const { data: item, error: itemError } = await service.from('past_paper_discovery_items')
-      .select('school_id,lease_document_path,lease_extraction_path')
+      .select('school_id,lease_document_path,lease_extraction_path,lease_expires_at')
       .eq('id', payload.itemId).maybeSingle();
     if (itemError) throw itemError;
     if (!item) return respond(404, { error: 'The claimed paper item was not found.' });
-    const { data: documents, error: documentsError } = await service.from('past_paper_documents')
-      .select('id,storage_path,extraction_storage_path')
-      .eq('school_id', item.school_id).eq('discovery_item_id', payload.itemId);
-    if (documentsError) throw documentsError;
-    if (documents?.length) {
-      const { error: deleteDocumentsError } = await service.from('past_paper_documents')
-        .delete().eq('school_id', item.school_id).eq('discovery_item_id', payload.itemId);
-      if (deleteDocumentsError) throw deleteDocumentsError;
+    if (item.lease_document_path !== payload.documentPath || item.lease_extraction_path !== payload.extractionPath
+      || !item.lease_expires_at || new Date(item.lease_expires_at).getTime() <= Date.now()) {
+      return respond(409, { error: 'The worker lease expired; stale failure reports cannot change the job.' });
     }
-    const paths = [
-      item.lease_document_path,
-      item.lease_extraction_path,
-      ...(documents ?? []).flatMap((document) => [document.storage_path, document.extraction_storage_path]),
-    ].filter((path): path is string => typeof path === 'string');
-    if (paths.length) {
-      const { error: removeError } = await service.storage.from('past-paper-documents').remove(paths);
-      if (removeError) throw removeError;
+    const { error: deleteDocumentsError } = await service.from('past_paper_documents')
+      .delete().eq('school_id', item.school_id).eq('discovery_item_id', payload.itemId)
+      .eq('storage_path', payload.documentPath).eq('extraction_storage_path', payload.extractionPath);
+    if (deleteDocumentsError) throw deleteDocumentsError;
+    const { error: removeError } = await service.storage.from('past-paper-documents')
+      .remove([payload.documentPath, payload.extractionPath]);
+    if (removeError) {
+      const { error: releaseError } = await service.rpc('release_past_paper_discovery_item', {
+        target_item: payload.itemId, failure: `Could not remove partial private uploads: ${removeError.message}`,
+        can_retry: true,
+      });
+      if (releaseError) throw releaseError;
+      throw removeError;
     }
     const { error } = await service.rpc('release_past_paper_discovery_item', {
       target_item: payload.itemId,
@@ -345,13 +380,74 @@ async function handleWorkerAction(payload: PipelineRequest, service: any) {
     return respond(200, { success: true });
   }
 
+  if (payload.action === 'worker-downloaded') {
+    if (!isUuid(payload.itemId) || typeof payload.sha256 !== 'string'
+      || !/^[0-9a-f]{64}$/.test(payload.sha256) || typeof payload.documentPath !== 'string'
+      || typeof payload.canonicalUrl !== 'string' || !Number.isInteger(payload.fileSize)
+      || Number(payload.fileSize) <= 0 || Number(payload.fileSize) > 50 * 1024 * 1024) {
+      return respond(400, { error: 'Downloaded document metadata is invalid.' });
+    }
+    const { data: item, error: itemError } = await service.from('past_paper_discovery_items')
+      .select('*,past_paper_sources(*)').eq('id', payload.itemId).maybeSingle();
+    if (itemError) throw itemError;
+    if (!item || !item.lease_expires_at || new Date(item.lease_expires_at).getTime() <= Date.now()) {
+      return respond(409, { error: 'The worker lease expired or item was not found.' });
+    }
+    if (item.lease_document_path !== payload.documentPath
+      || !payload.documentPath.startsWith(`${item.school_id}/${item.id}/`)) {
+      return respond(403, { error: 'The uploaded path does not match the active item lease.' });
+    }
+    const source = item.past_paper_sources as Record<string, unknown>;
+    if (!source || source.status !== 'active' || !source.document_download_allowed
+      || !source.document_storage_allowed || !source.question_extraction_allowed
+      || Number(payload.fileSize) > Number(source.document_max_bytes)) {
+      return respond(403, { error: 'Current source permissions or file-size limit reject this document.' });
+    }
+    const { data: file, error: fileError } = await service.storage.from('past-paper-documents').download(payload.documentPath);
+    if (fileError) throw fileError;
+    const bytes = new Uint8Array(await file.arrayBuffer());
+    if (bytes.byteLength !== Number(payload.fileSize)
+      || !new TextDecoder().decode(bytes.slice(0, 5)).startsWith('%PDF-')
+      || await sha256Bytes(bytes) !== payload.sha256) {
+      await service.storage.from('past-paper-documents').remove([payload.documentPath]);
+      return respond(400, { error: 'Stored PDF signature, size, or SHA-256 checksum did not validate.' });
+    }
+    const { data: duplicate, error: duplicateError } = await service.from('past_paper_documents')
+      .select('id').eq('school_id', item.school_id).eq('sha256', payload.sha256).maybeSingle();
+    if (duplicateError) throw duplicateError;
+    if (duplicate) {
+      await service.storage.from('past-paper-documents').remove([payload.documentPath]);
+      const { error: duplicateUpdateError } = await service.from('past_paper_discovery_items').update({
+        pipeline_status: 'DUPLICATE',
+        duplicate_document_id: duplicate.id,
+        document_sha256: payload.sha256,
+        failure_reason: 'This document checksum already exists in this school.',
+        lease_expires_at: null,
+        lease_document_path: null,
+        lease_extraction_path: null,
+        next_retry_at: null,
+        updated_at: new Date().toISOString(),
+      }).eq('id', item.id);
+      if (duplicateUpdateError) throw duplicateUpdateError;
+      return respond(200, { status: 'DUPLICATE', duplicateDocumentId: duplicate.id });
+    }
+    const { error: statusError } = await service.from('past_paper_discovery_items').update({
+      pipeline_status: 'DOWNLOADED',
+      document_sha256: payload.sha256,
+      failure_reason: null,
+      updated_at: new Date().toISOString(),
+    }).eq('id', item.id);
+    if (statusError) throw statusError;
+    return respond(200, { status: 'DOWNLOADED' });
+  }
+
   if (payload.action === 'worker-complete') {
     if (!isUuid(payload.itemId) || typeof payload.sha256 !== 'string' || !/^[0-9a-f]{64}$/.test(payload.sha256)
       || typeof payload.documentPath !== 'string' || typeof payload.extractionPath !== 'string'
       || typeof payload.canonicalUrl !== 'string' || payload.contentType !== 'application/pdf'
       || !Number.isInteger(payload.fileSize) || !Number.isInteger(payload.pageCount)
       || Number(payload.fileSize) <= 0 || Number(payload.fileSize) > 50 * 1024 * 1024
-      || Number(payload.pageCount) < 1 || Number(payload.pageCount) > 250) {
+      || Number(payload.pageCount) < 1 || Number(payload.pageCount) > 100) {
       return respond(400, { error: 'Worker document metadata is invalid.' });
     }
     const { data: item, error: itemError } = await service.from('past_paper_discovery_items')
@@ -390,9 +486,9 @@ async function handleWorkerAction(payload: PipelineRequest, service: any) {
       return respond(400, { error: 'Worker extraction manifest is not valid JSON.' });
     }
     if (!Array.isArray(manifest.pages) || !Array.isArray(manifest.questions)
-      || manifest.pages.length !== Number(payload.pageCount) || manifest.pages.length > 250
+      || manifest.pages.length !== Number(payload.pageCount) || manifest.pages.length > 100
       || manifest.pages.some((page) => !isRecord(page) || !Number.isInteger(page.page_number)
-        || !Array.isArray(page.tables) || !Array.isArray(page.diagram_references)
+        || !Array.isArray(page.tables) || !Array.isArray(page.diagram_references) || !Array.isArray(page.instructions)
         || typeof page.text_content !== 'string')) {
       return respond(400, { error: 'Worker extraction manifest has an invalid page structure.' });
     }
@@ -444,12 +540,23 @@ async function handleWorkerAction(payload: PipelineRequest, service: any) {
       text_content: String(page.text_content).slice(0, 60_000),
       tables: page.tables,
       diagram_references: page.diagram_references,
+      instructions: page.instructions.filter((instruction): instruction is string => typeof instruction === 'string').slice(0, 30),
       extraction_method: ['pdf-text', 'ocr', 'mixed', 'empty'].includes(String(page.extraction_method))
         ? page.extraction_method : 'empty',
       ocr_confidence: Number.isFinite(Number(page.ocr_confidence)) ? page.ocr_confidence : null,
       needs_review: page.needs_review === true,
     })));
     if (pageError) throw pageError;
+    const { error: extractedStatusError } = await service.from('past_paper_discovery_items').update({
+      pipeline_status: 'EXTRACTED',
+      updated_at: new Date().toISOString(),
+    }).eq('id', item.id);
+    if (extractedStatusError) throw extractedStatusError;
+    const { error: validatingStatusError } = await service.from('past_paper_discovery_items').update({
+      pipeline_status: 'VALIDATING',
+      updated_at: new Date().toISOString(),
+    }).eq('id', item.id);
+    if (validatingStatusError) throw validatingStatusError;
 
     const itemMetadata = {
       curriculum: item.curriculum,
@@ -494,7 +601,7 @@ async function handleWorkerAction(payload: PipelineRequest, service: any) {
       }
       const normalized = normalizeQuestionText(questionText);
       const fingerprint = await sha256(
-        `${normalized}|${item.syllabus_code ?? ''}|${item.examination_year ?? ''}|${item.examination_session ?? ''}|${item.paper_number ?? ''}|${item.variant ?? ''}|${questionNumber ?? ''}`,
+        `${normalized}|${item.syllabus_code ?? ''}|${item.syllabus_version ?? ''}|${item.examination_year ?? ''}|${item.examination_session ?? ''}|${item.paper_number ?? ''}|${item.variant ?? ''}|${questionNumber ?? ''}|${marks ?? ''}`,
       );
       const { data: prior, error: priorError } = await service.from('past_paper_catalogue_questions')
         .select('id').eq('school_id', item.school_id).eq('content_fingerprint', fingerprint).limit(1).maybeSingle();
@@ -516,6 +623,11 @@ async function handleWorkerAction(payload: PipelineRequest, service: any) {
         marks,
         difficulty: 'Standard',
         mark_scheme: '',
+        subject_name: item.subject_name,
+        examination_year: item.examination_year,
+        examination_session: item.examination_session,
+        paper_number: item.paper_number,
+        variant: item.variant,
         content_fingerprint: prior ? await sha256(`${fingerprint}|${item.id}`) : fingerprint,
         review_status: 'pending',
         question_number: questionNumber,
@@ -586,7 +698,8 @@ function parseListingLinks(html: string, listingUrl: URL) {
     } catch {
       continue;
     }
-    if (url.origin !== listingUrl.origin || !/^https:$/.test(url.protocol)) continue;
+    if (url.origin !== listingUrl.origin || !/^https:$/.test(url.protocol)
+      || [...url.searchParams.keys()].some((key) => /token|key|auth|secret|signature|session|password|credential/i.test(key))) continue;
     let pathTitle = url.pathname.split('/').filter(Boolean).at(-1) ?? url.hostname;
     try {
       pathTitle = decodeURIComponent(pathTitle);
@@ -734,6 +847,13 @@ function validateQuestion(payload: PipelineRequest) {
       subtopic,
       syllabus_code: syllabusCode,
       marks,
+      curriculum: correctedItem.curriculum,
+      subject_name: correctedItem.subject_name,
+      syllabus_version: correctedItem.syllabus_version,
+      examination_year: correctedItem.examination_year,
+      examination_session: correctedItem.examination_session,
+      paper_number: correctedItem.paper_number,
+      variant: correctedItem.variant,
       difficulty: String(difficulty),
       mark_scheme: markScheme,
     },
@@ -814,6 +934,9 @@ Deno.serve(async (request: Request) => {
       'search-approved': 'view',
       'import-question': 'create',
       'remove-restricted-question': 'delete',
+      'list-syllabus': 'view',
+      'upsert-syllabus-topic': 'edit',
+      'preview-document': 'view',
     };
     const requiredPermission = typeof payload.action === 'string' ? requiredPermissionByAction[payload.action] : undefined;
     if (requiredPermission && permissionSummary.learning[requiredPermission] !== true) {
@@ -842,14 +965,17 @@ Deno.serve(async (request: Request) => {
     };
 
     if (payload.action === 'list') {
-      const [sources, jobs, items, questions] = await Promise.all([
+      requireAdmin();
+      const [sources, jobs, items, questions, syllabusTopics] = await Promise.all([
         service.from('past_paper_sources').select('*').eq('school_id', payload.schoolId).order('created_at', { ascending: false }),
         service.from('past_paper_discovery_jobs').select('*').eq('school_id', payload.schoolId).order('created_at', { ascending: false }).limit(50),
         service.from('past_paper_discovery_items').select('*').eq('school_id', payload.schoolId).order('created_at', { ascending: false }).limit(200),
         service.from('past_paper_catalogue_questions').select('*').eq('school_id', payload.schoolId)
           .order('created_at', { ascending: false }).limit(200),
+        service.from('past_paper_syllabus_topics').select('*')
+          .order('curriculum').order('subject_name').order('syllabus_code').order('topic').limit(1000),
       ]);
-      for (const result of [sources, jobs, items, questions]) if (result.error) throw result.error;
+      for (const result of [sources, jobs, items, questions, syllabusTopics]) if (result.error) throw result.error;
       let restrictedQuestions: Array<Record<string, unknown>> = [];
       if (isAdmin) {
         const { data, error } = await service.from('past_paper_restricted_questions')
@@ -859,7 +985,7 @@ Deno.serve(async (request: Request) => {
         restrictedQuestions = data ?? [];
       }
       const activeContentSourceIds = new Set((sources.data ?? [])
-        .filter((source) => source.status === 'active' && source.question_extraction_allowed && source.question_reuse_allowed)
+        .filter((source) => source.status === 'active' && source.question_extraction_allowed)
         .map((source) => source.id));
       const approvedItemIds = new Set((items.data ?? [])
         .filter((item) => item.review_status === 'approved')
@@ -868,11 +994,85 @@ Deno.serve(async (request: Request) => {
         sources: sources.data ?? [],
         jobs: jobs.data ?? [],
         items: items.data ?? [],
-        questions: (questions.data ?? []).filter((question) => activeContentSourceIds.has(question.source_id)
+        questions: (questions.data ?? []).filter((question) => isAdmin || (activeContentSourceIds.has(question.source_id)
           && approvedItemIds.has(question.discovery_item_id)
-          && (question.review_status === 'approved' || isAdmin || question.created_by === user.id)),
+          && question.validation_status === 'APPROVED'
+          && question.content_use_status === 'ELIGIBLE'
+          && question.review_status === 'approved')),
         restrictedQuestions,
+        syllabusTopics: syllabusTopics.data ?? [],
       });
+    }
+
+    if (payload.action === 'preview-document') {
+      requireAdmin();
+      if (!isUuid(payload.itemId)) return respond(400, { error: 'Select a valid discovered paper.' });
+      const { data: document, error: documentError } = await service.from('past_paper_documents')
+        .select('storage_path,source_id')
+        .eq('school_id', payload.schoolId).eq('discovery_item_id', payload.itemId).maybeSingle();
+      if (documentError) throw documentError;
+      if (!document) return respond(404, { error: 'The private source document is not available.' });
+      const { data: source, error: sourceError } = await service.from('past_paper_sources')
+        .select('status,document_storage_allowed')
+        .eq('school_id', payload.schoolId).eq('id', document.source_id).maybeSingle();
+      if (sourceError) throw sourceError;
+      if (!source || source.status !== 'active' || !source.document_storage_allowed) {
+        return respond(403, { error: 'Current permissions do not authorize viewing this stored document.' });
+      }
+      const { data, error } = await service.storage.from('past-paper-documents')
+        .createSignedUrl(document.storage_path, 60, { download: 'source-paper.pdf' });
+      if (error) throw error;
+      return respond(200, { url: data.signedUrl });
+    }
+
+    if (payload.action === 'list-syllabus') {
+      const { data, error } = await service.from('past_paper_syllabus_topics')
+        .select('*').order('curriculum').order('subject_name').order('syllabus_code').order('topic').limit(1000);
+      if (error) throw error;
+      return respond(200, { syllabusTopics: data ?? [] });
+    }
+
+    if (payload.action === 'upsert-syllabus-topic') {
+      requireAdmin();
+      const topic = isRecord(payload.syllabusTopic) ? payload.syllabusTopic : null;
+      if (!topic || !['Cambridge Primary', 'Cambridge Lower Secondary', 'O Level', 'IGCSE', 'AS Level', 'A Level'].includes(String(topic.curriculum))
+        || typeof topic.subjectName !== 'string' || !topic.subjectName.trim() || topic.subjectName.length > 160
+        || typeof topic.syllabusCode !== 'string' || !topic.syllabusCode.trim() || topic.syllabusCode.length > 40
+        || typeof topic.syllabusVersion !== 'string' || !topic.syllabusVersion.trim() || topic.syllabusVersion.length > 80
+        || typeof topic.topic !== 'string' || !topic.topic.trim() || topic.topic.length > 200
+        || typeof topic.subtopic !== 'string' || topic.subtopic.length > 200
+        || typeof topic.sourceUrl !== 'string') {
+        return respond(400, { error: 'Provide complete curriculum, subject, syllabus, topic, and verification-source metadata.' });
+      }
+      const sourceUrl = new URL(topic.sourceUrl);
+      if (sourceUrl.protocol !== 'https:' || sourceUrl.username || sourceUrl.password || sourceUrl.port) {
+        return respond(400, { error: 'Syllabus verification references must be public HTTPS URLs.' });
+      }
+      const approvedPhrases = Array.isArray(topic.approvedPhrases)
+        ? topic.approvedPhrases.filter((phrase): phrase is string => typeof phrase === 'string')
+          .map((phrase) => phrase.trim()).filter(Boolean).slice(0, 50)
+        : [];
+      if (Array.isArray(topic.approvedPhrases) && approvedPhrases.length !== topic.approvedPhrases.length) {
+        return respond(400, { error: 'Approved classification phrases must all be non-empty text.' });
+      }
+      const values = {
+        curriculum: topic.curriculum,
+        subject_name: topic.subjectName.trim(),
+        syllabus_code: topic.syllabusCode.trim(),
+        syllabus_version: topic.syllabusVersion.trim(),
+        topic: topic.topic.trim(),
+        subtopic: topic.subtopic.trim(),
+        approved_phrases: approvedPhrases,
+        source_url: sourceUrl.href,
+        verified_by: user.id,
+        verified_at: new Date().toISOString(),
+      };
+      const result = isUuid(payload.syllabusTopicId)
+        ? await service.from('past_paper_syllabus_topics').update(values).eq('id', payload.syllabusTopicId).select().single()
+        : await service.from('past_paper_syllabus_topics').insert(values).select().single();
+      if (result.error) throw result.error;
+      await recordAudit(payload.schoolId, user.id, 'past_paper_syllabus_topic_verified', 'past_paper_syllabus_topics', result.data.id, crypto.randomUUID());
+      return respond(200, { syllabusTopic: result.data });
     }
 
     if (payload.action === 'register-source') {
@@ -899,7 +1099,9 @@ Deno.serve(async (request: Request) => {
         || (payload.syllabusVersion !== undefined && String(payload.syllabusVersion).length > 80)
         || typeof payload.scheduleEnabled !== 'boolean'
         || !Number.isInteger(payload.scheduleIntervalHours)
-        || Number(payload.scheduleIntervalHours) < 1 || Number(payload.scheduleIntervalHours) > 720) {
+        || Number(payload.scheduleIntervalHours) < 1 || Number(payload.scheduleIntervalHours) > 720
+        || !Number.isInteger(payload.documentMaxBytes)
+        || Number(payload.documentMaxBytes) < 1024 || Number(payload.documentMaxBytes) > 50 * 1024 * 1024) {
         return respond(400, { error: 'Provide an authorized source, explicit download/storage/extraction/reuse permissions, and valid source metadata and schedule settings.' });
       }
       const { data, error } = await service.from('past_paper_sources').insert({
@@ -922,6 +1124,7 @@ Deno.serve(async (request: Request) => {
         syllabus_version: typeof payload.syllabusVersion === 'string' ? payload.syllabusVersion.trim() : null,
         schedule_enabled: payload.scheduleEnabled,
         schedule_interval_hours: payload.scheduleIntervalHours,
+        document_max_bytes: payload.documentMaxBytes,
         next_discovery_at: new Date().toISOString(),
       }).select().single();
       if (error) throw error;
@@ -979,6 +1182,7 @@ Deno.serve(async (request: Request) => {
       const startedAt = new Date().toISOString();
       const { error: startSourceError } = await service.from('past_paper_sources').update({
         last_discovery_at: startedAt,
+        next_discovery_at: new Date(Date.now() + source.schedule_interval_hours * 60 * 60 * 1000).toISOString(),
         updated_at: startedAt,
       }).eq('id', source.id).eq('school_id', payload.schoolId);
       if (startSourceError) {
@@ -1003,10 +1207,26 @@ Deno.serve(async (request: Request) => {
         let insertedCount = 0;
         for (const link of discovered) {
           const { data: existing, error: lookupError } = await service.from('past_paper_discovery_items')
-            .select('id').eq('school_id', payload.schoolId).eq('source_id', source.id)
+            .select('id,pipeline_status').eq('school_id', payload.schoolId).eq('source_id', source.id)
             .eq('canonical_url', link.url).maybeSingle();
           if (lookupError) throw lookupError;
-          if (existing) continue;
+          if (existing) {
+            if (existing.pipeline_status === 'PERMISSION_BLOCKED' && source.document_download_allowed
+              && source.document_storage_allowed && source.question_extraction_allowed) {
+              const { error: requeueError } = await service.from('past_paper_discovery_items').update({
+                pipeline_status: 'DISCOVERED', failure_reason: null, updated_at: new Date().toISOString(),
+              }).eq('id', existing.id);
+              if (requeueError) throw requeueError;
+            }
+            continue;
+          }
+          const { data: crossSourceMatch, error: crossSourceError } = await service.from('past_paper_discovery_items')
+            .select('id').eq('school_id', payload.schoolId).eq('canonical_url', link.url)
+            .neq('pipeline_status', 'DUPLICATE').limit(1).maybeSingle();
+          if (crossSourceError) throw crossSourceError;
+          const pipelineStatus = crossSourceMatch ? 'DUPLICATE'
+            : !source.document_download_allowed || !source.document_storage_allowed
+              || !source.question_extraction_allowed ? 'PERMISSION_BLOCKED' : 'DISCOVERED';
           const { error: insertError } = await service.from('past_paper_discovery_items').insert({
             school_id: payload.schoolId,
             source_id: source.id,
@@ -1015,11 +1235,12 @@ Deno.serve(async (request: Request) => {
             title: link.title,
             link_text: link.linkText,
             ...paperMetadata(link.title, source),
-            pipeline_status: !source.document_download_allowed || !source.document_storage_allowed
-              || !source.question_extraction_allowed ? 'PERMISSION_BLOCKED' : 'DISCOVERED',
-            failure_reason: !source.document_download_allowed || !source.document_storage_allowed
-              || !source.question_extraction_allowed
-              ? 'The source permissions do not authorize download, private storage, and question extraction.' : null,
+            pipeline_status: pipelineStatus,
+            duplicate_item_id: crossSourceMatch?.id ?? null,
+            failure_reason: crossSourceMatch
+              ? 'Canonical source URL is already registered for another source in this school.'
+              : pipelineStatus === 'PERMISSION_BLOCKED'
+                ? 'The source permissions do not authorize download, private storage, and question extraction.' : null,
           });
           if (insertError) throw insertError;
           insertedCount += 1;
@@ -1030,7 +1251,10 @@ Deno.serve(async (request: Request) => {
             status: 'completed', discovered_count: insertedCount, completed_at: completedAt,
           }).eq('id', job.id).eq('school_id', payload.schoolId),
           service.from('past_paper_sources').update({
-            last_robots_check_at: completedAt, last_discovery_at: completedAt, updated_at: completedAt,
+            last_robots_check_at: completedAt,
+            last_discovery_at: completedAt,
+            next_discovery_at: new Date(Date.now() + source.schedule_interval_hours * 60 * 60 * 1000).toISOString(),
+            updated_at: completedAt,
           }).eq('id', source.id).eq('school_id', payload.schoolId),
         ]);
         if (updateJobError) throw updateJobError;
@@ -1096,6 +1320,10 @@ Deno.serve(async (request: Request) => {
       }
       const { error } = await service.from('past_paper_discovery_items').update({
         review_status: payload.decision,
+        ...(payload.decision === 'rejected' ? {
+          pipeline_status: 'REJECTED',
+          failure_reason: 'School academic lead rejected this paper metadata.',
+        } : {}),
         reviewed_by: user.id,
         reviewed_at: new Date().toISOString(),
       }).eq('id', item.id).eq('school_id', payload.schoolId);
@@ -1115,7 +1343,7 @@ Deno.serve(async (request: Request) => {
         return respond(403, { error: 'This source does not authorize question extraction and school reuse.' });
       }
       const { data: item, error: itemError } = await service.from('past_paper_discovery_items')
-        .select('id,source_id,review_status').eq('id', payload.itemId)
+        .select('*').eq('id', payload.itemId)
         .eq('school_id', payload.schoolId).eq('source_id', payload.sourceId).maybeSingle();
       if (itemError) throw itemError;
       if (!item || item.review_status !== 'approved') return respond(400, { error: 'Approve the source metadata before submitting question content.' });
@@ -1129,6 +1357,13 @@ Deno.serve(async (request: Request) => {
         discovery_item_id: payload.itemId,
         created_by: user.id,
         ...validated.values,
+        curriculum: item.curriculum,
+        subject_name: item.subject_name,
+        syllabus_version: item.syllabus_version,
+        examination_year: item.examination_year,
+        examination_session: item.examination_session,
+        paper_number: item.paper_number,
+        variant: item.variant,
         content_fingerprint: fingerprint,
       }).select().single();
       if (error?.code === '23505') return respond(409, { error: 'A question with the same text, topic, and marks is already recorded for this source.' });
@@ -1143,40 +1378,172 @@ Deno.serve(async (request: Request) => {
         return respond(400, { error: 'Provide a question and an approve/reject decision.' });
       }
       const { data: question, error: questionError } = await service.from('past_paper_catalogue_questions')
-        .select('id,source_id,discovery_item_id')
+        .select('*')
         .eq('id', payload.questionId).eq('school_id', payload.schoolId).maybeSingle();
       if (questionError) throw questionError;
       if (!question) return respond(404, { error: 'Question was not found in this school.' });
-      if (payload.decision === 'approved') {
-        const [{ data: source, error: sourceError }, { data: item, error: itemError }] = await Promise.all([
-          service.from('past_paper_sources').select('status,question_reuse_allowed').eq('id', question.source_id).eq('school_id', payload.schoolId).single(),
-          service.from('past_paper_discovery_items').select('review_status').eq('id', question.discovery_item_id).eq('school_id', payload.schoolId).single(),
-        ]);
-        if (sourceError) throw sourceError;
-        if (itemError) throw itemError;
-        if (source.status !== 'active' || !source.question_reuse_allowed || item.review_status !== 'approved') {
-          return respond(403, { error: 'Approve is blocked until source reuse permission and paper metadata are approved.' });
+      const [{ data: source, error: sourceError }, { data: item, error: itemError }] = await Promise.all([
+        service.from('past_paper_sources').select('*').eq('id', question.source_id).eq('school_id', payload.schoolId).single(),
+        service.from('past_paper_discovery_items').select('*').eq('id', question.discovery_item_id).eq('school_id', payload.schoolId).single(),
+      ]);
+      if (sourceError) throw sourceError;
+      if (itemError) throw itemError;
+      const corrections = isRecord(payload.corrections) ? payload.corrections : {};
+      const metadataFields: Record<string, unknown> = {};
+      const metadataMap: Record<string, string> = {
+        curriculum: 'curriculum',
+        subjectName: 'subject_name',
+        syllabusCode: 'syllabus_code',
+        syllabusVersion: 'syllabus_version',
+        examinationYear: 'examination_year',
+        examinationSession: 'examination_session',
+        paperNumber: 'paper_number',
+        variant: 'variant',
+      };
+      for (const [field, column] of Object.entries(metadataMap)) {
+        if (!(field in corrections)) continue;
+        const value = corrections[field];
+        if (typeof value === 'string' && value.trim()) metadataFields[column] = value.trim();
+        else if (field === 'examinationYear' && Number.isInteger(value) && Number(value) >= 1900 && Number(value) <= 2200) {
+          metadataFields[column] = value;
+        } else if (value !== null && value !== '') {
+          return respond(400, { error: `Invalid correction for ${field}.` });
         }
       }
-      const { error } = await service.from('past_paper_catalogue_questions').update({
+      const correctedItem = { ...item, ...metadataFields };
+      if (Object.keys(metadataFields).length) {
+        const { error: metadataError } = await service.from('past_paper_discovery_items')
+          .update({ ...metadataFields, updated_at: new Date().toISOString() })
+          .eq('id', item.id).eq('school_id', payload.schoolId);
+        if (metadataError) throw metadataError;
+      }
+      const questionText = typeof corrections.questionText === 'string'
+        ? corrections.questionText.trim() : question.question_text;
+      const topic = typeof corrections.topic === 'string' ? corrections.topic.trim() : question.topic;
+      const subtopic = typeof corrections.subtopic === 'string' ? corrections.subtopic.trim() : question.subtopic;
+      const syllabusCode = typeof corrections.questionSyllabusCode === 'string'
+        ? corrections.questionSyllabusCode.trim() : question.syllabus_code;
+      const marks = corrections.marks === '' || corrections.marks === null
+        ? null : corrections.marks === undefined ? question.marks : Number(corrections.marks);
+      if (questionText.length > 12000 || (topic && topic.length > 160) || (subtopic && subtopic.length > 160)
+        || (syllabusCode && syllabusCode.length > 40)
+        || (marks !== null && (!Number.isFinite(marks) || marks <= 0 || marks > 1000))) {
+        return respond(400, { error: 'Question corrections exceed allowed text or mark ranges.' });
+      }
+      const syllabusTopicId = isUuid(payload.syllabusTopicId) ? payload.syllabusTopicId : null;
+      let syllabusTopic: Record<string, unknown> | null = null;
+      if (syllabusTopicId) {
+        const { data, error } = await service.from('past_paper_syllabus_topics').select('*')
+          .eq('id', syllabusTopicId).maybeSingle();
+        if (error) throw error;
+        syllabusTopic = data;
+        if (!syllabusTopic || syllabusTopic.curriculum !== correctedItem.curriculum
+          || syllabusTopic.subject_name !== correctedItem.subject_name
+          || syllabusTopic.syllabus_code !== correctedItem.syllabus_code
+          || syllabusTopic.syllabus_version !== correctedItem.syllabus_version) {
+          return respond(400, { error: 'Choose a verified syllabus topic matching the paper metadata.' });
+        }
+      }
+      const candidate = {
+        question_number: question.question_number,
+        marks,
+        extraction_status: question.document_id ? question.extraction_status : 'COMPLETE',
+        syllabus_topic_id: syllabusTopicId ?? question.syllabus_topic_id,
+        classification_status: syllabusTopicId ? 'CLASSIFIED' : question.classification_status,
+      };
+      const reasons = payload.decision !== 'approved' ? [] : question.document_id
+        ? validateExtractedQuestion(candidate, correctedItem)
+        : [
+          ...(questionText.length >= 10 ? [] : ['Question text must contain at least 10 characters.']),
+          ...(topic ? [] : ['A human-reviewed topic is required.']),
+          ...(marks !== null && marks > 0 ? [] : ['Positive marks are required.']),
+        ];
+      if (payload.decision === 'approved' && question.validation_status === 'DUPLICATE') {
+        reasons.push('Possible duplicate questions cannot be approved until reviewed separately.');
+      }
+      if (payload.decision === 'approved' && (source.status !== 'active' || !source.question_extraction_allowed
+        || item.review_status !== 'approved')) {
+        return respond(403, { error: 'Question approval requires an active authorized source and approved paper metadata.' });
+      }
+      if (payload.decision === 'approved' && reasons.length) {
+        return respond(400, { error: 'Question validation needs corrections before approval.', validationErrors: reasons });
+      }
+      const contentUseEligible = payload.contentUseEligible === true;
+      if (contentUseEligible && (payload.decision !== 'approved' || !source.question_reuse_allowed)) {
+        return respond(403, { error: 'Content-use eligibility requires approval and explicit source reuse permission.' });
+      }
+      const correlationId = crypto.randomUUID();
+      const nextStatus = payload.decision === 'approved' ? 'APPROVED' : 'REJECTED';
+      const nextContentUseStatus = payload.decision === 'rejected' || !source.question_reuse_allowed
+        ? 'BLOCKED' : contentUseEligible ? 'ELIGIBLE' : 'NOT_REVIEWED';
+      const updatedValues: Record<string, unknown> = {
         review_status: payload.decision,
+        question_text: questionText,
+        topic: syllabusTopic?.topic ?? topic,
+        subtopic: syllabusTopic?.subtopic ?? subtopic,
+        syllabus_code: syllabusCode,
+        marks,
+        syllabus_topic_id: syllabusTopicId ?? question.syllabus_topic_id,
+        classification_status: syllabusTopicId ? 'CLASSIFIED' : question.classification_status,
+        classification_confidence: syllabusTopicId ? 100 : question.classification_confidence,
+        validation_status: nextStatus,
+        validation_reasons: reasons,
+        content_use_status: nextContentUseStatus,
+        validation_correlation_id: correlationId,
+        validated_at: new Date().toISOString(),
+        validated_by: user.id,
         reviewer_note: typeof payload.reviewerNote === 'string' ? payload.reviewerNote.trim().slice(0, 2000) : '',
         reviewed_by: user.id,
         reviewed_at: new Date().toISOString(),
-      }).eq('id', question.id).eq('school_id', payload.schoolId);
+      };
+      const { error } = await service.from('past_paper_catalogue_questions').update(updatedValues)
+        .eq('id', question.id).eq('school_id', payload.schoolId);
       if (error) throw error;
-      await recordAudit(payload.schoolId, user.id, `past_paper_question_${payload.decision}`, 'past_paper_catalogue_questions', question.id, crypto.randomUUID());
-      return respond(200, { success: true });
+      const { error: eventError } = await service.from('past_paper_validation_events').insert({
+        school_id: payload.schoolId,
+        catalogue_question_id: question.id,
+        actor_id: user.id,
+        correlation_id: correlationId,
+        status: nextStatus,
+        reasons,
+        details: { content_use_status: nextContentUseStatus },
+      });
+      if (eventError) throw eventError;
+      await recordAudit(payload.schoolId, user.id, `past_paper_question_${payload.decision}`, 'past_paper_catalogue_questions', question.id, correlationId);
+      if (Object.keys(metadataFields).length) {
+        await recordAudit(payload.schoolId, user.id, 'past_paper_item_metadata_corrected', 'past_paper_discovery_items', item.id, correlationId);
+      }
+      return respond(200, { success: true, validationStatus: nextStatus, contentUseStatus: nextContentUseStatus });
     }
 
     if (payload.action === 'search-approved') {
       const query = typeof payload.query === 'string'
         ? payload.query.replace(/[^\p{L}\p{N}\s-]/gu, '').trim().slice(0, 100)
         : '';
+      const filters = isRecord(payload.filters) ? payload.filters : {};
       let requestQuery = service.from('past_paper_catalogue_questions')
-        .select('id,source_id,discovery_item_id,question_text,topic,subtopic,syllabus_code,marks,difficulty,mark_scheme,created_at')
-        .eq('school_id', payload.schoolId).eq('review_status', 'approved')
+        .select('id,source_id,discovery_item_id,question_text,topic,subtopic,syllabus_code,marks,difficulty,mark_scheme,created_at,curriculum,syllabus_version,examination_year,examination_session,paper_number,variant,question_number,page_start,page_end')
+        .eq('school_id', payload.schoolId)
+        .eq('review_status', 'approved')
+        .eq('validation_status', 'APPROVED')
+        .eq('content_use_status', 'ELIGIBLE')
         .order('created_at', { ascending: false }).limit(100);
+      const filterColumns: Record<string, string> = {
+        curriculum: 'curriculum',
+        subject: 'subject_name',
+        year: 'examination_year',
+        session: 'examination_session',
+        topic: 'topic',
+        subtopic: 'subtopic',
+        paper: 'paper_number',
+        variant: 'variant',
+      };
+      for (const [key, column] of Object.entries(filterColumns)) {
+        const value = filters[key];
+        if (typeof value !== 'string' || !value.trim()) continue;
+        if (key === 'year') requestQuery = requestQuery.eq(column, Number(value));
+        else requestQuery = requestQuery.eq(column, value.trim().slice(0, 160));
+      }
       if (query) requestQuery = requestQuery.or(`question_text.ilike.%${query}%,topic.ilike.%${query}%,syllabus_code.ilike.%${query}%`);
       const { data, error } = await requestQuery;
       if (error) throw error;
@@ -1190,8 +1557,15 @@ Deno.serve(async (request: Request) => {
         ]);
         if (sourceError) throw sourceError;
         if (itemError) throw itemError;
-        if (source.status === 'active' && source.question_reuse_allowed && item.review_status === 'approved') {
-          eligible.push({ ...question, source_name: source.name, paper_title: item.title, source_url: item.canonical_url });
+        if (source.status === 'active' && source.question_extraction_allowed
+          && source.question_reuse_allowed && item.review_status === 'approved') {
+          eligible.push({
+            ...question,
+            subject_name: item.subject_name,
+            source_name: source.name,
+            paper_title: item.title,
+            source_url: item.canonical_url,
+          });
         }
       }
       return respond(200, { questions: eligible });
@@ -1202,7 +1576,8 @@ Deno.serve(async (request: Request) => {
       const [{ data: moduleSettings, error: moduleError }, { data: question, error: questionError }] = await Promise.all([
         service.from('school_module_settings').select('module_learning').eq('school_id', payload.schoolId).maybeSingle(),
         service.from('past_paper_catalogue_questions').select('*').eq('id', payload.questionId)
-          .eq('school_id', payload.schoolId).eq('review_status', 'approved').maybeSingle(),
+          .eq('school_id', payload.schoolId).eq('review_status', 'approved')
+          .eq('validation_status', 'APPROVED').eq('content_use_status', 'ELIGIBLE').maybeSingle(),
       ]);
       if (moduleError) throw moduleError;
       if (questionError) throw questionError;
@@ -1216,7 +1591,8 @@ Deno.serve(async (request: Request) => {
       ]);
       if (sourceError) throw sourceError;
       if (itemError) throw itemError;
-      if (source.status !== 'active' || !source.question_reuse_allowed || item.review_status !== 'approved') {
+      if (source.status !== 'active' || !source.question_extraction_allowed
+        || !source.question_reuse_allowed || item.review_status !== 'approved') {
         return respond(403, { error: 'The question is not currently eligible for reuse.' });
       }
       const { data: existing, error: existingError } = await service.from('learning_questions')

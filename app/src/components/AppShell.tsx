@@ -70,7 +70,7 @@ const navigation: NavigationGroup[] = [
 
 const teacherNavigationPaths = new Set([
   '/timetable', '/classes', '/subjects', '/attendance', '/grades-results', '/calendar',
-  '/learning', '/past-paper-pipeline', '/assignments', '/courses-lessons', '/learning-materials', '/messaging',
+  '/learning', '/assignments', '/courses-lessons', '/learning-materials', '/messaging',
 ]);
 const teacherNavigationLabels: Record<string, string> = {
   '/timetable': 'My timetable',
