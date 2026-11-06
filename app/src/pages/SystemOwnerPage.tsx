@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import {
-  Activity, AlertTriangle, Building2, Check, CircleDollarSign, GraduationCap,
-  RefreshCw, ShieldAlert, UserRound, UsersRound, X,
+  Activity, AlertTriangle, Building2, Check, CircleDollarSign, Database, GraduationCap,
+  HardDrive, KeyRound, RefreshCw, Server, ShieldAlert, UserRound, UsersRound, X,
 } from 'lucide-react';
 import { ErrorState, LoadingState } from '../components/Feedback';
 import { requireSupabase } from '../lib/supabase';
@@ -42,6 +42,10 @@ type Dashboard = {
     metrics: { name: string; count: number; p75: number | null }[];
   };
 };
+type SystemHealth = {
+  observedAt: string;
+  checks: { name: string; status: string; latencyMs: number | null; message: string }[];
+};
 
 function formatLabel(value: string) {
   return value.replace(/_/g, ' ').replace(/\b\w/g, (letter) => letter.toUpperCase());
@@ -58,6 +62,8 @@ function statusClass(value: string) {
 export function SystemOwnerPage() {
   const { user } = useAuth();
   const [dashboard, setDashboard] = useState<Dashboard | null>(null);
+  const [systemHealth, setSystemHealth] = useState<SystemHealth | null>(null);
+  const [systemHealthError, setSystemHealthError] = useState('');
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
   const [error, setError] = useState('');
@@ -71,18 +77,32 @@ export function SystemOwnerPage() {
     if (background) setRefreshing(true);
     else setLoading(true);
     setError('');
+    setSystemHealth(null);
+    setSystemHealthError('');
     try {
       const { data: authorization, error: authorizationError } = await requireSupabase().functions.invoke('system-owner-admin', {
         body: { action: 'check' },
       });
       if (authorizationError) throw authorizationError;
       if (authorization?.authorized !== true) throw new Error('This panel is restricted to the Campus Connect system owner.');
-      const { data, error: dashboardError } = await requireSupabase().functions.invoke('system-owner-admin', {
-        body: { action: 'dashboard' },
-      });
+      const [dashboardResult, healthResult] = await Promise.all([
+        requireSupabase().functions.invoke('system-owner-admin', { body: { action: 'dashboard' } }),
+        requireSupabase().functions.invoke('system-owner-admin', { body: { action: 'system-health' } }),
+      ]);
+      const { data, error: dashboardError } = dashboardResult;
       if (dashboardError) throw dashboardError;
       if (!data?.dashboard?.stats || !data.dashboard.setupHealth) throw new Error('The system owner service returned an invalid dashboard response.');
       setDashboard(data.dashboard as Dashboard);
+      if (healthResult.error) {
+        setSystemHealth(null);
+        setSystemHealthError(healthResult.error.message);
+      } else if (Array.isArray(healthResult.data?.checks) && typeof healthResult.data?.observedAt === 'string') {
+        setSystemHealth(healthResult.data as SystemHealth);
+        setSystemHealthError('');
+      } else {
+        setSystemHealth(null);
+        setSystemHealthError('The system health service returned an invalid response.');
+      }
     } catch (loadError) {
       setError(loadError instanceof Error ? loadError.message : 'Could not load the system owner dashboard.');
     } finally {
@@ -159,6 +179,27 @@ export function SystemOwnerPage() {
       </header>
       {error && <ErrorState message={error} />}
       {notice && <p className="inline-success" role="status">{notice}</p>}
+      <section className="content-card system-owner-panel">
+        <div className="system-owner-panel-heading"><div><span className="eyebrow">Live service checks</span><h2>System health overview</h2><p>Live connectivity checks for the application, database, authentication, and storage.</p></div><Server size={18} /></div>
+        {systemHealthError && <ErrorState message={systemHealthError} />}
+        {systemHealth && <>
+          <div className="system-owner-stat-grid" aria-label="System health checks">
+            {systemHealth.checks.map((check) => {
+              const Icon = check.name === 'database' ? Database
+                : check.name === 'authentication' ? KeyRound
+                  : check.name === 'storage' ? HardDrive : Server;
+              return <article className="system-owner-stat" key={check.name}>
+                <span><Icon size={17} /></span>
+                <small>{formatLabel(check.name)}</small>
+                <strong className={`health-status health-status-${statusClass(check.status)}`}>{formatLabel(check.status)}</strong>
+                <p>{check.latencyMs === null ? check.message : `${check.latencyMs} ms · ${check.message}`}</p>
+              </article>;
+            })}
+          </div>
+          <p className="system-owner-muted">Last checked {formatDate(systemHealth.observedAt)}. A successful check confirms the service responds; it is not a full data-integrity audit.</p>
+        </>}
+        {!systemHealth && !systemHealthError && <LoadingState label="Checking platform services…" />}
+      </section>
       <section className="content-card system-owner-panel">
         <div className="system-owner-panel-heading"><div><span className="eyebrow">Operations · last {dashboard?.performance.windowDays ?? 7} days</span><h2>Platform performance monitor</h2><p>Aggregated browser experience metrics across participating school workspaces.</p></div><Activity size={17} /></div>
         <div className="system-owner-stat-grid" aria-label="Platform performance metrics">

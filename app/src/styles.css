@@ -3166,9 +3166,9 @@ td strong { color: #3e435a; font-weight: 600; }
 .setup-health-check-content > .setup-health-result-message { color: #4f566b; font-size: 10px; font-weight: 600; }
 .setup-health-check-meta { display: flex; flex-wrap: wrap; gap: 6px 14px; margin-top: 8px; color: #8b91a1; font-size: 8px; }
 .health-status { display: inline-flex; align-items: center; width: fit-content; padding: 4px 7px; border-radius: 999px; background: #f1f2f5; color: #737a8c; font-size: 8px; font-weight: 700; line-height: 1; text-transform: capitalize; }
-.health-status-ready, .health-status-passed { background: #eaf6ef; color: #31764f; }
-.health-status-nearly-ready, .health-status-warning { background: #fff6e3; color: #9b6f1e; }
-.health-status-needs-attention, .health-status-failed { background: #fff0ef; color: #ad4b48; }
+.health-status-ready, .health-status-passed, .health-status-operational { background: #eaf6ef; color: #31764f; }
+.health-status-nearly-ready, .health-status-warning, .health-status-degraded { background: #fff6e3; color: #9b6f1e; }
+.health-status-needs-attention, .health-status-failed, .health-status-unavailable { background: #fff0ef; color: #ad4b48; }
 .health-status-partially-ready, .health-status-needs-review { background: #fff6e9; color: #9b6825; }
 .health-status-not-applicable, .health-status-not-configured { background: #f1f2f5; color: #757c8e; }
 .health-severity { color: #858b9b; font-size: 8px; text-transform: capitalize; }

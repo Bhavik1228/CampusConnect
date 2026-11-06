@@ -95,6 +95,51 @@ Deno.serve(async (request: Request) => {
 
     if (payload.action === 'check') return respond(200, { authorized: true });
 
+    if (payload.action === 'system-health') {
+      const check = async (name: string, operation: () => Promise<unknown>) => {
+        const startedAt = performance.now();
+        try {
+          await operation();
+          return { name, status: 'operational', latencyMs: Math.round(performance.now() - startedAt), message: 'Connected' };
+        } catch (error) {
+          return {
+            name,
+            status: 'unavailable',
+            latencyMs: Math.round(performance.now() - startedAt),
+            message: error instanceof Error ? error.message : 'Health check failed.',
+          };
+        }
+      };
+      const [database, authentication, storage] = await Promise.all([
+        check('database', async () => {
+          const { error } = await serviceClient.from('platform_maintenance').select('id').eq('id', 1).single();
+          if (error) throw error;
+        }),
+        check('authentication', async () => {
+          const { error } = await serviceClient.auth.admin.listUsers({ page: 1, perPage: 1 });
+          if (error) throw error;
+        }),
+        check('storage', async () => {
+          const { error } = await serviceClient.storage.listBuckets();
+          if (error) throw error;
+        }),
+      ]);
+      return respond(200, {
+        observedAt: new Date().toISOString(),
+        checks: [
+          {
+            name: 'application',
+            status: 'operational',
+            latencyMs: null,
+            message: `System owner service responding · Deno ${Deno.version.deno}`,
+          },
+          database,
+          authentication,
+          storage,
+        ],
+      });
+    }
+
     if (payload.action === 'support-inbox') {
       const tickets: Array<Record<string, unknown>> = [];
       const pageSize = 500;
