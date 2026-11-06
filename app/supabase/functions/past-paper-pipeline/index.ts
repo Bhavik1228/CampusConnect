@@ -1,4 +1,6 @@
 import { createClient } from 'npm:@supabase/supabase-js@2';
+import { DeleteObjectCommand, GetObjectCommand, PutObjectCommand, S3Client } from 'npm:@aws-sdk/client-s3';
+import { getSignedUrl } from 'npm:@aws-sdk/s3-request-presigner';
 
 const corsHeaders = {
   'Access-Control-Allow-Origin': '*',
@@ -21,8 +23,8 @@ type PipelineRequest = {
   questionId?: unknown;
   name?: unknown;
   listingUrl?: unknown;
-  termsUrl?: unknown;
   rightsBasis?: unknown;
+  rightsConfirmed?: unknown;
   metadataDiscoveryAllowed?: unknown;
   questionExtractionAllowed?: unknown;
   questionReuseAllowed?: unknown;
@@ -74,6 +76,116 @@ function respond(status: number, body: Record<string, unknown>) {
     status,
     headers: { ...corsHeaders, 'Content-Type': 'application/json' },
   });
+}
+
+type PaperR2Storage = {
+  client: S3Client;
+  bucketName: string;
+};
+
+function encodeBase64(bytes: Uint8Array) {
+  let binary = '';
+  for (const byte of bytes) binary += String.fromCharCode(byte);
+  return btoa(binary);
+}
+
+function decodeBase64(value: string) {
+  return Uint8Array.from(atob(value), (character) => character.charCodeAt(0));
+}
+
+async function getPaperR2Storage(service: any, schoolId: string, storageProvider: string): Promise<PaperR2Storage | null> {
+  if (storageProvider === 'supabase') return null;
+  if (storageProvider !== 'r2') throw new Error('The saved past-paper storage provider is invalid.');
+  const { data: row, error } = await service.from('school_past_paper_storage')
+    .select('account_id,bucket_name,credentials_ciphertext,credentials_nonce')
+    .eq('school_id', schoolId)
+    .maybeSingle();
+  if (error) throw error;
+  if (!row) throw new Error('The configured past-paper R2 bucket is no longer available.');
+
+  const encryptionSecret = Deno.env.get('R2_CREDENTIAL_ENCRYPTION_KEY');
+  if (!encryptionSecret || encryptionSecret.length < 32) {
+    throw new Error('Past-paper R2 is configured but credential encryption is unavailable. Contact the school administrator.');
+  }
+  const digest = await crypto.subtle.digest('SHA-256', new TextEncoder().encode(encryptionSecret));
+  const key = await crypto.subtle.importKey('raw', digest, 'AES-GCM', false, ['decrypt']);
+  const plaintext = await crypto.subtle.decrypt(
+    { name: 'AES-GCM', iv: decodeBase64(row.credentials_nonce) },
+    key,
+    decodeBase64(row.credentials_ciphertext),
+  );
+  const credentials = JSON.parse(new TextDecoder().decode(plaintext)) as Record<string, unknown>;
+  if (credentials.accountId !== row.account_id
+    || credentials.bucketName !== row.bucket_name
+    || typeof credentials.accessKeyId !== 'string'
+    || typeof credentials.secretAccessKey !== 'string') {
+    throw new Error('The saved past-paper R2 credentials are incomplete.');
+  }
+  return {
+    bucketName: row.bucket_name,
+    client: new S3Client({
+      region: 'auto',
+      endpoint: `https://${row.account_id}.r2.cloudflarestorage.com`,
+      credentials: {
+        accessKeyId: credentials.accessKeyId,
+        secretAccessKey: credentials.secretAccessKey,
+      },
+    }),
+  };
+}
+
+async function createPaperUploadUrl(service: any, schoolId: string, storageProvider: string, path: string, contentType: string) {
+  const r2 = await getPaperR2Storage(service, schoolId, storageProvider);
+  if (r2) {
+    return getSignedUrl(r2.client, new PutObjectCommand({
+      Bucket: r2.bucketName,
+      Key: path,
+      ContentType: contentType,
+    }), { expiresIn: 3600 });
+  }
+  const { data, error } = await service.storage.from('past-paper-documents').createSignedUploadUrl(path);
+  if (error) throw error;
+  return data.signedUrl;
+}
+
+async function downloadPaperObject(service: any, schoolId: string, storageProvider: string, path: string) {
+  const r2 = await getPaperR2Storage(service, schoolId, storageProvider);
+  if (r2) {
+    const response = await r2.client.send(new GetObjectCommand({ Bucket: r2.bucketName, Key: path }));
+    if (!response.Body) throw new Error('The stored past-paper object is empty.');
+    return new Uint8Array(await response.Body.transformToByteArray());
+  }
+  const { data, error } = await service.storage.from('past-paper-documents').download(path);
+  if (error) throw error;
+  return new Uint8Array(await data.arrayBuffer());
+}
+
+async function removePaperObjects(service: any, schoolId: string, storageProvider: string, paths: string[]) {
+  const r2 = await getPaperR2Storage(service, schoolId, storageProvider);
+  if (r2) {
+    await Promise.all(paths.map((path) => r2.client.send(new DeleteObjectCommand({
+      Bucket: r2.bucketName,
+      Key: path,
+    }))));
+    return;
+  }
+  const { error } = await service.storage.from('past-paper-documents').remove(paths);
+  if (error) throw error;
+}
+
+async function createPaperDownloadUrl(service: any, schoolId: string, storageProvider: string, path: string, filename: string) {
+  const r2 = await getPaperR2Storage(service, schoolId, storageProvider);
+  if (r2) {
+    return getSignedUrl(r2.client, new GetObjectCommand({
+      Bucket: r2.bucketName,
+      Key: path,
+      ResponseContentDisposition: `attachment; filename="${filename}"`,
+    }), { expiresIn: 60 });
+  }
+  const { data, error } = await service.storage.from('past-paper-documents')
+    .createSignedUrl(path, 60, { download: filename });
+  if (error) throw error;
+  return data.signedUrl;
 }
 
 function isRecord(value: unknown): value is Record<string, unknown> {
@@ -316,20 +428,25 @@ async function handleWorkerAction(payload: PipelineRequest, service: any) {
     const itemRecord = item as Record<string, unknown>;
     const documentPath = itemRecord.document_path;
     const extractionPath = itemRecord.extraction_path;
+    const storageProvider = typeof itemRecord.storage_provider === 'string' ? itemRecord.storage_provider : '';
     if (typeof documentPath !== 'string' || typeof extractionPath !== 'string') {
       throw new Error('The claimed document paths were not returned.');
     }
-    const [{ data: pdfUpload, error: pdfError }, { data: extractionUpload, error: extractionError }] = await Promise.all([
-      service.storage.from('past-paper-documents').createSignedUploadUrl(documentPath),
-      service.storage.from('past-paper-documents').createSignedUploadUrl(extractionPath),
-    ]);
-    if (pdfError || extractionError) {
+    let documentUploadUrl: string;
+    let extractionUploadUrl: string;
+    try {
+      [documentUploadUrl, extractionUploadUrl] = await Promise.all([
+        createPaperUploadUrl(service, String(itemRecord.school_id), storageProvider, documentPath, 'application/pdf'),
+        createPaperUploadUrl(service, String(itemRecord.school_id), storageProvider, extractionPath, 'application/json'),
+      ]);
+    } catch (uploadError) {
+      const message = uploadError instanceof Error ? uploadError.message : 'Could not create secure upload URLs.';
       const { error: releaseError } = await service.rpc('release_past_paper_discovery_item', {
-        target_item: itemRecord.id, failure: pdfError?.message ?? extractionError?.message ?? 'Could not create secure upload URLs.',
+        target_item: itemRecord.id, failure: message,
         can_retry: true,
       });
-      if (releaseError) throw new Error(`${pdfError?.message ?? extractionError?.message}; job release failed: ${releaseError.message}`);
-      throw pdfError ?? extractionError;
+      if (releaseError) throw new Error(`${message}; job release failed: ${releaseError.message}`);
+      throw uploadError;
     }
     const syllabusTopics: Record<string, unknown>[] = [];
     if (itemRecord.curriculum && itemRecord.subject_name && itemRecord.syllabus_code && itemRecord.syllabus_version) {
@@ -346,8 +463,8 @@ async function handleWorkerAction(payload: PipelineRequest, service: any) {
         source: itemRecord,
         documentPath,
         extractionPath,
-        documentUploadUrl: pdfUpload.signedUrl,
-        extractionUploadUrl: extractionUpload.signedUrl,
+        documentUploadUrl,
+        extractionUploadUrl,
         syllabusTopics,
       },
     });
@@ -359,7 +476,7 @@ async function handleWorkerAction(payload: PipelineRequest, service: any) {
       return respond(400, { error: 'Worker failure report is incomplete.' });
     }
     const { data: item, error: itemError } = await service.from('past_paper_discovery_items')
-      .select('school_id,lease_document_path,lease_extraction_path,lease_expires_at')
+      .select('school_id,lease_document_path,lease_extraction_path,lease_expires_at,lease_storage_provider')
       .eq('id', payload.itemId).maybeSingle();
     if (itemError) throw itemError;
     if (!item) return respond(404, { error: 'The claimed paper item was not found.' });
@@ -371,14 +488,15 @@ async function handleWorkerAction(payload: PipelineRequest, service: any) {
       .delete().eq('school_id', item.school_id).eq('discovery_item_id', payload.itemId)
       .eq('storage_path', payload.documentPath).eq('extraction_storage_path', payload.extractionPath);
     if (deleteDocumentsError) throw deleteDocumentsError;
-    const { error: removeError } = await service.storage.from('past-paper-documents')
-      .remove([payload.documentPath, payload.extractionPath]);
-    if (removeError) {
+    try {
+      await removePaperObjects(service, item.school_id, item.lease_storage_provider, [payload.documentPath, payload.extractionPath]);
+    } catch (removeError) {
+      const message = removeError instanceof Error ? removeError.message : 'Unknown storage error';
       const { error: releaseError } = await service.rpc('release_past_paper_discovery_item', {
-        target_item: payload.itemId, failure: `Could not remove partial private uploads: ${removeError.message}`,
+        target_item: payload.itemId, failure: `Could not remove partial private uploads: ${message}`,
         can_retry: true,
       });
-      if (releaseError) throw releaseError;
+      if (releaseError) throw new Error(`${message}; job release failed: ${releaseError.message}`);
       throw removeError;
     }
     const { error } = await service.rpc('release_past_paper_discovery_item', {
@@ -413,20 +531,18 @@ async function handleWorkerAction(payload: PipelineRequest, service: any) {
       || Number(payload.fileSize) > Number(source.document_max_bytes)) {
       return respond(403, { error: 'Current source permissions or file-size limit reject this document.' });
     }
-    const { data: file, error: fileError } = await service.storage.from('past-paper-documents').download(payload.documentPath);
-    if (fileError) throw fileError;
-    const bytes = new Uint8Array(await file.arrayBuffer());
+    const bytes = await downloadPaperObject(service, item.school_id, item.lease_storage_provider, payload.documentPath);
     if (bytes.byteLength !== Number(payload.fileSize)
       || !new TextDecoder().decode(bytes.slice(0, 5)).startsWith('%PDF-')
       || await sha256Bytes(bytes) !== payload.sha256) {
-      await service.storage.from('past-paper-documents').remove([payload.documentPath]);
+      await removePaperObjects(service, item.school_id, item.lease_storage_provider, [payload.documentPath]);
       return respond(400, { error: 'Stored PDF signature, size, or SHA-256 checksum did not validate.' });
     }
     const { data: duplicate, error: duplicateError } = await service.from('past_paper_documents')
       .select('id').eq('school_id', item.school_id).eq('sha256', payload.sha256).maybeSingle();
     if (duplicateError) throw duplicateError;
     if (duplicate) {
-      await service.storage.from('past-paper-documents').remove([payload.documentPath]);
+      await removePaperObjects(service, item.school_id, item.lease_storage_provider, [payload.documentPath]);
       const { error: duplicateUpdateError } = await service.from('past_paper_discovery_items').update({
         pipeline_status: 'DUPLICATE',
         duplicate_document_id: duplicate.id,
@@ -476,22 +592,19 @@ async function handleWorkerAction(payload: PipelineRequest, service: any) {
       || source.document_storage_allowed !== true || source.question_extraction_allowed !== true) {
       return respond(403, { error: 'Current source permissions do not authorize processing this document.' });
     }
-    const [{ data: pdf, error: pdfError }, { data: extraction, error: extractionError }] = await Promise.all([
-      service.storage.from('past-paper-documents').download(payload.documentPath),
-      service.storage.from('past-paper-documents').download(payload.extractionPath),
+    const [pdfBytes, extractionBytes] = await Promise.all([
+      downloadPaperObject(service, item.school_id, item.lease_storage_provider, payload.documentPath),
+      downloadPaperObject(service, item.school_id, item.lease_storage_provider, payload.extractionPath),
     ]);
-    if (pdfError) throw pdfError;
-    if (extractionError) throw extractionError;
-    const pdfBytes = new Uint8Array(await pdf.arrayBuffer());
     if (!new TextDecoder().decode(pdfBytes.slice(0, 5)).startsWith('%PDF-')
       || pdfBytes.byteLength !== Number(payload.fileSize)
       || await sha256Bytes(pdfBytes) !== payload.sha256) {
-      await service.storage.from('past-paper-documents').remove([payload.documentPath, payload.extractionPath]);
+      await removePaperObjects(service, item.school_id, item.lease_storage_provider, [payload.documentPath, payload.extractionPath]);
       return respond(400, { error: 'Stored PDF signature, size, or SHA-256 checksum did not validate.' });
     }
     let manifest: Record<string, unknown>;
     try {
-      manifest = JSON.parse(await extraction.text());
+      manifest = JSON.parse(new TextDecoder().decode(extractionBytes));
     } catch {
       return respond(400, { error: 'Worker extraction manifest is not valid JSON.' });
     }
@@ -506,7 +619,7 @@ async function handleWorkerAction(payload: PipelineRequest, service: any) {
       .select('id').eq('school_id', item.school_id).eq('sha256', payload.sha256).maybeSingle();
     if (duplicateError) throw duplicateError;
     if (duplicate) {
-      await service.storage.from('past-paper-documents').remove([payload.documentPath, payload.extractionPath]);
+      await removePaperObjects(service, item.school_id, item.lease_storage_provider, [payload.documentPath, payload.extractionPath]);
       const { error: duplicateUpdateError } = await service.from('past_paper_discovery_items').update({
         pipeline_status: 'DUPLICATE',
         duplicate_document_id: duplicate.id,
@@ -533,6 +646,7 @@ async function handleWorkerAction(payload: PipelineRequest, service: any) {
       canonical_url: payload.canonicalUrl,
       storage_path: payload.documentPath,
       extraction_storage_path: payload.extractionPath,
+      storage_provider: item.lease_storage_provider,
       sha256: payload.sha256,
       file_size: payload.fileSize,
       content_type: 'application/pdf',
@@ -1018,7 +1132,7 @@ Deno.serve(async (request: Request) => {
       requireAdmin();
       if (!isUuid(payload.itemId)) return respond(400, { error: 'Select a valid discovered paper.' });
       const { data: document, error: documentError } = await service.from('past_paper_documents')
-        .select('storage_path,source_id')
+        .select('storage_path,source_id,storage_provider')
         .eq('school_id', payload.schoolId).eq('discovery_item_id', payload.itemId).maybeSingle();
       if (documentError) throw documentError;
       if (!document) return respond(404, { error: 'The private source document is not available.' });
@@ -1029,10 +1143,14 @@ Deno.serve(async (request: Request) => {
       if (!source || source.status !== 'active' || !source.document_storage_allowed) {
         return respond(403, { error: 'Current permissions do not authorize viewing this stored document.' });
       }
-      const { data, error } = await service.storage.from('past-paper-documents')
-        .createSignedUrl(document.storage_path, 60, { download: 'source-paper.pdf' });
-      if (error) throw error;
-      return respond(200, { url: data.signedUrl });
+      const url = await createPaperDownloadUrl(
+        service,
+        payload.schoolId,
+        document.storage_provider,
+        document.storage_path,
+        'source-paper.pdf',
+      );
+      return respond(200, { url });
     }
 
     if (payload.action === 'list-syllabus') {
@@ -1090,9 +1208,8 @@ Deno.serve(async (request: Request) => {
       const hosts = allowedHosts();
       if (!hosts.size) throw new Error('Configure PAPER_SOURCE_HOSTS with explicitly approved public source hosts before registering a source.');
       const listingUrl = validateSourceUrl(payload.listingUrl, hosts);
-      const termsUrl = validateSourceUrl(payload.termsUrl, hosts);
       if (typeof payload.name !== 'string' || payload.name.trim().length < 1 || payload.name.trim().length > 120
-        || typeof payload.rightsBasis !== 'string' || payload.rightsBasis.trim().length < 8
+        || payload.rightsConfirmed !== true
         || payload.metadataDiscoveryAllowed !== true
         || typeof payload.questionExtractionAllowed !== 'boolean'
         || typeof payload.questionReuseAllowed !== 'boolean'
@@ -1120,8 +1237,8 @@ Deno.serve(async (request: Request) => {
         name: payload.name.trim(),
         listing_url: canonicalizeUrl(listingUrl.href),
         canonical_host: listingUrl.hostname,
-        terms_url: canonicalizeUrl(termsUrl.href),
-        rights_basis: payload.rightsBasis.trim(),
+        terms_url: null,
+        rights_basis: 'School administrator confirmed the selected source permissions.',
         metadata_discovery_allowed: true,
         question_extraction_allowed: payload.questionExtractionAllowed,
         question_reuse_allowed: payload.questionReuseAllowed,

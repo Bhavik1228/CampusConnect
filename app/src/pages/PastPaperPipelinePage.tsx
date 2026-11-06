@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useState, type FormEvent } from 'react';
-import { Check, ExternalLink, FileSearch, Plus, RefreshCw, ShieldCheck } from 'lucide-react';
+import { Check, ExternalLink, FileSearch, Plus, RefreshCw } from 'lucide-react';
 import { useAuth } from '../contexts/AuthContext';
 import { ErrorState, LoadingState } from '../components/Feedback';
 import { requireSupabase } from '../lib/supabase';
@@ -8,8 +8,8 @@ type Source = {
   id: string;
   name: string;
   listing_url: string;
-  terms_url: string;
-  rights_basis: string;
+  terms_url: string | null;
+  rights_basis: string | null;
   metadata_discovery_allowed: boolean;
   question_extraction_allowed: boolean;
   question_reuse_allowed: boolean;
@@ -109,8 +109,7 @@ type PipelineState = {
 type SourceForm = {
   name: string;
   listingUrl: string;
-  termsUrl: string;
-  rightsBasis: string;
+  rightsConfirmed: boolean;
   metadataDiscoveryAllowed: boolean;
   questionExtractionAllowed: boolean;
   questionReuseAllowed: boolean;
@@ -139,8 +138,7 @@ const EMPTY_STATE: PipelineState = { sources: [], jobs: [], items: [], questions
 const EMPTY_SOURCE: SourceForm = {
   name: '',
   listingUrl: '',
-  termsUrl: '',
-  rightsBasis: '',
+  rightsConfirmed: false,
   metadataDiscoveryAllowed: true,
   questionExtractionAllowed: false,
   questionReuseAllowed: false,
@@ -256,7 +254,9 @@ export function PastPaperPipelinePage() {
     setError('');
     setNotice('');
     try {
-      await request('register-source', sourceForm);
+      await request('register-source', {
+        ...sourceForm,
+      });
       setSourceForm(EMPTY_SOURCE);
       setNotice('Source registered. Discovery will check robots.txt before reading its listing page.');
       await load();
@@ -425,6 +425,9 @@ export function PastPaperPipelinePage() {
     }
   }
 
+  const eligibleItems = state.items.filter((item) => item.review_status === 'approved'
+    && state.sources.some((source) => source.id === item.source_id
+      && source.question_extraction_allowed && source.question_reuse_allowed));
   const selectedItem = state.items.find((item) => item.id === selectedItemId);
   const selectedSource = state.sources.find((source) => source.id === selectedItem?.source_id);
 
@@ -439,15 +442,6 @@ export function PastPaperPipelinePage() {
         <button className="button button-quiet" onClick={() => void load()} disabled={loading}><RefreshCw size={14} /> Refresh</button>
       </div>
 
-      <section className="content-card">
-        <div className="section-heading">
-          <div><span className="eyebrow">Rights-first workflow</span><h2>Source and content safeguards</h2></div>
-          <ShieldCheck size={20} />
-        </div>
-        <p>Discovery and document processing only contact configured HTTPS hosts, obey robots.txt, and require explicit recorded permissions for download, private storage, extraction, OCR, and assessment reuse. Downloads are size-limited, signature-checked, checksummed, and processed in resumable scheduled batches. Extracted questions stay out of Test Maker until validation and content-use eligibility are independently approved.</p>
-        <p>Public availability does not grant copying rights. Do not register a source until its terms and permission basis have been checked.</p>
-      </section>
-
       {error && <ErrorState message={error} />}
       {notice && <div className="feedback feedback-success" role="status"><Check size={15} />{notice}</div>}
       {previewUrl && <a className="button button-quiet" href={previewUrl} target="_blank" rel="noreferrer">Open private PDF preview (expires in 60 seconds)</a>}
@@ -459,8 +453,6 @@ export function PastPaperPipelinePage() {
               <div className="test-form-grid">
                 <label>Source name<input required maxLength={120} value={sourceForm.name} onChange={(event) => setSourceForm((current) => ({ ...current, name: event.target.value }))} placeholder="Publisher or licensed collection" /></label>
                 <label>Listing URL<input required type="url" value={sourceForm.listingUrl} onChange={(event) => setSourceForm((current) => ({ ...current, listingUrl: event.target.value }))} placeholder="https://approved-host.example/papers" /></label>
-                <label>Terms / permission URL<input required type="url" value={sourceForm.termsUrl} onChange={(event) => setSourceForm((current) => ({ ...current, termsUrl: event.target.value }))} placeholder="https://approved-host.example/terms" /></label>
-                <label className="span-2">Documented rights basis<textarea required minLength={8} maxLength={2000} value={sourceForm.rightsBasis} onChange={(event) => setSourceForm((current) => ({ ...current, rightsBasis: event.target.value }))} placeholder="Identify the license, written permission, or other basis and scope." /></label>
                 <label>Curriculum<select value={sourceForm.curriculum} onChange={(event) => setSourceForm((current) => ({ ...current, curriculum: event.target.value }))}><option value="">Not specified</option>{['Cambridge Primary', 'Cambridge Lower Secondary', 'O Level', 'IGCSE', 'AS Level', 'A Level'].map((value) => <option key={value}>{value}</option>)}</select></label>
                 <label>Subject<input maxLength={160} value={sourceForm.subjectName} onChange={(event) => setSourceForm((current) => ({ ...current, subjectName: event.target.value }))} /></label>
                 <label>Syllabus code<input maxLength={40} value={sourceForm.syllabusCode} onChange={(event) => setSourceForm((current) => ({ ...current, syllabusCode: event.target.value }))} /></label>
@@ -468,6 +460,7 @@ export function PastPaperPipelinePage() {
                 <label>Schedule interval (hours)<input type="number" min={1} max={720} value={sourceForm.scheduleIntervalHours} onChange={(event) => setSourceForm((current) => ({ ...current, scheduleIntervalHours: Number(event.target.value) }))} /></label>
                 <label>Maximum PDF size (MB)<input type="number" min={1} max={50} value={Math.round(sourceForm.documentMaxBytes / (1024 * 1024))} onChange={(event) => setSourceForm((current) => ({ ...current, documentMaxBytes: Number(event.target.value) * 1024 * 1024 }))} /></label>
               </div>
+              <label className="draft-recovery-check"><input type="checkbox" required checked={sourceForm.rightsConfirmed} onChange={(event) => setSourceForm((current) => ({ ...current, rightsConfirmed: event.target.checked }))} />I have checked this source and confirm that the permissions selected below are accurate.</label>
               <label className="draft-recovery-check"><input type="checkbox" checked={sourceForm.metadataDiscoveryAllowed} onChange={(event) => setSourceForm((current) => ({ ...current, metadataDiscoveryAllowed: event.target.checked }))} />The source terms and robots policy permit metadata discovery.</label>
               <label className="draft-recovery-check"><input type="checkbox" checked={sourceForm.documentDownloadAllowed} onChange={(event) => setSourceForm((current) => ({ ...current, documentDownloadAllowed: event.target.checked, documentStorageAllowed: event.target.checked && current.documentStorageAllowed, ocrAllowed: event.target.checked && current.ocrAllowed }))} />The rights basis permits retrieving the PDF documents.</label>
               <label className="draft-recovery-check"><input type="checkbox" checked={sourceForm.documentStorageAllowed} disabled={!sourceForm.documentDownloadAllowed} onChange={(event) => setSourceForm((current) => ({ ...current, documentStorageAllowed: event.target.checked, ocrAllowed: event.target.checked && current.ocrAllowed }))} />The rights basis permits storing the documents in private school-scoped storage.</label>
@@ -578,8 +571,8 @@ export function PastPaperPipelinePage() {
               <div className="test-form-actions"><button className="button button-primary" disabled={saving}><Plus size={14} /> Submit for review</button></div>
             </form>
           </section></>}
-          {!selectedItemId && <section className="content-card">
-            <p>Select an approved metadata item above to submit authorized question content for review.</p>
+          {!eligibleItems.length && <section className="content-card">
+            <p>To submit a question, an academic lead must first approve a discovered paper from a source that permits question extraction and assessment reuse. Once approved, select that paper in the form above to link the question to it.</p>
           </section>}
 
           <section className="content-card">

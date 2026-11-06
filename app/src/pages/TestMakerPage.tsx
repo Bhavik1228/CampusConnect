@@ -142,8 +142,6 @@ const EMPTY_ASSESSMENT: AssessmentForm = {
   question_ids: [], status: 'draft',
   department_id: null,
 };
-const CAMBRIDGE_PAST_PAPERS_URL = 'https://www.cambridgeinternational.org/support-and-training-for-schools/support-for-teachers/past-papers/';
-
 function localDate() {
   const date = new Date();
   date.setMinutes(date.getMinutes() - date.getTimezoneOffset());
@@ -734,9 +732,7 @@ export function TestMakerPage() {
       <section className="test-maker-banner">
         <div className="test-maker-banner-icon"><BookOpenCheck size={20} /></div>
         <div><strong>Test Maker &amp; Results</strong><p>Create assessments, record student marks, and review each learner’s assessment history.</p></div>
-        <a className="button button-quiet test-maker-external" href={CAMBRIDGE_PAST_PAPERS_URL} target="_blank" rel="noreferrer">
-          Official Cambridge papers <ExternalLink size={14} />
-        </a>
+        {isAcademicLead && <Link className="button button-quiet test-maker-external" to="/past-paper-pipeline">Past-paper pipeline</Link>}
       </section>
 
       {error && <ErrorState message={error} />}
@@ -763,7 +759,6 @@ export function TestMakerPage() {
                 </div>
               </article>)}
             </div> : <div className="test-empty"><span><FilePlus2 size={20} /></span><strong>No tests yet</strong><p>Create a test to start assembling a paper. Your drafts are saved to this school.</p><button className="button button-quiet" onClick={beginNewAssessment}><Plus size={14} /> Create your first test</button></div>}
-            <div className="source-note"><strong>Authorized resources only</strong><p>Add questions you have permission to use, including teacher-written items or licensed school resources. Official Cambridge papers open in a new tab.</p></div>
           </section>
 
           <section className="content-card test-editor-card">
@@ -916,7 +911,6 @@ export function TestMakerPage() {
       ) : (
         <section className="content-card authorized-papers-card">
           <div className="section-heading"><div><span className="eyebrow">School resources</span><h2>Authorized past papers</h2></div><span className="test-count">{papers.length}</span></div>
-          <div className="authorized-papers-notice"><strong>Privately stored in Firebase</strong><p>These records are visible to this school only. Paper files are not publicly exposed; authenticated PDF viewing will be available when a signed-link endpoint is configured.</p>{isAcademicLead && <Link className="button button-quiet" to="/past-paper-pipeline">Discover metadata and review authorized questions</Link>}</div>
           <label className="library-search authorized-paper-search"><Search size={15} /><input value={query} onChange={(event) => setQuery(event.target.value)} placeholder="Search subject, code, year, or paper type" /></label>
           <div className="authorized-paper-list">
             {papers.filter((paper) => `${paper.subject_name} ${paper.subject_code} ${paper.year} ${paper.paper_number} ${paper.document_type}`.toLowerCase().includes(query.toLowerCase())).map((paper) => (

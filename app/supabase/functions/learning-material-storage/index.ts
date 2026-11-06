@@ -182,7 +182,8 @@ Deno.serve(async (request: Request) => {
     const payload = await request.json() as StorageRequest;
     const action = typeof payload.action === 'string' ? payload.action : '';
 
-    if (action === 'list-connections' || action === 'add-connection' || action === 'delete-connection' || action === 'request-managed-storage') {
+    if (['list-connections', 'add-connection', 'delete-connection', 'request-managed-storage',
+      'list-paper-storage', 'save-paper-storage', 'delete-paper-storage'].includes(action)) {
       if (!isUuid(payload.schoolId)) return respond(400, { error: 'Choose a valid school.' });
       const { data: memberships, error: membershipError } = await userClient
         .from('school_memberships')
@@ -202,7 +203,7 @@ Deno.serve(async (request: Request) => {
         return respond(403, { error: 'This school is suspended. Contact Campus Connect support for assistance.' });
       }
 
-      if (action !== 'list-connections') {
+      if (action !== 'list-connections' && action !== 'list-paper-storage') {
         const { data: maintenance, error: maintenanceError } = await serviceClient.rpc('platform_maintenance_status', {
           target_school: payload.schoolId,
           target_module: 'learning',
@@ -245,6 +246,23 @@ Deno.serve(async (request: Request) => {
         });
       }
 
+      if (action === 'list-paper-storage') {
+        if (!roles.some((role) => ['school_admin', 'academic_coordinator', 'teacher'].includes(role))) {
+          return respond(403, { error: 'School staff access is required to view storage options.' });
+        }
+        const { data: storage, error: storageError } = await serviceClient
+          .from('school_past_paper_storage')
+          .select('bucket_name,created_at')
+          .eq('school_id', payload.schoolId)
+          .maybeSingle();
+        if (storageError) throw storageError;
+        return respond(200, {
+          configured: Boolean(storage),
+          bucketName: storage?.bucket_name ?? null,
+          createdAt: storage?.created_at ?? null,
+        });
+      }
+
       if (action === 'request-managed-storage') {
         if (!roles.includes('school_admin')) return respond(403, { error: 'Only a school administrator can request managed storage.' });
         const { data: school, error: schoolError } = await serviceClient
@@ -274,6 +292,94 @@ Deno.serve(async (request: Request) => {
 
       if (!roles.includes('school_admin')) {
         return respond(403, { error: 'Only a school administrator can change storage connections.' });
+      }
+
+      if (action === 'delete-paper-storage') {
+        const { count, error: documentCountError } = await serviceClient
+          .from('past_paper_documents')
+          .select('id', { count: 'exact', head: true })
+          .eq('school_id', payload.schoolId)
+          .eq('storage_provider', 'r2');
+        if (documentCountError) throw documentCountError;
+        if ((count ?? 0) > 0) {
+          return respond(409, { error: 'Past-paper documents are stored in this bucket. Move or remove them before disconnecting it.' });
+        }
+        const { count: activeLeases, error: leaseCountError } = await serviceClient
+          .from('past_paper_discovery_items')
+          .select('id', { count: 'exact', head: true })
+          .eq('school_id', payload.schoolId)
+          .eq('lease_storage_provider', 'r2')
+          .gt('lease_expires_at', new Date().toISOString());
+        if (leaseCountError) throw leaseCountError;
+        if ((activeLeases ?? 0) > 0) {
+          return respond(409, { error: 'Past-paper processing is using this bucket. Wait for active jobs to finish before disconnecting it.' });
+        }
+        const { data: deleted, error: deleteError } = await serviceClient
+          .from('school_past_paper_storage')
+          .delete()
+          .eq('school_id', payload.schoolId)
+          .select('school_id')
+          .maybeSingle();
+        if (deleteError) throw deleteError;
+        if (!deleted) return respond(404, { error: 'The past-paper R2 storage connection was not found.' });
+        return respond(200, { status: 'deleted' });
+      }
+
+      if (action === 'save-paper-storage') {
+        const accountId = typeof payload.accountId === 'string' ? payload.accountId.trim().toLowerCase() : '';
+        const bucketName = typeof payload.bucketName === 'string' ? payload.bucketName.trim() : '';
+        const accessKeyId = typeof payload.accessKeyId === 'string' ? payload.accessKeyId.trim() : '';
+        const secretAccessKey = typeof payload.secretAccessKey === 'string' ? payload.secretAccessKey : '';
+        if (!/^[a-f0-9]{32}$/i.test(accountId)
+          || !/^[a-z0-9][a-z0-9-]{1,61}[a-z0-9]$/.test(bucketName)
+          || accessKeyId.length < 8 || accessKeyId.length > 256
+          || secretAccessKey.length < 16 || secretAccessKey.length > 512) {
+          return respond(400, { error: 'Check the R2 account, bucket, and API token details.' });
+        }
+        const { data: existingPaperStorage, error: existingStorageError } = await serviceClient
+          .from('school_past_paper_storage')
+          .select('account_id,bucket_name')
+          .eq('school_id', payload.schoolId)
+          .maybeSingle();
+        if (existingStorageError) throw existingStorageError;
+        if (existingPaperStorage
+          && (existingPaperStorage.account_id !== accountId || existingPaperStorage.bucket_name !== bucketName)) {
+          const [{ count: documents, error: documentCountError }, { count: activeLeases, error: leaseCountError }] = await Promise.all([
+            serviceClient.from('past_paper_documents').select('id', { count: 'exact', head: true })
+              .eq('school_id', payload.schoolId).eq('storage_provider', 'r2'),
+            serviceClient.from('past_paper_discovery_items').select('id', { count: 'exact', head: true })
+              .eq('school_id', payload.schoolId).eq('lease_storage_provider', 'r2')
+              .gt('lease_expires_at', new Date().toISOString()),
+          ]);
+          if (documentCountError) throw documentCountError;
+          if (leaseCountError) throw leaseCountError;
+          if ((documents ?? 0) > 0 || (activeLeases ?? 0) > 0) {
+            return respond(409, { error: 'The current bucket contains past-paper files or active jobs. Use the same account and bucket to rotate keys, or remove/move its files before switching buckets.' });
+          }
+        }
+        const credentials = { accountId, bucketName, accessKeyId, secretAccessKey };
+        try {
+          await makeR2Client(credentials).send(new HeadBucketCommand({ Bucket: bucketName }));
+        } catch (verificationError) {
+          console.error(
+            'Past-paper Cloudflare R2 bucket verification failed.',
+            verificationError instanceof Error ? verificationError.name : 'Unknown error',
+          );
+          return respond(400, { error: 'Could not verify this R2 bucket. Confirm the account, bucket, and token permissions.' });
+        }
+        const encrypted = await encryptCredentials(credentials);
+        const { error: saveError } = await serviceClient
+          .from('school_past_paper_storage')
+          .upsert({
+            school_id: payload.schoolId,
+            account_id: accountId,
+            bucket_name: bucketName,
+            ...encrypted,
+            created_by: user.id,
+            updated_at: new Date().toISOString(),
+          }, { onConflict: 'school_id' });
+        if (saveError) throw saveError;
+        return respond(200, { configured: true, bucketName });
       }
 
       if (action === 'delete-connection') {
