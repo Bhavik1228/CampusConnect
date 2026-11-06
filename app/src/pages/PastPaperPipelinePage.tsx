@@ -199,7 +199,25 @@ export function PastPaperPipelinePage() {
     const { data, error: invokeError } = await requireSupabase().functions.invoke('past-paper-pipeline', {
       body: { action, schoolId, ...values },
     });
-    if (invokeError) throw invokeError;
+    if (invokeError) {
+      if (invokeError.context instanceof Response) {
+        const responseBody = await invokeError.context.clone().text();
+        if (responseBody) {
+          let errorMessage = responseBody;
+          try {
+            const parsedBody: unknown = JSON.parse(responseBody);
+            if (typeof parsedBody === 'object' && parsedBody !== null && !Array.isArray(parsedBody)
+              && 'error' in parsedBody && typeof parsedBody.error === 'string') {
+              errorMessage = parsedBody.error;
+            }
+          } catch {
+            errorMessage = responseBody;
+          }
+          throw new Error(errorMessage);
+        }
+      }
+      throw invokeError;
+    }
     return data as T;
   }, [schoolId]);
 
