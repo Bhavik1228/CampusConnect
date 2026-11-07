@@ -123,6 +123,31 @@ const statusLabels: Record<WorkStatus, string> = {
 
 const statuses: WorkStatus[] = ['open', 'assigned', 'in_progress', 'pending_approval', 'approved', 'rejected', 'resolved', 'closed'];
 const priorities: WorkPriority[] = ['low', 'normal', 'high', 'urgent'];
+const safeguardingCategories = [
+  { value: 'bullying', label: 'Bullying or peer-on-peer harm' },
+  { value: 'abuse_disclosure', label: 'Abuse or disclosure' },
+  { value: 'neglect', label: 'Neglect or unmet care needs' },
+  { value: 'online_safety', label: 'Online safety' },
+  { value: 'mental_wellbeing', label: 'Mental wellbeing' },
+  { value: 'attendance', label: 'Attendance or missing child' },
+  { value: 'other', label: 'Other concern' },
+];
+const safeguardingStatusLabels: Record<WorkStatus, string> = {
+  open: 'New concern',
+  assigned: 'Assigned',
+  in_progress: 'Action in progress',
+  pending_approval: 'Awaiting referral review',
+  approved: 'Referral approved',
+  rejected: 'Referral declined',
+  resolved: 'Resolved',
+  closed: 'Closed',
+};
+
+function priorityForEscalation(level: string): WorkPriority {
+  if (level === 'immediate') return 'urgent';
+  if (level === 'urgent') return 'high';
+  return 'normal';
+}
 
 export function AdministrativeWorkflowsPage() {
   const { activeMembership, user } = useAuth();
@@ -149,6 +174,11 @@ export function AdministrativeWorkflowsPage() {
   const [assignee, setAssignee] = useState('');
   const [dueDate, setDueDate] = useState('');
   const [note, setNote] = useState('');
+  const [safeguardingCategory, setSafeguardingCategory] = useState('other');
+  const [incidentDate, setIncidentDate] = useState('');
+  const [escalationLevel, setEscalationLevel] = useState('routine');
+  const [immediateAction, setImmediateAction] = useState('');
+  const [referralDetails, setReferralDetails] = useState('');
   const [showForm, setShowForm] = useState(false);
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
@@ -157,9 +187,15 @@ export function AdministrativeWorkflowsPage() {
   const [refreshKey, setRefreshKey] = useState(0);
 
   const selected = items.find((item) => item.id === selectedId) ?? null;
-  const availableStatuses = !isAdmin && domain === 'procurement'
+  const statusLabel = (value: WorkStatus) => domain === 'safeguarding'
+    ? safeguardingStatusLabels[value]
+    : statusLabels[value];
+  const availableStatuses = !isAdmin && ['procurement', 'safeguarding'].includes(domain)
     ? statuses.filter((value) => value !== 'approved' && value !== 'rejected')
     : statuses;
+  const assignableMembers = domain === 'safeguarding'
+    ? members.filter((member) => member.role === 'school_admin' || member.role === 'safeguarding_officer')
+    : members;
   const selectedStatuses = selected && !availableStatuses.includes(status)
     ? [...availableStatuses, status]
     : availableStatuses;
@@ -173,19 +209,32 @@ export function AdministrativeWorkflowsPage() {
     setError('');
     try {
       const client = requireSupabase();
+      const memberResultPromise = isAdmin
+        ? client.from('school_memberships')
+          .select('profile_id,role,profile:profiles(full_name,email)')
+          .eq('school_id', schoolId).order('created_at')
+        : domain === 'safeguarding'
+          ? client.rpc('list_safeguarding_assignees', { target_school: schoolId })
+          : null;
       const [itemResult, memberResult] = await Promise.all([
         client.from('school_administrative_work_items')
           .select('id,domain,record_type,title,description,status,priority,details,assigned_to,due_date,updated_at')
           .eq('school_id', schoolId).eq('domain', domain).order('updated_at', { ascending: false }),
-        client.from('school_memberships')
-          .select('profile_id,role,profile:profiles(full_name,email)')
-          .eq('school_id', schoolId).order('created_at'),
+        memberResultPromise,
       ]);
       if (itemResult.error) throw itemResult.error;
-      if (memberResult.error) throw memberResult.error;
+      if (memberResult?.error) throw memberResult.error;
       const rows = (itemResult.data ?? []) as unknown as WorkItem[];
       setItems(rows);
-      setMembers((memberResult.data ?? []) as unknown as Member[]);
+      const memberRows = memberResult?.data ?? [];
+      setMembers(isAdmin
+        ? memberRows as unknown as Member[]
+        : (memberRows as { profile_id: string; role: AppRole; full_name: string | null; email: string | null }[])
+          .map((member) => ({
+            profile_id: member.profile_id,
+            role: member.role,
+            profile: { full_name: member.full_name, email: member.email },
+          })));
       setSelectedId((current) => current && rows.some((item) => item.id === current) ? current : rows[0]?.id ?? '');
     } catch (loadError) {
       setError(loadError instanceof Error ? loadError.message : 'Could not load administrative work items.');
@@ -236,6 +285,11 @@ export function AdministrativeWorkflowsPage() {
     setAssignee(user?.id ?? '');
     setDueDate('');
     setNote('');
+    setSafeguardingCategory('other');
+    setIncidentDate('');
+    setEscalationLevel('routine');
+    setImmediateAction('');
+    setReferralDetails('');
   }
 
   function startCreate() {
@@ -252,11 +306,28 @@ export function AdministrativeWorkflowsPage() {
     setError('');
     setSuccess('');
     try {
+      if (domain === 'safeguarding') {
+        if (!description.trim()) throw new Error('Add a factual description of the concern.');
+        if (!note.trim()) throw new Error('Add an initial audit note for the safeguarding history.');
+        if (escalationLevel !== 'routine' && !immediateAction.trim()) {
+          throw new Error('Record the immediate action taken for an urgent or immediate concern.');
+        }
+        if (recordType === 'referral' && !referralDetails.trim()) {
+          throw new Error('Add the referral details before creating a referral record.');
+        }
+      }
       const details = {
         reference: reference.trim(),
         location: location.trim(),
         amount: amount.trim() ? Number(amount) : null,
         latest_note: note.trim(),
+        ...(domain === 'safeguarding' ? {
+          category: safeguardingCategory,
+          incident_date: incidentDate || null,
+          escalation_level: escalationLevel,
+          immediate_action: immediateAction.trim(),
+          referral_details: referralDetails.trim(),
+        } : {}),
       };
       if (amount.trim() && (!Number.isFinite(Number(amount)) || Number(amount) < 0)) {
         throw new Error('Enter a valid non-negative amount.');
@@ -268,7 +339,7 @@ export function AdministrativeWorkflowsPage() {
         title: title.trim(),
         description: description.trim(),
         status,
-        priority,
+        priority: domain === 'safeguarding' ? priorityForEscalation(escalationLevel) : priority,
         details,
         assigned_to: assignee || null,
         due_date: dueDate || null,
@@ -286,18 +357,42 @@ export function AdministrativeWorkflowsPage() {
     }
   }
 
+  function updateSelectedDetail(key: string, value: string | null) {
+    if (!selected) return;
+    setItems((current) => current.map((item) => item.id === selected.id
+      ? { ...item, details: { ...item.details, [key]: value } }
+      : item));
+  }
+
   async function updateStatus(nextStatus: WorkStatus) {
     if (!schoolId || !user || !selected) return;
+    if (!isAdmin && domain === 'safeguarding' && ['approved', 'rejected'].includes(nextStatus)) {
+      setError('Only a school administrator can approve or decline a safeguarding referral.');
+      return;
+    }
     setSaving(true);
     setError('');
     setSuccess('');
     try {
+      const currentEscalation = String(selected.details.escalation_level ?? 'routine');
+      if (domain === 'safeguarding') {
+        if (!note.trim()) throw new Error('Add an update note so the safeguarding audit history remains useful.');
+        if (currentEscalation !== 'routine' && !String(selected.details.immediate_action ?? '').trim()) {
+          throw new Error('Record the immediate action taken for an urgent or immediate concern.');
+        }
+        if (selected.record_type === 'referral' && !String(selected.details.referral_details ?? '').trim()) {
+          throw new Error('Add the referral details before saving this referral.');
+        }
+      }
       const details = { ...selected.details, latest_note: note.trim() };
+      const nextPriority = domain === 'safeguarding'
+        ? priorityForEscalation(currentEscalation)
+        : selected.priority;
       const { error: updateError } = await requireSupabase().from('school_administrative_work_items')
         .update({
           title: selected.title.trim(),
           description: selected.description.trim(),
-          priority: selected.priority,
+          priority: nextPriority,
           status: nextStatus,
           details,
           assigned_to: selected.assigned_to,
@@ -307,7 +402,7 @@ export function AdministrativeWorkflowsPage() {
         })
         .eq('school_id', schoolId).eq('id', selected.id);
       if (updateError) throw updateError;
-      setSuccess(`Work item status changed to ${statusLabels[nextStatus]}.`);
+      setSuccess(`Work item saved: ${statusLabel(nextStatus)}.`);
       setNote('');
       setRefreshKey((key) => key + 1);
     } catch (updateError) {
@@ -315,6 +410,7 @@ export function AdministrativeWorkflowsPage() {
     } finally {
       setSaving(false);
     }
+
   }
 
   if (!allowedDomains.length) {
@@ -324,7 +420,7 @@ export function AdministrativeWorkflowsPage() {
   return (
     <div className="page-stack">
       <div className="page-heading">
-        <div><span className="eyebrow">School administration</span><h1>{isAdmin ? 'Administrative workflows' : domainDetails[domain].title}</h1><p>Track operational records, assignments, approvals, due dates, and an auditable status history.</p></div>
+        <div><span className="eyebrow">School administration</span><h1>{isAdmin ? 'Administrative workflows' : domainDetails[domain].title}</h1><p>{domain === 'safeguarding' ? 'Record concerns, assign follow-up, and track escalation and referral decisions in a confidential audit trail.' : 'Track operational records, assignments, approvals, due dates, and an auditable status history.'}</p></div>
         <button className="button button-primary" type="button" onClick={startCreate}><Plus size={15} />New record</button>
       </div>
       {error && <ErrorState message={error} />}
@@ -332,19 +428,36 @@ export function AdministrativeWorkflowsPage() {
       {isAdmin && <section className="content-card">
         <label className="field"><span>Administrative area</span><select value={domain} onChange={(event) => setDomain(event.target.value as WorkDomain)}>{allowedDomains.map((item) => <option key={item} value={item}>{domainDetails[item].title}</option>)}</select></label>
       </section>}
+      {domain === 'safeguarding' && <section className="content-card">
+        <div className="section-heading"><div><span className="eyebrow">Confidential workflow</span><h2>Safeguarding triage</h2></div></div>
+        <p className="settings-readonly">Record factual observations and actions only. Restrict identifying details to what is needed for follow-up. Immediate danger must be handled through your school’s emergency safeguarding procedure; this record does not send an external referral or emergency alert.</p>
+        <dl className="staff-profile-facts">
+          <div><span>Open cases</span><strong>{items.filter((item) => !['resolved', 'closed'].includes(item.status)).length}</strong></div>
+          <div><span>Urgent / immediate</span><strong>{items.filter((item) => ['urgent', 'immediate'].includes(String(item.details.escalation_level ?? '')) && !['resolved', 'closed'].includes(item.status)).length}</strong></div>
+          <div><span>Overdue follow-up</span><strong>{items.filter((item) => item.due_date && item.due_date < new Date().toISOString().slice(0, 10) && !['resolved', 'closed'].includes(item.status)).length}</strong></div>
+        </dl>
+      </section>}
       {showForm && <section className="content-card staff-profile-card">
         <div className="section-heading"><div><span className="eyebrow">{domainDetails[domain].title}</span><h2>Create a work item</h2></div><button className="button button-quiet" type="button" onClick={() => setShowForm(false)}>Cancel</button></div>
         <form className="accounting-form" onSubmit={(event) => void saveItem(event)}>
           <label className="field"><span>Record type</span><select value={recordType} onChange={(event) => setRecordType(event.target.value as WorkType)}>{domainDetails[domain].types.map((type) => <option key={type.value} value={type.value}>{type.label}</option>)}</select></label>
           <label className="field"><span>Title</span><input value={title} onChange={(event) => setTitle(event.target.value)} minLength={2} maxLength={160} required /></label>
-          <label className="field"><span>Reference / tag / student ID</span><input value={reference} onChange={(event) => setReference(event.target.value)} maxLength={120} /></label>
-          <label className="field"><span>Location</span><input value={location} onChange={(event) => setLocation(event.target.value)} maxLength={200} /></label>
+          <label className="field"><span>{domain === 'safeguarding' ? 'Student ID reference (avoid names)' : 'Reference / tag / student ID'}</span><input value={reference} onChange={(event) => setReference(event.target.value)} maxLength={120} /></label>
+          <label className="field"><span>{domain === 'safeguarding' ? 'Incident location (if known)' : 'Location'}</span><input value={location} onChange={(event) => setLocation(event.target.value)} maxLength={200} /></label>
+          {domain === 'safeguarding' && <>
+            <label className="field"><span>Concern category</span><select value={safeguardingCategory} onChange={(event) => setSafeguardingCategory(event.target.value)}>{safeguardingCategories.map((category) => <option key={category.value} value={category.value}>{category.label}</option>)}</select></label>
+            <label className="field"><span>Date of incident / disclosure</span><input type="date" value={incidentDate} onChange={(event) => setIncidentDate(event.target.value)} /></label>
+            <label className="field"><span>Escalation level</span><select value={escalationLevel} onChange={(event) => setEscalationLevel(event.target.value)}><option value="routine">Routine follow-up</option><option value="urgent">Urgent</option><option value="immediate">Immediate</option></select></label>
+            <label className="field accounting-field-wide"><span>Immediate action taken {escalationLevel !== 'routine' ? '(required)' : '(if applicable)'}</span><textarea rows={3} maxLength={2000} required={escalationLevel !== 'routine'} value={immediateAction} onChange={(event) => setImmediateAction(event.target.value)} /></label>
+            {recordType === 'referral' && <label className="field accounting-field-wide"><span>Referral details (required)</span><textarea rows={3} maxLength={2000} required value={referralDetails} onChange={(event) => setReferralDetails(event.target.value)} /></label>}
+            <label className="field accounting-field-wide"><span>Initial audit note (required)</span><textarea rows={2} maxLength={1000} required value={note} onChange={(event) => setNote(event.target.value)} placeholder="Briefly record the action or decision being logged" /></label>
+          </>}
           {domain === 'procurement' && <label className="field"><span>Estimated / approved amount</span><input type="number" min="0" step="0.01" value={amount} onChange={(event) => setAmount(event.target.value)} /></label>}
-          <label className="field"><span>Priority</span><select value={priority} onChange={(event) => setPriority(event.target.value as WorkPriority)}>{priorities.map((value) => <option key={value} value={value}>{value[0].toUpperCase() + value.slice(1)}</option>)}</select></label>
-          <label className="field"><span>Assign to</span><select value={assignee} onChange={(event) => setAssignee(event.target.value)}><option value="">Unassigned</option>{members.map((member) => <option key={member.profile_id} value={member.profile_id}>{member.profile?.full_name || member.profile?.email || member.profile_id} · {member.role.replace(/_/g, ' ')}</option>)}</select></label>
+          {domain !== 'safeguarding' && <label className="field"><span>Priority</span><select value={priority} onChange={(event) => setPriority(event.target.value as WorkPriority)}>{priorities.map((value) => <option key={value} value={value}>{value[0].toUpperCase() + value.slice(1)}</option>)}</select></label>}
+          <label className="field"><span>Assign to</span><select value={assignee} onChange={(event) => setAssignee(event.target.value)}><option value="">Unassigned</option>{user && !assignableMembers.some((member) => member.profile_id === user.id) && <option value={user.id}>Assign to me</option>}{assignableMembers.map((member) => <option key={member.profile_id} value={member.profile_id}>{member.profile?.full_name || member.profile?.email || member.profile_id} · {member.role.replace(/_/g, ' ')}</option>)}</select></label>
           <label className="field"><span>Due date</span><input type="date" value={dueDate} onChange={(event) => setDueDate(event.target.value)} /></label>
-          <label className="field"><span>Initial status</span><select value={status} onChange={(event) => setStatus(event.target.value as WorkStatus)}>{availableStatuses.map((value) => <option key={value} value={value}>{statusLabels[value]}</option>)}</select></label>
-          <label className="field accounting-field-wide"><span>Description / notes</span><textarea rows={4} maxLength={5000} value={description} onChange={(event) => setDescription(event.target.value)} /></label>
+          <label className="field"><span>Initial status</span><select value={status} onChange={(event) => setStatus(event.target.value as WorkStatus)}>{availableStatuses.map((value) => <option key={value} value={value}>{statusLabel(value)}</option>)}</select></label>
+          <label className="field accounting-field-wide"><span>{domain === 'safeguarding' ? 'Factual concern description (required)' : 'Description / notes'}</span><textarea rows={4} maxLength={5000} required={domain === 'safeguarding'} value={description} onChange={(event) => setDescription(event.target.value)} /></label>
           <button className="button button-primary accounting-field-wide" type="submit" disabled={saving}><Save size={15} />{saving ? 'Saving…' : 'Create record'}</button>
         </form>
       </section>}
@@ -354,7 +467,7 @@ export function AdministrativeWorkflowsPage() {
           {loading ? <LoadingState label="Loading workflow records…" /> : items.length ? <div className="staff-directory-list">
             {items.map((item) => <button className={`staff-directory-item${selectedId === item.id ? ' selected' : ''}`} key={item.id} onClick={() => { setSelectedId(item.id); setNote(''); }}>
               <span className="staff-avatar"><ClipboardCheck size={17} /></span>
-              <span className="staff-directory-copy"><strong>{item.title}</strong><small>{domainDetails[domain].types.find((type) => type.value === item.record_type)?.label} · {item.priority} priority</small><small>{statusLabels[item.status]}{item.due_date ? ` · due ${item.due_date}` : ''}</small></span>
+              <span className="staff-directory-copy"><strong>{item.title}</strong><small>{domainDetails[domain].types.find((type) => type.value === item.record_type)?.label} · {domain === 'safeguarding' ? String(item.details.escalation_level ?? 'routine') : `${item.priority} priority`}</small><small>{statusLabel(item.status)}{item.due_date ? ` · due ${item.due_date}` : ''}</small></span>
             </button>)}
           </div> : <EmptyState title="No records yet" detail="Create a record to start tracking this workflow." />}
         </section>
@@ -363,23 +476,33 @@ export function AdministrativeWorkflowsPage() {
             <div className="section-heading"><div><span className="eyebrow">{domainDetails[domain].types.find((type) => type.value === selected.record_type)?.label}</span><h2>{selected.title}</h2></div></div>
             <label className="field"><span>Title</span><input value={selected.title} maxLength={160} onChange={(event) => setItems((current) => current.map((item) => item.id === selected.id ? { ...item, title: event.target.value } : item))} /></label>
             <label className="field"><span>Description / notes</span><textarea rows={4} maxLength={5000} value={selected.description} onChange={(event) => setItems((current) => current.map((item) => item.id === selected.id ? { ...item, description: event.target.value } : item))} /></label>
+            {domain === 'safeguarding' && <>
+              <label className="field"><span>Student ID reference (avoid names)</span><input value={String(selected.details.reference ?? '')} maxLength={120} onChange={(event) => updateSelectedDetail('reference', event.target.value)} /></label>
+              <label className="field"><span>Incident location (if known)</span><input value={String(selected.details.location ?? '')} maxLength={200} onChange={(event) => updateSelectedDetail('location', event.target.value)} /></label>
+              <label className="field"><span>Concern category</span><select value={String(selected.details.category ?? 'other')} onChange={(event) => updateSelectedDetail('category', event.target.value)}>{safeguardingCategories.map((category) => <option key={category.value} value={category.value}>{category.label}</option>)}</select></label>
+              <label className="field"><span>Date of incident / disclosure</span><input type="date" value={String(selected.details.incident_date ?? '')} onChange={(event) => updateSelectedDetail('incident_date', event.target.value || null)} /></label>
+              <label className="field"><span>Escalation level</span><select value={String(selected.details.escalation_level ?? 'routine')} onChange={(event) => updateSelectedDetail('escalation_level', event.target.value)}><option value="routine">Routine follow-up</option><option value="urgent">Urgent</option><option value="immediate">Immediate</option></select></label>
+              <label className="field"><span>Immediate action taken</span><textarea rows={3} maxLength={2000} value={String(selected.details.immediate_action ?? '')} onChange={(event) => updateSelectedDetail('immediate_action', event.target.value)} /></label>
+              {selected.record_type === 'referral' && <label className="field"><span>Referral details</span><textarea rows={3} maxLength={2000} value={String(selected.details.referral_details ?? '')} onChange={(event) => updateSelectedDetail('referral_details', event.target.value)} /></label>}
+            </>}
             <dl className="staff-profile-facts">
-              <div><span>Status</span><strong>{statusLabels[selected.status]}</strong></div>
-              <div><span>Priority</span><select value={selected.priority} onChange={(event) => setItems((current) => current.map((item) => item.id === selected.id ? { ...item, priority: event.target.value as WorkPriority } : item))}>{priorities.map((value) => <option key={value} value={value}>{value}</option>)}</select></div>
-              <div><span>Reference</span><strong>{String(selected.details.reference ?? '—')}</strong></div>
-              <div><span>Location</span><strong>{String(selected.details.location ?? '—')}</strong></div>
+              <div><span>Status</span><strong>{statusLabel(selected.status)}</strong></div>
+              {domain !== 'safeguarding' && <div><span>Priority</span><select value={selected.priority} onChange={(event) => setItems((current) => current.map((item) => item.id === selected.id ? { ...item, priority: event.target.value as WorkPriority } : item))}>{priorities.map((value) => <option key={value} value={value}>{value}</option>)}</select></div>}
+              {domain !== 'safeguarding' && <div><span>Reference</span><strong>{String(selected.details.reference ?? '—')}</strong></div>}
+              {domain !== 'safeguarding' && <div><span>Location</span><strong>{String(selected.details.location ?? '—')}</strong></div>}
               {domain === 'procurement' && <div><span>Amount</span><strong>{selected.details.amount == null ? '—' : String(selected.details.amount)}</strong></div>}
-              <div><span>Assigned to</span><select value={selected.assigned_to ?? ''} onChange={(event) => setItems((current) => current.map((item) => item.id === selected.id ? { ...item, assigned_to: event.target.value || null } : item))}><option value="">Unassigned</option>{members.map((member) => <option key={member.profile_id} value={member.profile_id}>{member.profile?.full_name || member.profile?.email || member.profile_id} · {member.role.replace(/_/g, ' ')}</option>)}</select></div>
+              <div><span>Assigned to</span><select value={selected.assigned_to ?? ''} onChange={(event) => setItems((current) => current.map((item) => item.id === selected.id ? { ...item, assigned_to: event.target.value || null } : item))}><option value="">Unassigned</option>{user && !assignableMembers.some((member) => member.profile_id === user.id) && selected.assigned_to === user.id && <option value={user.id}>Current user</option>}{assignableMembers.map((member) => <option key={member.profile_id} value={member.profile_id}>{member.profile?.full_name || member.profile?.email || member.profile_id} · {member.role.replace(/_/g, ' ')}</option>)}</select></div>
               <div><span>Due date</span><input type="date" value={selected.due_date ?? ''} onChange={(event) => setItems((current) => current.map((item) => item.id === selected.id ? { ...item, due_date: event.target.value || null } : item))} /></div>
             </dl>
-            <label className="field"><span>Update status</span><select value={status} onChange={(event) => setStatus(event.target.value as WorkStatus)}>{selectedStatuses.map((value) => <option key={value} value={value} disabled={!isAdmin && domain === 'procurement' && (value === 'approved' || value === 'rejected')}>{statusLabels[value]}</option>)}</select></label>
-            <label className="field"><span>Update note</span><textarea rows={2} maxLength={1000} value={note} onChange={(event) => setNote(event.target.value)} placeholder="Add a brief note to the record history" /></label>
+            <label className="field"><span>Update status</span><select value={status} onChange={(event) => setStatus(event.target.value as WorkStatus)}>{selectedStatuses.map((value) => <option key={value} value={value} disabled={!isAdmin && ['procurement', 'safeguarding'].includes(domain) && (value === 'approved' || value === 'rejected')}>{statusLabel(value)}</option>)}</select></label>
+            <label className="field"><span>Update note{domain === 'safeguarding' ? ' (required)' : ''}</span><textarea rows={2} maxLength={1000} required={domain === 'safeguarding'} value={note} onChange={(event) => setNote(event.target.value)} placeholder="Add a brief note to the record history" /></label>
             <div className="staff-form-actions">
               <button className="button button-primary" type="button" onClick={() => void updateStatus(status)} disabled={saving}><Save size={14} />Save update</button>
               {domain === 'procurement' && selected.status === 'pending_approval' && !isAdmin && <span className="settings-readonly">A school administrator must approve or reject this purchase.</span>}
+              {domain === 'safeguarding' && selected.record_type === 'referral' && selected.status === 'pending_approval' && !isAdmin && <span className="settings-readonly">A school administrator must approve or decline this referral.</span>}
             </div>
             <div className="section-heading"><div><span className="eyebrow">Audit trail</span><h3><ShieldCheck size={16} />Record history</h3></div></div>
-            {events.length ? <div className="settings-audit-list">{events.map((event) => <p key={event.id}><strong>{event.action === 'created' ? 'Created' : `${statusLabels[event.from_status ?? 'open']} → ${statusLabels[event.to_status]}`}</strong><span>{event.note || 'No note'} · {new Intl.DateTimeFormat(undefined, { dateStyle: 'medium', timeStyle: 'short' }).format(new Date(event.created_at))}</span></p>)}</div> : <p className="settings-readonly">No history recorded.</p>}
+            {events.length ? <div className="settings-audit-list">{events.map((event) => <p key={event.id}><strong>{event.action === 'created' ? 'Created' : `${statusLabel(event.from_status ?? 'open')} → ${statusLabel(event.to_status)}`}</strong><span>{event.note || 'No note'} · {new Intl.DateTimeFormat(undefined, { dateStyle: 'medium', timeStyle: 'short' }).format(new Date(event.created_at))}</span></p>)}</div> : <p className="settings-readonly">No history recorded.</p>}
           </>}
         </section>
       </div>

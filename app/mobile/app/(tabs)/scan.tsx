@@ -76,7 +76,7 @@ export default function ScannerScreen() {
         }} />
       </Card>
       {error ? <Message variant="error">{error}</Message> : null}
-      <Text style={{ color: colors.muted, fontSize: 12 }}>Scans are verified with Campus Connect before any record can be changed.</Text>
+      <Text style={{ color: colors.muted, fontSize: 14 }}>Scans are verified with Campus Connect before any record can be changed.</Text>
     </Page>
   );
 }

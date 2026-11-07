@@ -18,7 +18,7 @@ export default function TabsLayout() {
       tabBarActiveTintColor: colors.violet,
       tabBarInactiveTintColor: '#737B8D',
       tabBarStyle: { height: 64, paddingTop: 6, paddingBottom: 8, borderTopColor: colors.border },
-      tabBarLabelStyle: { fontSize: 10, fontWeight: '600' },
+      tabBarLabelStyle: { fontSize: 14, fontWeight: '600' },
     }}>
       <Tabs.Screen name="index" options={{ title: selectedSchool.school_name, tabBarLabel: 'Home', tabBarIcon: ({ color }) => <Text style={{ color }}>Home</Text> }} />
       <Tabs.Screen name="scan" options={{ title: 'Scan', tabBarLabel: 'Scan', tabBarIcon: ({ color }) => <Text style={{ color }}>Scan</Text> }} />

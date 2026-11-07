@@ -1,11 +1,10 @@
-import { useEffect, useState } from 'react';
+import { useState } from 'react';
 import {
   ArrowRight, BookOpen, BookOpenCheck, BookOpenText, Building2, CalendarDays,
   Check, ChevronDown, ClipboardCheck, GraduationCap, LayoutDashboard, Menu,
   MessageSquareText, ShieldCheck, Users, UsersRound, WalletCards, X,
 } from 'lucide-react';
 import { Link } from 'react-router-dom';
-import type { CSSProperties } from 'react';
 import { useAuth } from '../contexts/AuthContext';
 import { usePlatformBranding } from '../contexts/PlatformBrandingContext';
 
@@ -54,13 +53,9 @@ function DashboardPreview() {
     <div className="landing-preview-frame">
       <div className="landing-preview-glow" aria-hidden="true" />
       <div className="landing-preview-window">
-        <div className="landing-window-bar">
-          <span className="window-dot red" /><span className="window-dot yellow" /><span className="window-dot green" />
-          <span className="window-label">illustrative workspace</span>
-        </div>
         <div className="landing-preview-dashboard">
           <div className="preview-heading">
-            <div><span className="preview-overline">Workspace overview</span><h2>School operations</h2></div>
+            <div><h2>School operations</h2></div>
             <span className="preview-school-chip"><span /> School view</span>
           </div>
           <div className="preview-stat-grid">
@@ -98,33 +93,12 @@ export function LandingPage() {
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
   const [activeQuestion, setActiveQuestion] = useState<number | null>(0);
 
-  useEffect(() => {
-    const elements = document.querySelectorAll<HTMLElement>('.landing-reveal');
-    if (!('IntersectionObserver' in window)) {
-      elements.forEach((element) => element.classList.add('is-visible'));
-      return;
-    }
-    const observer = new IntersectionObserver((entries) => {
-      entries.forEach((entry) => {
-        if (entry.isIntersecting) {
-          entry.target.classList.add('is-visible');
-          observer.unobserve(entry.target);
-        }
-      });
-    }, { threshold: 0.12 });
-    document.querySelector('.landing-page')?.classList.add('landing-animated');
-    elements.forEach((element) => observer.observe(element));
-    return () => observer.disconnect();
-  }, []);
-
   function closeMobileMenu() {
     setMobileMenuOpen(false);
   }
 
   return (
     <main className="landing-page">
-      <div className="landing-ambient landing-ambient-one" aria-hidden="true" />
-      <div className="landing-ambient landing-ambient-two" aria-hidden="true" />
       <header className="landing-header">
         <div className="landing-header-inner">
           <a className="landing-brand" href="#home" onClick={closeMobileMenu}>
@@ -153,10 +127,8 @@ export function LandingPage() {
       {maintenanceNotice && <aside className="platform-maintenance-notice" role="status">{maintenanceNotice}</aside>}
 
       <section className="landing-hero" id="home">
-        <div className="landing-grid-pattern" aria-hidden="true" />
         <div className="landing-container landing-hero-grid">
           <div className="landing-hero-copy">
-            <span className="landing-eyebrow landing-reveal"><span className="eyebrow-pulse" /> Multi-school information + learning platform</span>
             <h1 className="landing-reveal">One connected system for <span>school life.</span></h1>
             <p className="landing-hero-description landing-reveal">Campus Connect brings school operations, student information, learning, and communication into one organized workspace for schools and campus groups.</p>
             <div className="landing-hero-actions landing-reveal">
@@ -177,13 +149,12 @@ export function LandingPage() {
       <section className="landing-section landing-features" id="features">
         <div className="landing-container">
           <div className="landing-section-heading landing-reveal">
-            <span className="landing-section-kicker">Made for school work</span>
             <h2>Bring the school day into focus.</h2>
             <p>A shared foundation for the everyday work of running a school and supporting learning.</p>
           </div>
           <div className="landing-feature-grid">
-            {features.map(({ icon: Icon, tone, title, description }, index) => (
-              <article className="landing-feature-card landing-reveal" style={{ '--reveal-delay': `${index * 70}ms` } as CSSProperties} key={title}>
+            {features.map(({ icon: Icon, tone, title, description }) => (
+              <article className="landing-feature-card" key={title}>
                 <span className={`landing-feature-icon ${tone}`}><Icon size={21} strokeWidth={1.8} /></span>
                 <h3>{title}</h3><p>{description}</p><span className="landing-card-line" aria-hidden="true" />
               </article>
@@ -195,7 +166,6 @@ export function LandingPage() {
       <section className="landing-section landing-multischool" id="multi-school">
         <div className="landing-container landing-multischool-grid">
           <div className="landing-multischool-copy">
-            <span className="landing-section-kicker landing-reveal">Designed for more than one campus</span>
             <h2 className="landing-reveal">A wider view for connected schools.</h2>
             <p className="landing-multischool-lead landing-reveal">Give each school its own workspace and keep access organized through school membership.</p>
             <ul className="landing-check-list">
@@ -223,13 +193,12 @@ export function LandingPage() {
       <section className="landing-section landing-modules" id="modules">
         <div className="landing-container">
           <div className="landing-section-heading landing-reveal">
-            <span className="landing-section-kicker">Platform in development</span>
             <h2>One place for essential school workflows.</h2>
             <p>Campus Connect is being built to bring these school information, operations, and learning workflows together.</p>
           </div>
           <div className="landing-modules-grid">
-            {modules.map(([number, title, description], index) => (
-              <article className="landing-module-card landing-reveal" style={{ '--reveal-delay': `${index * 45}ms` } as CSSProperties} key={number}>
+            {modules.map(([number, title, description]) => (
+              <article className="landing-module-card landing-reveal" key={number}>
                 <span>{number}</span><h3>{title}</h3><p>{description}</p>
               </article>
             ))}
@@ -240,7 +209,6 @@ export function LandingPage() {
       <section className="landing-section landing-flow">
         <div className="landing-container">
           <div className="landing-section-heading landing-reveal">
-            <span className="landing-section-kicker">A connected flow</span>
             <h2>From school structure to learning progress.</h2>
           </div>
           <div className="landing-flow-grid">
@@ -254,7 +222,6 @@ export function LandingPage() {
       <section className="landing-section landing-faq" id="faq">
         <div className="landing-container landing-faq-container">
           <div className="landing-section-heading landing-reveal">
-            <span className="landing-section-kicker">Questions</span>
             <h2>Good to know.</h2>
             <p>Some practical details about Campus Connect.</p>
           </div>
@@ -275,7 +242,6 @@ export function LandingPage() {
         <div className="landing-container">
           <div className="landing-cta-card landing-reveal">
             <div className="cta-glow" aria-hidden="true" />
-            <span className="landing-section-kicker">{platformName}</span>
             <h2>Bring your school information and learning into one workspace.</h2>
             <p>Start by setting up an account and creating your school workspace.</p>
             <Link className="landing-button landing-button-primary landing-button-large" to="/login">Get started <ArrowRight size={18} /></Link>

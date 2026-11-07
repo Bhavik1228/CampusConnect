@@ -26,6 +26,7 @@ import { MessagingPage } from '../pages/MessagingPage';
 import { AuditLogPage } from '../pages/AuditLogPage';
 import { AdmissionsPage } from '../pages/AdmissionsPage';
 import { StudentsPage } from '../pages/StudentsPage';
+import { GuardianContactVerificationPage } from '../pages/GuardianContactVerificationPage';
 import { AdministrativeWorkflowsPage } from '../pages/AdministrativeWorkflowsPage';
 import { WebsiteManagementPage } from '../pages/WebsiteManagementPage';
 import { CoursesLessonsPage } from '../pages/CoursesLessonsPage';
@@ -56,6 +57,7 @@ import { SystemOwnerIncidentsPage } from '../pages/SystemOwnerIncidentsPage';
 import { PrerequisiteDemoPage } from '../pages/PrerequisiteDemoPage';
 import { DraftRecoveryDemoPage } from '../pages/DraftRecoveryDemoPage';
 import { PastPaperPipelinePage } from '../pages/PastPaperPipelinePage';
+import { NotFoundPage } from '../pages/NotFoundPage';
 
 function RouteGate({ authOnly = true, requireMembership = true }: { authOnly?: boolean; requireMembership?: boolean }) {
   const { user, loading, memberships } = useAuth();
@@ -189,6 +191,7 @@ export function ProtectedApp() {
           <Route path="/support" element={<SupportPage />} />
           <Route path="/dashboard" element={<DashboardPage />} />
           <Route path="/students" element={<StudentsPage />} />
+          <Route path="/guardian-contact-verification" element={<GuardianContactVerificationPage />} />
           <Route path="/admissions" element={<AdmissionsPage />} />
           <Route path="/teachers" element={<DirectoryPage kind="teachers" />} />
           <Route path="/staff" element={<StaffManagementPage />} />
@@ -225,7 +228,7 @@ export function ProtectedApp() {
           </Route>
         </Route>
       </Route>
-      <Route path="*" element={<Navigate to="/" replace />} />
+      <Route path="*" element={<NotFoundPage />} />
       </Routes>
     </PlatformBrandingProvider>
   );

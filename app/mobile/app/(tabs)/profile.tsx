@@ -52,7 +52,7 @@ export default function ProfileScreen() {
       </Card>
       <Card>
         <Text style={{ color: colors.text, fontSize: 16, fontWeight: '700' }}>Connection and permissions</Text>
-        <Text style={{ color: colors.muted, fontSize: 13, lineHeight: 19 }}>Camera permission is requested only when you open the scanner. Sensitive health records are not stored offline.</Text>
+        <Text style={{ color: colors.muted, fontSize: 14, lineHeight: 20 }}>Camera permission is requested only when you open the scanner. Sensitive health records are not stored offline.</Text>
         <Button title="Refresh school access" variant="secondary" disabled={busy} onPress={() => void refresh()} />
         <Button title="Configure device notification permission" variant="secondary" onPress={() => void requestNotifications()} />
       </Card>

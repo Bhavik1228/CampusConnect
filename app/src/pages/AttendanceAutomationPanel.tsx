@@ -9,7 +9,7 @@ import type { AppRole } from '../types/database';
 
 type Role = AppRole;
 type AttendanceStatus = 'present' | 'absent' | 'late' | 'excused';
-type PanelTab = 'automation' | 'leave' | 'analytics' | 'operations';
+type PanelTab = 'automation' | 'risk' | 'leave' | 'analytics' | 'operations';
 
 interface Props {
   schoolId: string;
@@ -121,6 +121,13 @@ function statusLabel(status: string) {
   return status.replaceAll('_', ' ');
 }
 
+function riskTypeLabel(taskType: string) {
+  if (taskType === 'consecutive_absence') return 'Consecutive absences';
+  if (taskType === 'repeated_absence') return 'Repeated absences';
+  if (taskType === 'below_threshold') return 'Below attendance threshold';
+  return statusLabel(taskType);
+}
+
 function parseCsv(text: string): string[][] {
   const rows: string[][] = [];
   let row: string[] = [];
@@ -166,6 +173,7 @@ export function AttendanceAutomationPanel({ schoolId, userId, role, active, clas
   const manager = isManageRole(role);
   const family = role === 'parent' || role === 'student';
   const [tab, setTab] = useState<PanelTab>('automation');
+  const [riskTypeFilter, setRiskTypeFilter] = useState('');
   const [students, setStudents] = useState<StudentOption[]>([]);
   const [leaveRows, setLeaveRows] = useState<LeaveRow[]>([]);
   const [tasks, setTasks] = useState<FollowupTask[]>([]);
@@ -212,7 +220,7 @@ export function AttendanceAutomationPanel({ schoolId, userId, role, active, clas
             .eq('school_id', schoolId).gte('attendance_date', dateFrom).lte('attendance_date', dateTo).order('attendance_date', { ascending: false }).limit(250),
           client.from('attendance_followup_tasks')
             .select('id,student_id,task_type,title,details,status,created_at,students(first_name,last_name,student_number,class_id)')
-            .eq('school_id', schoolId).neq('status', 'resolved').order('created_at', { ascending: false }).limit(100),
+            .eq('school_id', schoolId).neq('status', 'resolved').order('created_at', { ascending: false }).limit(1000),
           manager
             ? client.from('teacher_profiles').select('id,first_name,last_name').eq('school_id', schoolId).order('last_name')
             : Promise.resolve({ data: [], error: null }),
@@ -362,6 +370,23 @@ export function AttendanceAutomationPanel({ schoolId, userId, role, active, clas
       await loadPanel();
     } catch (rpcError) {
       setError(rpcError instanceof Error ? rpcError.message : 'Could not run attendance follow-up.');
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  async function runRiskScan() {
+    setSaving(true);
+    setError('');
+    setNotice('');
+    try {
+      const { data, error: scanError } = await requireSupabase()
+        .rpc('run_attendance_followup_scan', { target_school: schoolId });
+      if (scanError) throw scanError;
+      setNotice(`${data ?? 0} new attendance risk task(s) identified using this school's configured thresholds.`);
+      await loadPanel();
+    } catch (scanError) {
+      setError(scanError instanceof Error ? scanError.message : 'Could not refresh the attendance risk list.');
     } finally {
       setSaving(false);
     }
@@ -701,6 +726,14 @@ export function AttendanceAutomationPanel({ schoolId, userId, role, active, clas
     const session = related(record.attendance_sessions);
     return !selectedClass || session?.class_id === selectedClass;
   }), [analyticsRecords, selectedClass]);
+  const riskTasks = useMemo(() => tasks.filter((task) => (
+    ['repeated_absence', 'consecutive_absence', 'below_threshold'].includes(task.task_type)
+    && (!selectedClass || related(task.students)?.class_id === selectedClass)
+    && (!riskTypeFilter || task.task_type === riskTypeFilter)
+  )), [tasks, selectedClass, riskTypeFilter]);
+  const riskStudentCount = new Set(riskTasks.map((task) => task.student_id)).size;
+  const urgentRiskCount = riskTasks.filter((task) => task.task_type === 'consecutive_absence').length;
+  const belowThresholdCount = riskTasks.filter((task) => task.task_type === 'below_threshold').length;
 
   const classCounts = useMemo(() => {
     const totals = new Map<string, { present: number; count: number }>();
@@ -741,6 +774,7 @@ export function AttendanceAutomationPanel({ schoolId, userId, role, active, clas
   const panelTabs: { id: PanelTab; label: string }[] = manager || role === 'teacher'
     ? [
       { id: 'automation', label: 'Automation & follow-up' },
+      { id: 'risk', label: 'Attendance risk' },
       { id: 'leave', label: 'Leave requests' },
       { id: 'analytics', label: 'Analytics' },
       { id: 'operations', label: 'Operations' },
@@ -876,6 +910,40 @@ export function AttendanceAutomationPanel({ schoolId, userId, role, active, clas
             <button className="button button-quiet" type="submit" disabled={saving || !selectedStudent}>Submit correction request</button>
           </form>
         </section>}
+      </>}
+
+      {tab === 'risk' && (manager || role === 'teacher') && <>
+        <section className="content-card attendance-automation-form">
+          <div><span className="eyebrow"><AlertTriangle size={14} /> Early warning</span><h2>Attendance risk watchlist</h2>
+            <p>Students are listed when their saved attendance crosses the school’s configured repeated-absence, consecutive-absence, or attendance-rate warning thresholds. Verify each case and consider the student’s context before taking action.</p></div>
+          <div className="attendance-session-actions">
+            <label>Class<select value={selectedClass} onChange={(event) => setSelectedClass(event.target.value)}><option value="">All assigned classes</option>{classes.map((item) => <option key={item.id} value={item.id}>{item.name}</option>)}</select></label>
+            <label>Risk type<select value={riskTypeFilter} onChange={(event) => setRiskTypeFilter(event.target.value)}><option value="">All risk types</option><option value="consecutive_absence">Consecutive absences</option><option value="repeated_absence">Repeated absences</option><option value="below_threshold">Below attendance threshold</option></select></label>
+            {manager && <button type="button" className="button button-primary" onClick={() => void runRiskScan()} disabled={saving}><RefreshCw size={15} />Refresh risk scan</button>}
+          </div>
+        </section>
+        <div className="attendance-report-summary">
+          <div><strong>{riskTasks.length}</strong><span>Active risk flags</span></div>
+          <div><strong>{riskStudentCount}</strong><span>Students to review</span></div>
+          <div><strong>{urgentRiskCount}</strong><span>Consecutive-absence flags</span></div>
+          <div><strong>{belowThresholdCount}</strong><span>Below-threshold flags</span></div>
+        </div>
+        <section className="content-card attendance-operations-card">
+          <div className="attendance-table-heading"><div><span className="eyebrow">Threshold-driven follow-up</span><h2>Students for review</h2></div><span>{riskTasks.length} active flag(s)</span></div>
+          {riskTasks.length ? <div className="table-scroll"><table><thead><tr><th>Student</th><th>Student ID</th><th>Class</th><th>Risk indicator</th><th>Evidence</th><th>Detected</th><th>Follow-up</th></tr></thead><tbody>{riskTasks.map((task) => {
+            const student = related(task.students);
+            return <tr key={task.id}>
+              <td>{student ? `${student.first_name} ${student.last_name}` : 'Student'}</td>
+              <td>{student?.student_number ?? '—'}</td>
+              <td>{classes.find((item) => item.id === student?.class_id)?.name ?? '—'}</td>
+              <td>{riskTypeLabel(task.task_type)}</td>
+              <td>{task.details}</td>
+              <td>{new Date(task.created_at).toLocaleDateString()}</td>
+              <td><button className="button button-quiet" type="button" onClick={() => void updateTask(task, task.status === 'open' ? 'in_progress' : 'resolved')} disabled={saving}>{task.status === 'open' ? 'Start review' : 'Resolve flag'}</button></td>
+            </tr>;
+          })}</tbody></table></div> : <EmptyState title="No active attendance risks" detail={manager ? 'Run a risk scan to evaluate saved attendance against this school’s configured thresholds.' : 'No active threshold-driven follow-up flags are currently assigned to the selected classes.'} />}
+          <p className="attendance-automation-copy">Risk flags are prompts for human review, not diagnoses. Refreshing this list runs the configured attendance scan and does not send guardian reminders.</p>
+        </section>
       </>}
 
       {tab === 'analytics' && (manager || role === 'teacher') && <>

@@ -17,6 +17,16 @@ type PrivateProfile = {
   postal_code: string | null; country: string | null; gender: string | null; nationality: string | null;
   admission_date: string | null;
 };
+type StudentQualityProfile = Pick<PrivateProfile, 'phone' | 'address' | 'city' | 'country' | 'admission_date'>;
+type StudentQualityData = {
+  profiles: Record<string, StudentQualityProfile>;
+  emergencyContacts: Record<string, number>;
+  documents: Record<string, number>;
+};
+type StudentQualityFinding = {
+  issues: string[];
+  possibleDuplicate: boolean;
+};
 type EmergencyContact = {
   contact_name: string; relationship: string | null; phone: string; email: string | null;
 };
@@ -35,6 +45,18 @@ type AcademicYearRecord = {
 type StudentAuditEvent = {
   id: number; event_type: 'correction' | 'merge'; related_student_id: string | null;
   reason: string; created_at: string;
+};
+type StudentAttendanceSnapshot = {
+  status: 'present' | 'absent' | 'late' | 'excused';
+  session: { attendance_date: string } | { attendance_date: string }[] | null;
+};
+type StudentPublishedResult = {
+  id: string;
+  assessment_date: string;
+  marks_obtained: number;
+  maximum_marks: number;
+  percentage: number;
+  assessment: { title: string; subject: string } | { title: string; subject: string }[] | null;
 };
 
 const documentTypes = new Set([
@@ -64,11 +86,17 @@ export function StudentsPage() {
   const [documents, setDocuments] = useState<StudentDocument[]>([]);
   const [academicHistory, setAcademicHistory] = useState<AcademicYearRecord[]>([]);
   const [auditEvents, setAuditEvents] = useState<StudentAuditEvent[]>([]);
+  const [attendanceSnapshot, setAttendanceSnapshot] = useState<StudentAttendanceSnapshot[]>([]);
+  const [publishedResults, setPublishedResults] = useState<StudentPublishedResult[]>([]);
+  const [qualityData, setQualityData] = useState<StudentQualityData>({ profiles: {}, emergencyContacts: {}, documents: {} });
+  const [qualityLoading, setQualityLoading] = useState(false);
+  const [qualityError, setQualityError] = useState('');
   const [academicYears, setAcademicYears] = useState<{ id: string; name: string }[]>([]);
   const [loading, setLoading] = useState(true);
   const [detailLoading, setDetailLoading] = useState(false);
   const [error, setError] = useState('');
   const [query, setQuery] = useState('');
+  const [qualityFilter, setQualityFilter] = useState<'all' | 'needs_attention' | 'possible_duplicate'>('all');
   const [showForm, setShowForm] = useState(false);
   const [saving, setSaving] = useState(false);
   const [uploading, setUploading] = useState(false);
@@ -118,6 +146,58 @@ export function StudentsPage() {
 
   useEffect(() => { void loadStudents(); }, [loadStudents, refreshKey]);
 
+  useEffect(() => {
+    if (!schoolId || !canManage || students.length === 0) {
+      setQualityData({ profiles: {}, emergencyContacts: {}, documents: {} });
+      setQualityLoading(false);
+      setQualityError('');
+      return;
+    }
+    let alive = true;
+    setQualityLoading(true);
+    setQualityError('');
+    void (async () => {
+      try {
+        const client = requireSupabase();
+        const qualityProfiles: Record<string, StudentQualityProfile> = {};
+        const emergencyContacts: Record<string, number> = {};
+        const documents: Record<string, number> = {};
+        for (let offset = 0; offset < students.length; offset += 200) {
+          const studentIds = students.slice(offset, offset + 200).map((student) => student.id);
+          const [profileResult, contactResult, documentResult] = await Promise.all([
+            client.from('student_private_profiles')
+              .select('student_id,phone,address,city,country,admission_date')
+              .eq('school_id', schoolId).in('student_id', studentIds),
+            client.from('student_emergency_contacts')
+              .select('student_id')
+              .eq('school_id', schoolId).in('student_id', studentIds),
+            client.from('student_documents')
+              .select('student_id')
+              .eq('school_id', schoolId).in('student_id', studentIds),
+          ]);
+          if (profileResult.error) throw profileResult.error;
+          if (contactResult.error) throw contactResult.error;
+          if (documentResult.error) throw documentResult.error;
+          for (const profile of profileResult.data ?? []) {
+            qualityProfiles[profile.student_id] = profile;
+          }
+          for (const contact of contactResult.data ?? []) {
+            emergencyContacts[contact.student_id] = (emergencyContacts[contact.student_id] ?? 0) + 1;
+          }
+          for (const document of documentResult.data ?? []) {
+            documents[document.student_id] = (documents[document.student_id] ?? 0) + 1;
+          }
+        }
+        if (alive) setQualityData({ profiles: qualityProfiles, emergencyContacts, documents });
+      } catch (loadError) {
+        if (alive) setQualityError(loadError instanceof Error ? loadError.message : 'Could not load student data-quality checks.');
+      } finally {
+        if (alive) setQualityLoading(false);
+      }
+    })();
+    return () => { alive = false; };
+  }, [canManage, schoolId, students]);
+
   const selectedStudent = students.find((student) => student.id === selectedId) ?? null;
 
   useEffect(() => {
@@ -150,13 +230,17 @@ export function StudentsPage() {
       setDocuments([]);
       setAcademicHistory([]);
       setAuditEvents([]);
+      setAttendanceSnapshot([]);
+      setPublishedResults([]);
       return;
     }
     setDetailLoading(true);
     setError('');
     try {
       const client = requireSupabase();
-      const [profileResult, contactResult, historyResult, documentResult, academicResult, auditResult, yearResult] = await Promise.all([
+      const attendanceStart = new Date();
+      attendanceStart.setDate(attendanceStart.getDate() - 90);
+      const [profileResult, contactResult, historyResult, documentResult, academicResult, auditResult, yearResult, attendanceResult, resultsResult] = await Promise.all([
         client.from('student_private_profiles')
           .select('phone,address,city,region,postal_code,country,gender,nationality,admission_date')
           .eq('school_id', schoolId).eq('student_id', selectedStudent.id).maybeSingle(),
@@ -181,6 +265,15 @@ export function StudentsPage() {
           .eq('school_id', schoolId).eq('student_id', selectedStudent.id)
           .order('created_at', { ascending: false }).limit(50),
         client.from('academic_years').select('id,name').eq('school_id', schoolId),
+        client.from('attendance_records')
+          .select('status,session:attendance_sessions!inner(attendance_date)')
+          .eq('school_id', schoolId).eq('student_id', selectedStudent.id)
+          .gte('session.attendance_date', attendanceStart.toISOString().slice(0, 10))
+          .limit(1000),
+        client.from('learning_assessment_results')
+          .select('id,assessment_date,marks_obtained,maximum_marks,percentage,assessment:learning_assessments!inner(title,subject)')
+          .eq('school_id', schoolId).eq('student_id', selectedStudent.id).eq('status', 'published')
+          .order('assessment_date', { ascending: false }).limit(10),
       ]);
       if (profileResult.error) throw profileResult.error;
       if (contactResult.error) throw contactResult.error;
@@ -189,6 +282,8 @@ export function StudentsPage() {
       if (academicResult.error) throw academicResult.error;
       if (auditResult.error) throw auditResult.error;
       if (yearResult.error) throw yearResult.error;
+      if (attendanceResult.error) throw attendanceResult.error;
+      if (resultsResult.error) throw resultsResult.error;
       setProfile(profileResult.data as PrivateProfile | null);
       setContacts((contactResult.data ?? []) as EmergencyContact[]);
       setHistory((historyResult.data ?? []) as LifecycleRecord[]);
@@ -196,6 +291,8 @@ export function StudentsPage() {
       setAcademicHistory((academicResult.data ?? []) as AcademicYearRecord[]);
       setAuditEvents((auditResult.data ?? []) as StudentAuditEvent[]);
       setAcademicYears((yearResult.data ?? []) as { id: string; name: string }[]);
+      setAttendanceSnapshot((attendanceResult.data ?? []) as unknown as StudentAttendanceSnapshot[]);
+      setPublishedResults((resultsResult.data ?? []) as unknown as StudentPublishedResult[]);
     } catch (loadError) {
       setError(loadError instanceof Error ? loadError.message : 'Could not load the student profile.');
     } finally {
@@ -205,13 +302,59 @@ export function StudentsPage() {
 
   useEffect(() => { void loadDetails(); }, [loadDetails]);
 
+  const qualityFindings = useMemo<Map<string, StudentQualityFinding>>(() => {
+    const identityCounts = new Map<string, number>();
+    const nameEmailCounts = new Map<string, number>();
+    for (const student of students) {
+      const fullName = `${student.first_name.trim().toLowerCase()} ${student.last_name.trim().toLowerCase()}`;
+      if (student.date_of_birth) {
+        const key = `${fullName}|${student.date_of_birth}`;
+        identityCounts.set(key, (identityCounts.get(key) ?? 0) + 1);
+      }
+      if (student.email) {
+        const key = `${fullName}|${student.email.trim().toLowerCase()}`;
+        nameEmailCounts.set(key, (nameEmailCounts.get(key) ?? 0) + 1);
+      }
+    }
+
+    return new Map(students.map((student) => {
+      const fullName = `${student.first_name.trim().toLowerCase()} ${student.last_name.trim().toLowerCase()}`;
+      const profile = qualityData.profiles[student.id];
+      const issues: string[] = [];
+      if (!student.student_number.trim()) issues.push('Missing student ID');
+      if (!student.first_name.trim() || !student.last_name.trim()) issues.push('Incomplete student name');
+      if (!student.date_of_birth) issues.push('Missing date of birth');
+      else if (student.date_of_birth > new Date().toISOString().slice(0, 10)) issues.push('Date of birth is in the future');
+      if (student.status === 'active' && !student.class_id) issues.push('Active student has no class');
+      if (!student.email?.trim()) issues.push('Missing student email');
+      else if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(student.email.trim())) issues.push('Invalid student email format');
+      if (!profile?.phone?.trim()) issues.push('Missing contact phone');
+      if (!profile?.address?.trim() || !profile.city?.trim() || !profile.country?.trim()) issues.push('Incomplete home address');
+      if (!profile?.admission_date) issues.push('Missing admission date');
+      else if (student.date_of_birth && profile.admission_date < student.date_of_birth) issues.push('Admission date is before date of birth');
+      if (!qualityData.emergencyContacts[student.id]) issues.push('No emergency contact');
+      if (!qualityData.documents[student.id]) issues.push('No supporting document');
+      const identity = student.date_of_birth ? `${fullName}|${student.date_of_birth}` : '';
+      const nameEmail = student.email ? `${fullName}|${student.email.trim().toLowerCase()}` : '';
+      const possibleDuplicate = Boolean(identity && (identityCounts.get(identity) ?? 0) > 1)
+        || Boolean(nameEmail && (nameEmailCounts.get(nameEmail) ?? 0) > 1);
+      return [student.id, { issues, possibleDuplicate }] as const;
+    }));
+  }, [qualityData, students]);
+  const studentsNeedingAttention = [...qualityFindings.values()].filter((finding) => finding.issues.length > 0).length;
+  const possibleDuplicateCount = [...qualityFindings.values()].filter((finding) => finding.possibleDuplicate).length;
   const filteredStudents = useMemo(() => {
     const needle = query.trim().toLowerCase();
-    if (!needle) return students;
-    return students.filter((student) =>
-      `${student.first_name} ${student.last_name} ${student.student_number} ${student.email ?? ''} ${student.school_classes?.name ?? ''}`
-        .toLowerCase().includes(needle));
-  }, [students, query]);
+    return students.filter((student) => {
+      const matchesSearch = !needle || `${student.first_name} ${student.last_name} ${student.student_number} ${student.email ?? ''} ${student.school_classes?.name ?? ''}`
+        .toLowerCase().includes(needle);
+      const finding = qualityFindings.get(student.id);
+      const matchesQuality = qualityFilter === 'all'
+        || (qualityFilter === 'needs_attention' && Boolean(finding?.issues.length))
+        || (qualityFilter === 'possible_duplicate' && Boolean(finding?.possibleDuplicate));
+      return matchesSearch && matchesQuality;
+    });
+  }, [students, query, qualityFilter, qualityFindings]);
 
   const completenessChecks = useMemo(() => selectedStudent ? [
     { label: 'Student identifier', complete: Boolean(selectedStudent.student_number) },
@@ -435,20 +578,38 @@ export function StudentsPage() {
   return (
     <div className="page-stack">
       <div className="page-heading">
-        <div><span className="eyebrow">{activeMembership?.school.name}</span><h1>Students</h1><p>Student profiles, class enrolment, documents, and student history.</p></div>
+        <div><span className="eyebrow">{activeMembership?.school.name}</span><h1>Students</h1><p>Student 360 profiles, data quality, class enrolment, learning progress, documents, and student history.</p></div>
         {canManage && <button className="button button-primary" onClick={() => { setSelectedId(''); openForm(); }}><Plus size={17} /> Add student</button>}
       </div>
+      {canManage && <section className="content-card student-quality-center" aria-label="Student data quality centre">
+        <div className="student-quality-heading"><div><span className="eyebrow">Data quality centre</span><strong>Missing and inconsistent student information</strong></div><span>{students.length} records monitored</span></div>
+        {qualityLoading ? <LoadingState label="Checking student records…" /> : qualityError ? <ErrorState message={qualityError} /> : <>
+          <div className="student-quality-metrics">
+            <button type="button" className={qualityFilter === 'all' ? 'active' : ''} onClick={() => setQualityFilter('all')}><span>Student records</span><strong>{students.length.toLocaleString()}</strong><small>Show all records</small></button>
+            <button type="button" className={qualityFilter === 'needs_attention' ? 'active' : ''} onClick={() => setQualityFilter('needs_attention')}><span>Need attention</span><strong>{studentsNeedingAttention.toLocaleString()}</strong><small>Missing or inconsistent fields</small></button>
+            <button type="button" className={qualityFilter === 'possible_duplicate' ? 'active' : ''} onClick={() => setQualityFilter('possible_duplicate')}><span>Possible duplicates</span><strong>{possibleDuplicateCount.toLocaleString()}</strong><small>Review matching identity details</small></button>
+          </div>
+          <p>Checks include required identity and contact fields, active class placement, date consistency, emergency contacts, supporting documents, and potential duplicate identities. Flags are review prompts, not automatic corrections.</p>
+        </>}
+      </section>}
       {success && <p className="inline-success" role="status">{success}</p>}
       {error && <ErrorState message={error} />}
       <div className="student-manager-layout">
         <section className="content-card student-list-card">
-          <label className="table-search student-search"><Search size={17} /><input value={query} onChange={(event) => setQuery(event.target.value)} placeholder="Search name, student ID, or class" aria-label="Search students" /></label>
+          <div className="student-search-tools">
+            <label className="table-search student-search"><Search size={17} /><input value={query} onChange={(event) => setQuery(event.target.value)} placeholder="Search name, student ID, or class" aria-label="Search students" /></label>
+            {canManage && <select aria-label="Filter by data quality" value={qualityFilter} disabled={qualityLoading || Boolean(qualityError)} onChange={(event) => setQualityFilter(event.target.value as typeof qualityFilter)}>
+              <option value="all">All quality statuses</option><option value="needs_attention">Needs attention</option><option value="possible_duplicate">Possible duplicates</option>
+            </select>}
+          </div>
           {loading ? <LoadingState label="Loading students…" /> : filteredStudents.length === 0
             ? <EmptyState title={query ? 'No matching students' : 'No students yet'} detail={canManage ? 'Add a student to begin building your school records.' : 'Student records will appear here when available.'} />
             : <div className="student-record-list">{filteredStudents.map((student) => (
               <button key={student.id} className={`student-record-item${student.id === selectedId ? ' selected' : ''}`} onClick={() => setSelectedId(student.id)}>
                 <span className="avatar avatar-small">{student.first_name.slice(0, 1)}{student.last_name.slice(0, 1)}</span>
-                <span className="student-record-copy"><strong>{student.first_name} {student.last_name}</strong><small>{student.student_number} · {student.school_classes?.name ?? 'No class assigned'}</small></span>
+                <span className="student-record-copy"><strong>{student.first_name} {student.last_name}</strong><small>{student.student_number} · {student.school_classes?.name ?? 'No class assigned'}</small>
+                  {canManage && <small className="student-quality-record-flags">{qualityLoading ? 'Checking data quality…' : `${qualityFindings.get(student.id)?.possibleDuplicate ? 'Possible duplicate · ' : ''}${qualityFindings.get(student.id)?.issues.length ? `${qualityFindings.get(student.id)?.issues.length} data-quality flags` : 'No data-quality flags'}`}</small>}
+                </span>
                 <span className={`student-status status-${student.status}`}>{statusLabels[student.status]}</span>
               </button>
             ))}</div>}
@@ -463,10 +624,44 @@ export function StudentsPage() {
                 {canManage && <button className="button button-secondary" onClick={openForm}>Edit profile</button>}
               </div>
               {detailLoading ? <LoadingState label="Loading student details…" /> : canManage ? <>
+                <section className="student-info-section student-360-summary">
+                  <h3>Student 360 · leadership overview</h3>
+                  <div className="student-360-metrics">
+                    {(() => {
+                      const attended = attendanceSnapshot.filter((record) => record.status === 'present' || record.status === 'late').length;
+                      const counted = attendanceSnapshot.filter((record) => record.status !== 'excused').length;
+                      const attendancePercent = counted ? Math.round(attended / counted * 100) : null;
+                      const averageResult = publishedResults.length
+                        ? publishedResults.reduce((total, result) => total + Number(result.percentage), 0) / publishedResults.length
+                        : null;
+                      return <>
+                        <article><span>Attendance · 90 days</span><strong>{attendancePercent === null ? '—' : `${attendancePercent}%`}</strong><small>{attendanceSnapshot.length} recorded sessions · excused sessions excluded</small></article>
+                        <article><span>Published assessments</span><strong>{publishedResults.length}</strong><small>{averageResult === null ? 'No published results' : `${averageResult.toFixed(1)}% average across recent results`}</small></article>
+                        <article><span>Profile completeness</span><strong>{completenessPercent}%</strong><small>{completenessChecks.filter((item) => item.complete).length} of {completenessChecks.length} checks complete</small></article>
+                      </>;
+                    })()}
+                  </div>
+                  {publishedResults.length > 0 && <div className="student-360-recent-results">
+                    <strong>Recent published results</strong>
+                    {publishedResults.slice(0, 5).map((result) => {
+                      const assessment = Array.isArray(result.assessment) ? result.assessment[0] : result.assessment;
+                      return <div key={result.id}><span>{assessment?.title ?? 'Assessment'}{assessment?.subject ? ` · ${assessment.subject}` : ''}</span><strong>{Number(result.percentage).toFixed(1)}%</strong><small>{new Date(`${result.assessment_date}T00:00:00`).toLocaleDateString()}</small></div>;
+                    })}
+                  </div>}
+                </section>
                 <section className="student-info-section">
                   <h3>Profile completeness <span className="student-section-count">{completenessPercent}%</span></h3>
                   <div className="student-completeness-track" role="progressbar" aria-label="Student profile completeness" aria-valuenow={completenessPercent} aria-valuemin={0} aria-valuemax={100}><span style={{ width: `${completenessPercent}%` }} /></div>
                   <ul className="student-completeness-list">{completenessChecks.map((item) => <li key={item.label} className={item.complete ? 'complete' : ''}>{item.complete ? 'Complete' : 'Missing'} · {item.label}</li>)}</ul>
+                </section>
+                <section className="student-info-section student-quality-findings">
+                  <h3>Data-quality findings <span className="student-section-count">{qualityFindings.get(selectedStudent.id)?.issues.length ?? 0}</span></h3>
+                  {qualityLoading ? <LoadingState label="Checking this record…" /> : qualityError ? <ErrorState message={qualityError} /> : <>
+                    {qualityFindings.get(selectedStudent.id)?.possibleDuplicate && <p className="student-quality-duplicate">Possible duplicate identity match. Compare this record with others before taking action.</p>}
+                    {qualityFindings.get(selectedStudent.id)?.issues.length
+                      ? <ul>{qualityFindings.get(selectedStudent.id)?.issues.map((issue) => <li key={issue}>{issue}</li>)}</ul>
+                      : <p className="student-quality-clear">No data-quality issues were found by the current checks.</p>}
+                  </>}
                 </section>
                 <section className="student-info-section">
                   <h3><UserRound size={16} /> Personal and contact information</h3>

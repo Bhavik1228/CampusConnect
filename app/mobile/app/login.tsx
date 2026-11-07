@@ -79,10 +79,10 @@ export default function LoginScreen() {
 const styles = StyleSheet.create({
   screen: { flex: 1, backgroundColor: colors.navy, padding: 20, justifyContent: 'center', gap: 22 },
   hero: { gap: 5 },
-  brand: { color: '#C7BDFF', fontSize: 14, fontWeight: '800', letterSpacing: 2 },
+  brand: { color: '#A9D1B6', fontSize: 14, fontWeight: '700' },
   tagline: { color: colors.white, fontSize: 23, fontWeight: '700' },
   heading: { color: colors.text, fontSize: 22, fontWeight: '800' },
   description: { color: colors.muted, fontSize: 14 },
-  webLink: { color: '#5842CC', fontSize: 13, lineHeight: 19 },
-  footer: { color: '#D0D5E8', textAlign: 'center', fontSize: 12, lineHeight: 18 },
+  webLink: { color: '#275541', fontSize: 14, lineHeight: 20 },
+  footer: { color: '#D0D5E8', textAlign: 'center', fontSize: 14, lineHeight: 20 },
 });

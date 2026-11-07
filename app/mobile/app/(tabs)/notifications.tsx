@@ -68,8 +68,8 @@ export default function NotificationsScreen() {
               <Card style={{ borderColor: item.read_at ? colors.border : '#C7BDFF' }}>
                 <Text style={{ color: colors.text, fontWeight: '700' }}>{item.title}</Text>
                 {item.body ? <BodyText>{item.body}</BodyText> : null}
-                <Text style={{ color: colors.muted, fontSize: 11 }}>{new Date(item.created_at).toLocaleString()}</Text>
-                {!item.read_at ? <Text style={{ color: colors.violet, fontSize: 12, fontWeight: '700' }}>Tap to mark as read</Text> : null}
+                <Text style={{ color: colors.muted, fontSize: 14 }}>{new Date(item.created_at).toLocaleString()}</Text>
+                {!item.read_at ? <Text style={{ color: colors.violet, fontSize: 14, fontWeight: '700' }}>Tap to mark as read</Text> : null}
               </Card>
             </Pressable>
           ))}</View>}

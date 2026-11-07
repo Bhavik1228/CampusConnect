@@ -44,6 +44,22 @@ type Visit = {
   recorded_by: string;
   created_at: string;
 };
+type MedicalReadiness = {
+  id: string;
+  student_id: string;
+  allergy_status: 'unknown' | 'none_known' | 'known';
+  allergy_details: string;
+  medical_conditions: string;
+  medication_status: 'unknown' | 'none' | 'on_file';
+  medication_details: string;
+  emergency_action_plan: string;
+  reviewed_at: string;
+  review_due_at: string | null;
+  reviewed_by: string;
+};
+type MedicalReadinessDraft = Omit<MedicalReadiness, 'id' | 'student_id' | 'reviewed_at' | 'review_due_at' | 'reviewed_by'> & {
+  review_due_at: string;
+};
 type StaffRole = Extract<AppRole, 'nurse' | 'doctor'>;
 
 const emptyVitals: Vitals = {
@@ -62,6 +78,15 @@ const emptyPrescription = (): Prescription => ({
   duration: '',
   instructions: '',
 });
+const emptyReadiness: MedicalReadinessDraft = {
+  allergy_status: 'unknown',
+  allergy_details: '',
+  medical_conditions: '',
+  medication_status: 'unknown',
+  medication_details: '',
+  emergency_action_plan: '',
+  review_due_at: '',
+};
 
 function localDateTime() {
   const now = new Date();
@@ -96,6 +121,12 @@ export function HealthPage() {
   const [selectedStudentId, setSelectedStudentId] = useState('');
   const [contacts, setContacts] = useState<EmergencyContact[]>([]);
   const [visits, setVisits] = useState<Visit[]>([]);
+  const [readinessRecords, setReadinessRecords] = useState<MedicalReadiness[]>([]);
+  const [readinessDraft, setReadinessDraft] = useState<MedicalReadinessDraft>({ ...emptyReadiness });
+  const [readinessSearch, setReadinessSearch] = useState('');
+  const [readinessLoading, setReadinessLoading] = useState(false);
+  const [readinessSaving, setReadinessSaving] = useState(false);
+  const [readinessError, setReadinessError] = useState('');
   const [selectedVisitId, setSelectedVisitId] = useState('');
   const [visitAt, setVisitAt] = useState(localDateTime);
   const [symptoms, setSymptoms] = useState('');
@@ -116,6 +147,7 @@ export function HealthPage() {
 
   const selectedStudent = students.find((student) => student.id === selectedStudentId) ?? null;
   const selectedVisit = visits.find((visit) => visit.id === selectedVisitId) ?? null;
+  const readinessByStudent = useMemo(() => new Map(readinessRecords.map((record) => [record.student_id, record])), [readinessRecords]);
   const selectedClass = relation(selectedStudent?.school_classes);
   const reportVisit = reportVisitId ? visits.find((visit) => visit.id === reportVisitId) ?? null : null;
   const showHealthData = canUseHealth;
@@ -145,6 +177,29 @@ export function HealthPage() {
   }, [schoolId, showHealthData]);
 
   useEffect(() => { void loadStudents(); }, [loadStudents, refreshKey]);
+
+  const loadReadinessRegister = useCallback(async () => {
+    if (!schoolId || !showHealthData) {
+      setReadinessRecords([]);
+      setReadinessLoading(false);
+      return;
+    }
+    setReadinessLoading(true);
+    setReadinessError('');
+    try {
+      const { data, error: queryError } = await requireSupabase().from('student_medical_readiness')
+        .select('id,student_id,allergy_status,allergy_details,medical_conditions,medication_status,medication_details,emergency_action_plan,reviewed_at,review_due_at,reviewed_by')
+        .eq('school_id', schoolId);
+      if (queryError) throw queryError;
+      setReadinessRecords((data ?? []) as MedicalReadiness[]);
+    } catch (loadError) {
+      setReadinessError(errorMessage(loadError, 'Could not load the medical readiness register.'));
+    } finally {
+      setReadinessLoading(false);
+    }
+  }, [schoolId, showHealthData]);
+
+  useEffect(() => { void loadReadinessRegister(); }, [loadReadinessRegister, refreshKey]);
 
   const loadStudentDetails = useCallback(async () => {
     if (!schoolId || !selectedStudentId || !showHealthData) {
@@ -229,6 +284,34 @@ export function HealthPage() {
     total: visits.length,
     latest: visits[0]?.visit_at ?? null,
   }), [visits]);
+  const readinessSummary = useMemo(() => {
+    const records = students.map((student) => readinessByStudent.get(student.id));
+    const today = new Date().toISOString().slice(0, 10);
+    return {
+      knownAllergies: records.filter((record) => record?.allergy_status === 'known').length,
+      unknownAllergies: records.filter((record) => !record || record.allergy_status === 'unknown').length,
+      missingPlans: records.filter((record) => record?.allergy_status === 'known' && !record.emergency_action_plan.trim()).length,
+      overdueReviews: records.filter((record) => record?.review_due_at && record.review_due_at < today).length,
+    };
+  }, [readinessByStudent, students]);
+  const filteredReadinessStudents = useMemo(() => {
+    const needle = readinessSearch.trim().toLowerCase();
+    return students.filter((student) => !needle
+      || `${student.first_name} ${student.last_name} ${student.student_number} ${relation(student.school_classes)?.name ?? ''}`.toLowerCase().includes(needle));
+  }, [readinessSearch, students]);
+
+  useEffect(() => {
+    const record = readinessByStudent.get(selectedStudentId);
+    setReadinessDraft(record ? {
+      allergy_status: record.allergy_status,
+      allergy_details: record.allergy_details,
+      medical_conditions: record.medical_conditions,
+      medication_status: record.medication_status,
+      medication_details: record.medication_details,
+      emergency_action_plan: record.emergency_action_plan,
+      review_due_at: record.review_due_at ?? '',
+    } : { ...emptyReadiness });
+  }, [readinessByStudent, selectedStudentId]);
 
   function resetVisitForm() {
     setSelectedVisitId('');
@@ -279,6 +362,28 @@ export function HealthPage() {
       setFormError(errorMessage(saveError, 'Could not save the health visit.'));
     } finally {
       setSaving(false);
+    }
+  }
+
+  async function saveMedicalReadiness(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    if (!schoolId || !selectedStudent) return;
+    setReadinessSaving(true);
+    setReadinessError('');
+    setSuccess('');
+    try {
+      const { error: saveError } = await requireSupabase().rpc('save_student_medical_readiness', {
+        target_school: schoolId,
+        target_student: selectedStudent.id,
+        readiness_payload: readinessDraft,
+      });
+      if (saveError) throw saveError;
+      setSuccess('Medical and allergy readiness details saved.');
+      setRefreshKey((current) => current + 1);
+    } catch (saveError) {
+      setReadinessError(errorMessage(saveError, 'Could not save medical readiness details.'));
+    } finally {
+      setReadinessSaving(false);
     }
   }
 
@@ -501,6 +606,38 @@ export function HealthPage() {
       {loading ? <LoadingState label="Loading school students…" /> : students.length === 0
         ? <section className="content-card"><p>No active students are available for health visits.</p></section>
         : <>
+          <section className="content-card health-readiness-register">
+            <div className="section-heading"><div><span className="eyebrow">Medical &amp; allergy readiness</span><h2>Readiness register</h2></div><ShieldCheck size={19} className="muted-icon" /></div>
+            <p>Review known allergies, medication information, emergency action plans, and upcoming record reviews. New records remain marked unknown until healthcare staff assess them.</p>
+            {readinessError && <ErrorState message={readinessError} />}
+            <div className="health-readiness-metrics">
+              <article><span>Known allergies</span><strong>{readinessSummary.knownAllergies}</strong></article>
+              <article><span>Allergy status unknown</span><strong>{readinessSummary.unknownAllergies}</strong></article>
+              <article><span>Action plan needed</span><strong>{readinessSummary.missingPlans}</strong></article>
+              <article><span>Reviews overdue</span><strong>{readinessSummary.overdueReviews}</strong></article>
+            </div>
+            <label className="health-readiness-search"><UserRound size={14} /><input value={readinessSearch} onChange={(event) => setReadinessSearch(event.target.value)} placeholder="Find a student in the readiness register" aria-label="Search medical readiness register" /></label>
+            {readinessLoading ? <LoadingState label="Loading medical readiness…" /> : <div className="health-readiness-list">
+              {filteredReadinessStudents.map((student) => {
+                const record = readinessByStudent.get(student.id);
+                const allergyStatus = record?.allergy_status ?? 'unknown';
+                const medicationStatus = record?.medication_status ?? 'unknown';
+                const reviewOverdue = Boolean(record?.review_due_at && record.review_due_at < new Date().toISOString().slice(0, 10));
+                return <button type="button" key={student.id} className={`health-readiness-row${selectedStudentId === student.id ? ' selected' : ''}`} onClick={() => {
+                  if (student.id !== selectedStudentId) {
+                    resetVisitForm();
+                    setSelectedStudentId(student.id);
+                  }
+                }}>
+                  <span><strong>{student.first_name} {student.last_name}</strong><small>{student.student_number} · {relation(student.school_classes)?.name ?? 'No class'}</small></span>
+                  <span className={`health-readiness-badge ${allergyStatus}`}>{allergyStatus === 'known' ? 'Known allergy' : allergyStatus === 'none_known' ? 'No known allergies' : 'Allergy status unknown'}</span>
+                  <span className={`health-readiness-badge ${medicationStatus}`}>{medicationStatus === 'on_file' ? 'Medication on file' : medicationStatus === 'none' ? 'No medication' : 'Medication unknown'}</span>
+                  <small className={reviewOverdue ? 'overdue' : ''}>{reviewOverdue ? `Review overdue · ${record?.review_due_at}` : record?.review_due_at ? `Review due · ${record.review_due_at}` : 'No review date set'}</small>
+                </button>;
+              })}
+              {filteredReadinessStudents.length === 0 && <p className="health-muted">No students match this search.</p>}
+            </div>}
+          </section>
           <section className="health-overview-grid">
             <article className="content-card health-student-picker">
               <label className="field"><span><UserRound size={14} /> Select student</span>
@@ -523,6 +660,26 @@ export function HealthPage() {
               <div><span className="eyebrow">Health visit history</span><strong>{historySummary.total}</strong><small>{historySummary.latest ? `Most recent: ${formatDate(historySummary.latest)}` : 'No prior visits'}</small></div>
             </article>
           </section>
+
+          {selectedStudent && <section className="content-card health-readiness-editor">
+            <div className="section-heading"><div><span className="eyebrow">Clinical readiness record</span><h2>{selectedStudent.first_name} {selectedStudent.last_name}</h2></div><ShieldCheck size={19} className="muted-icon" /></div>
+            {readinessError && <ErrorState message={readinessError} />}
+            {readinessByStudent.get(selectedStudent.id) && <p className="health-muted">Last reviewed {readinessByStudent.get(selectedStudent.id)?.reviewed_at}{readinessByStudent.get(selectedStudent.id)?.review_due_at ? ` · Next review due ${readinessByStudent.get(selectedStudent.id)?.review_due_at}` : ''}</p>}
+            <form className="health-readiness-form" onSubmit={(event) => void saveMedicalReadiness(event)}>
+              <label className="field"><span>Allergy status</span><select value={readinessDraft.allergy_status} disabled={readinessSaving} onChange={(event) => setReadinessDraft((current) => ({ ...current, allergy_status: event.target.value as MedicalReadinessDraft['allergy_status'], allergy_details: event.target.value === 'known' ? current.allergy_details : '' }))}>
+                <option value="unknown">Unknown / not assessed</option><option value="none_known">No known allergies</option><option value="known">Known allergies</option>
+              </select></label>
+              {readinessDraft.allergy_status === 'known' && <label className="field"><span>Known allergies *</span><textarea required maxLength={5000} value={readinessDraft.allergy_details} disabled={readinessSaving} onChange={(event) => setReadinessDraft((current) => ({ ...current, allergy_details: event.target.value }))} /></label>}
+              <label className="field"><span>Medical conditions</span><textarea maxLength={5000} value={readinessDraft.medical_conditions} disabled={readinessSaving} onChange={(event) => setReadinessDraft((current) => ({ ...current, medical_conditions: event.target.value }))} /></label>
+              <label className="field"><span>Medication status</span><select value={readinessDraft.medication_status} disabled={readinessSaving} onChange={(event) => setReadinessDraft((current) => ({ ...current, medication_status: event.target.value as MedicalReadinessDraft['medication_status'], medication_details: event.target.value === 'on_file' ? current.medication_details : '' }))}>
+                <option value="unknown">Unknown / not assessed</option><option value="none">No medication on file</option><option value="on_file">Medication on file</option>
+              </select></label>
+              {readinessDraft.medication_status === 'on_file' && <label className="field"><span>Medication and storage instructions *</span><textarea required maxLength={5000} value={readinessDraft.medication_details} disabled={readinessSaving} onChange={(event) => setReadinessDraft((current) => ({ ...current, medication_details: event.target.value }))} /></label>}
+              <label className="field"><span>Emergency action plan</span><textarea maxLength={5000} value={readinessDraft.emergency_action_plan} disabled={readinessSaving} onChange={(event) => setReadinessDraft((current) => ({ ...current, emergency_action_plan: event.target.value }))} /></label>
+              <label className="field"><span>Next review due</span><input type="date" value={readinessDraft.review_due_at} disabled={readinessSaving} onChange={(event) => setReadinessDraft((current) => ({ ...current, review_due_at: event.target.value }))} /></label>
+              <button className="button button-primary" type="submit" disabled={readinessSaving}><Save size={15} />{readinessSaving ? 'Saving…' : 'Save readiness record'}</button>
+            </form>
+          </section>}
 
           <section className="health-workspace-grid">
             <article className="content-card health-visit-form-card">

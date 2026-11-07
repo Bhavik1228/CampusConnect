@@ -57,7 +57,7 @@ export default function SelectSchoolScreen() {
       {memberships.filter((item) => !item.eligible).map((membership) => (
         <Card key={membership.school_id}>
           <Text style={{ color: colors.text, fontWeight: '700' }}>{membership.school_name}</Text>
-          <Text style={{ color: colors.muted, fontSize: 13 }}>
+          <Text style={{ color: colors.muted, fontSize: 14 }}>
             {!membership.school_active ? 'School access is currently suspended.'
               : !membership.platform_enabled ? 'Mobile access is suspended platform-wide.'
               : !membership.mobile_enabled ? 'Your school has not enabled Android access.'

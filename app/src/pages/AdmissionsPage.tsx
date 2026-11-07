@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useState, type FormEvent } from 'react';
-import { CalendarClock, Check, ChevronLeft, ChevronRight, ExternalLink, FileCheck2, GraduationCap, Inbox, Plus, RefreshCw, Search, Settings2, UserRoundCheck } from 'lucide-react';
+import { CalendarClock, Check, ChevronLeft, ChevronRight, Columns3, ExternalLink, FileCheck2, GraduationCap, Inbox, List, Plus, RefreshCw, Search, Settings2, UserRoundCheck } from 'lucide-react';
 import { useAuth } from '../contexts/AuthContext';
 import { EmptyState, ErrorState, LoadingState, SuccessMessage } from '../components/Feedback';
 import { requireSupabase } from '../lib/supabase';
@@ -52,6 +52,23 @@ interface DocumentChecklistItem {
   status: 'pending' | 'received' | 'waived';
   note: string;
 }
+interface ApplicationFieldConfig {
+  key: string;
+  label: string;
+  required: boolean;
+}
+interface RequiredDocumentConfig {
+  key: string;
+  label: string;
+}
+interface ApplicationDocumentStatus {
+  id: string;
+  application_id: string;
+  document_key: string;
+  label: string;
+  status: DocumentChecklistItem['status'];
+  note: string;
+}
 interface WorkflowStage {
   id: string;
   label: string;
@@ -67,6 +84,22 @@ interface ApplicationHistory {
   to_status: AdmissionStatus | null;
   note: string | null;
   created_at: string;
+}
+type OfferStatus = 'not_offered' | 'offered' | 'accepted' | 'declined' | 'expired';
+type DepositStatus = 'not_required' | 'pending' | 'partially_received' | 'received' | 'waived';
+interface OfferTracking {
+  offer_status: OfferStatus;
+  offer_sent_at: string;
+  offer_expires_at: string;
+  offer_responded_at: string;
+  deposit_status: DepositStatus;
+  deposit_amount: string;
+  deposit_received: string;
+  deposit_currency: string;
+  deposit_due_at: string;
+  deposit_received_at: string;
+  payment_reference: string;
+  note: string;
 }
 interface SchoolClass {
   id: string;
@@ -89,7 +122,6 @@ interface Counters {
   registered: number;
 }
 
-const pageSize = 30;
 const statusLabels: Record<AdmissionStatus, string> = {
   submitted: 'Submitted',
   under_review: 'Under review',
@@ -122,8 +154,25 @@ export function AdmissionsPage() {
   const [selectedId, setSelectedId] = useState('');
   const [documents, setDocuments] = useState<ApplicationDocument[]>([]);
   const [checklist, setChecklist] = useState<DocumentChecklistItem[]>([]);
+  const [requiredFields, setRequiredFields] = useState<ApplicationFieldConfig[]>([]);
+  const [requiredDocuments, setRequiredDocuments] = useState<RequiredDocumentConfig[]>([]);
+  const [applicationDocumentStatuses, setApplicationDocumentStatuses] = useState<ApplicationDocumentStatus[]>([]);
   const [workflowStages, setWorkflowStages] = useState<WorkflowStage[]>([]);
   const [history, setHistory] = useState<ApplicationHistory[]>([]);
+  const [offerTracking, setOfferTracking] = useState<OfferTracking>({
+    offer_status: 'not_offered',
+    offer_sent_at: '',
+    offer_expires_at: '',
+    offer_responded_at: '',
+    deposit_status: 'not_required',
+    deposit_amount: '0',
+    deposit_received: '0',
+    deposit_currency: 'USD',
+    deposit_due_at: '',
+    deposit_received_at: '',
+    payment_reference: '',
+    note: '',
+  });
   const [classes, setClasses] = useState<SchoolClass[]>([]);
   const [admissionsMembers, setAdmissionsMembers] = useState<AdmissionsMember[]>([]);
   const [counters, setCounters] = useState<Counters>({
@@ -141,19 +190,84 @@ export function AdmissionsPage() {
   const [decisionStageId, setDecisionStageId] = useState('');
   const [decisionNote, setDecisionNote] = useState('');
   const [placementClassId, setPlacementClassId] = useState('');
+  const [registrationWizardOpen, setRegistrationWizardOpen] = useState(false);
+  const [registrationStep, setRegistrationStep] = useState<1 | 2>(1);
+  const [registrationDetailsVerified, setRegistrationDetailsVerified] = useState(false);
+  const [registrationConfirmed, setRegistrationConfirmed] = useState(false);
   const [assignedTo, setAssignedTo] = useState('');
   const [refreshKey, setRefreshKey] = useState(0);
   const [total, setTotal] = useState(0);
   const [realtimeState, setRealtimeState] = useState<'connecting' | 'live' | 'offline'>('connecting');
   const [section, setSection] = useState<'applications' | 'configuration' | 'enquiries' | 'appointments'>('applications');
   const [showCreateForm, setShowCreateForm] = useState(false);
+  const [viewMode, setViewMode] = useState<'board' | 'list' | 'documents'>('board');
+  const pageSize = viewMode === 'list' ? 30 : 100;
 
   const selected = applications.find((application) => application.id === selectedId) ?? null;
   const classById = useMemo(() => new Map(classes.map((item) => [item.id, item.name])), [classes]);
+  const applicationsByStatus = useMemo(() => statuses.reduce((groups, status) => {
+    groups[status] = applications.filter((application) => application.status === status);
+    return groups;
+  }, {} as Record<AdmissionStatus, Application[]>), [applications]);
+  const completenessById = useMemo(() => {
+    const requiredBaseFields: { key: keyof Application; label: string }[] = [
+      { key: 'student_first_name', label: 'Student first name' },
+      { key: 'student_last_name', label: 'Student last name' },
+      { key: 'applying_for', label: 'Year / class applied for' },
+      { key: 'guardian_name', label: 'Guardian name' },
+      { key: 'guardian_relationship', label: 'Guardian relationship' },
+      { key: 'guardian_email', label: 'Guardian email' },
+      { key: 'guardian_phone', label: 'Guardian phone' },
+    ];
+    const statusByApplication = new Map<string, Map<string, DocumentChecklistItem['status']>>();
+    for (const item of applicationDocumentStatuses) {
+      const byKey = statusByApplication.get(item.application_id) ?? new Map();
+      byKey.set(item.document_key, item.status);
+      statusByApplication.set(item.application_id, byKey);
+    }
+
+    return new Map(applications.map((application) => {
+      const missing = requiredBaseFields
+        .filter(({ key }) => !String(application[key] ?? '').trim())
+        .map(({ label }) => label);
+      for (const field of requiredFields) {
+        if (field.required && !String(application.custom_fields?.[field.key] ?? '').trim()) missing.push(field.label);
+      }
+      const documentStatuses = statusByApplication.get(application.id);
+      for (const document of requiredDocuments) {
+        if (!['received', 'waived'].includes(documentStatuses?.get(document.key) ?? 'pending')) missing.push(`${document.label} document`);
+      }
+      const total = requiredBaseFields.length + requiredFields.filter((field) => field.required).length + requiredDocuments.length;
+      return [application.id, { complete: total - missing.length, total, missing }] as const;
+    }));
+  }, [applications, applicationDocumentStatuses, requiredDocuments, requiredFields]);
+  const documentQueue = useMemo(() => {
+    const applicationById = new Map(applications.map((application) => [application.id, application]));
+    const requiredKeys = new Set(requiredDocuments.map((document) => document.key));
+    return applicationDocumentStatuses
+      .filter((item) => requiredKeys.has(item.document_key))
+      .map((item) => ({ item, application: applicationById.get(item.application_id) }))
+      .filter((entry): entry is { item: ApplicationDocumentStatus; application: Application } => Boolean(entry.application))
+      .sort((left, right) => {
+        const statusPriority = (status: ApplicationDocumentStatus['status']) => status === 'pending' ? 0 : status === 'received' ? 1 : 2;
+        return statusPriority(left.item.status) - statusPriority(right.item.status)
+          || left.application.submitted_at.localeCompare(right.application.submitted_at);
+      });
+  }, [applications, applicationDocumentStatuses, requiredDocuments]);
+
+  useEffect(() => {
+    setRegistrationWizardOpen(false);
+    setRegistrationStep(1);
+    setRegistrationDetailsVerified(false);
+    setRegistrationConfirmed(false);
+  }, [selectedId]);
 
   const loadApplications = useCallback(async () => {
     if (!schoolId || !isAdmin) {
       setApplications([]);
+      setRequiredFields([]);
+      setRequiredDocuments([]);
+      setApplicationDocumentStatuses([]);
       setLoading(false);
       return;
     }
@@ -178,10 +292,32 @@ export function AdmissionsPage() {
           `guardian_email.ilike.${pattern}`,
         ].join(','));
       }
-      const { data, count, error: queryError } = await query;
+      const [applicationResult, configurationResult] = await Promise.all([
+        query,
+        client.from('admission_school_settings').select('application_fields,required_documents').eq('school_id', schoolId).maybeSingle(),
+      ]);
+      const { data, count, error: queryError } = applicationResult;
       if (queryError) throw queryError;
+      if (configurationResult.error) throw configurationResult.error;
       const rows = (data ?? []) as Application[];
+      const configuration = configurationResult.data;
+      const fields = (configuration?.application_fields ?? []) as ApplicationFieldConfig[];
+      const requiredDocumentRows = (configuration?.required_documents ?? []) as RequiredDocumentConfig[];
+      if (viewMode === 'documents') {
+        const { error: syncError } = await client.rpc('sync_admission_document_checklist', { target_school: schoolId });
+        if (syncError) throw syncError;
+      }
+      const documentStatusesResult = rows.length
+        ? await client.from('admission_document_checklist')
+          .select('id,application_id,document_key,label,status,note')
+          .eq('school_id', schoolId)
+          .in('application_id', rows.map((row) => row.id))
+        : { data: [], error: null };
+      if (documentStatusesResult.error) throw documentStatusesResult.error;
       setApplications(rows);
+      setRequiredFields(fields);
+      setRequiredDocuments(requiredDocumentRows);
+      setApplicationDocumentStatuses((documentStatusesResult.data ?? []) as ApplicationDocumentStatus[]);
       setTotal(count ?? 0);
       setSelectedId((current) => current && rows.some((row) => row.id === current) ? current : (rows[0]?.id ?? ''));
 
@@ -209,7 +345,7 @@ export function AdmissionsPage() {
     } finally {
       setLoading(false);
     }
-  }, [filterStatus, isAdmin, page, schoolId, search]);
+  }, [filterStatus, isAdmin, page, schoolId, search, viewMode]);
 
   useEffect(() => { void loadApplications(); }, [loadApplications, refreshKey]);
 
@@ -292,7 +428,7 @@ export function AdmissionsPage() {
     async function loadApplicationDetails() {
       try {
         const client = requireSupabase();
-        const [documentResult, historyResult, checklistResult, stageResult] = await Promise.all([
+        const [documentResult, historyResult, checklistResult, stageResult, offerResult] = await Promise.all([
           client.from('admission_application_documents')
             .select('id, file_name, storage_path, content_type, file_size, uploaded_at')
             .eq('school_id', schoolId).eq('application_id', selectedId).order('uploaded_at', { ascending: false }),
@@ -305,11 +441,15 @@ export function AdmissionsPage() {
           client.from('admission_workflow_stages')
             .select('id, label, status, active')
             .eq('school_id', schoolId).eq('active', true).order('sort_order'),
+          client.from('admission_offer_tracking')
+            .select('offer_status,offer_sent_at,offer_expires_at,offer_responded_at,deposit_status,deposit_amount,deposit_received,deposit_currency,deposit_due_at,deposit_received_at,payment_reference,note')
+            .eq('school_id', schoolId).eq('application_id', selectedId).maybeSingle(),
         ]);
         if (documentResult.error) throw documentResult.error;
         if (historyResult.error) throw historyResult.error;
         if (checklistResult.error) throw checklistResult.error;
         if (stageResult.error) throw stageResult.error;
+        if (offerResult.error) throw offerResult.error;
         const events = (historyResult.data ?? []) as ApplicationHistory[];
         const actorIds = [...new Set(events.flatMap((event) => event.actor_id ? [event.actor_id] : []))];
         const actorNames = new Map<string, string>();
@@ -321,6 +461,34 @@ export function AdmissionsPage() {
         if (!alive) return;
         setDocuments((documentResult.data ?? []) as ApplicationDocument[]);
         setChecklist((checklistResult.data ?? []) as DocumentChecklistItem[]);
+        const offer = offerResult.data;
+        setOfferTracking(offer ? {
+          offer_status: offer.offer_status as OfferStatus,
+          offer_sent_at: offer.offer_sent_at ?? '',
+          offer_expires_at: offer.offer_expires_at ?? '',
+          offer_responded_at: offer.offer_responded_at ?? '',
+          deposit_status: offer.deposit_status as DepositStatus,
+          deposit_amount: String(offer.deposit_amount),
+          deposit_received: String(offer.deposit_received),
+          deposit_currency: offer.deposit_currency,
+          deposit_due_at: offer.deposit_due_at ?? '',
+          deposit_received_at: offer.deposit_received_at ?? '',
+          payment_reference: offer.payment_reference ?? '',
+          note: offer.note ?? '',
+        } : {
+          offer_status: 'not_offered',
+          offer_sent_at: '',
+          offer_expires_at: '',
+          offer_responded_at: '',
+          deposit_status: 'not_required',
+          deposit_amount: '0',
+          deposit_received: '0',
+          deposit_currency: 'USD',
+          deposit_due_at: '',
+          deposit_received_at: '',
+          payment_reference: '',
+          note: '',
+        });
         const activeStages = (stageResult.data ?? []) as WorkflowStage[];
         setWorkflowStages(activeStages);
         setHistory(events.map((event) => ({ ...event, actor_name: event.actor_id ? actorNames.get(event.actor_id) ?? null : null })));
@@ -357,6 +525,31 @@ export function AdmissionsPage() {
       setRefreshKey((current) => current + 1);
     } catch (reviewError) {
       setError(reviewError instanceof Error ? reviewError.message : 'Could not update this application.');
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  async function saveOfferTracking(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    if (!selected) return;
+    setSaving(true);
+    setError('');
+    setSuccess('');
+    try {
+      const { error: saveError } = await requireSupabase().rpc('save_admission_offer_tracking', {
+        target_application: selected.id,
+        tracking_payload: {
+          ...offerTracking,
+          deposit_amount: Number(offerTracking.deposit_amount),
+          deposit_received: Number(offerTracking.deposit_received),
+        },
+      });
+      if (saveError) throw saveError;
+      setSuccess('Offer and deposit tracking saved.');
+      setRefreshKey((current) => current + 1);
+    } catch (saveError) {
+      setError(saveError instanceof Error ? saveError.message : 'Could not save offer and deposit tracking.');
     } finally {
       setSaving(false);
     }
@@ -411,6 +604,7 @@ export function AdmissionsPage() {
       });
       if (updateError) throw updateError;
       setChecklist((current) => current.map((entry) => entry.id === item.id ? { ...entry, status } : entry));
+      setApplicationDocumentStatuses((current) => current.map((entry) => entry.id === item.id ? { ...entry, status } : entry));
       setSuccess(`${item.label} checklist updated.`);
     } catch (updateError) {
       setError(updateError instanceof Error ? updateError.message : 'Could not update the document checklist.');
@@ -442,7 +636,7 @@ export function AdmissionsPage() {
 
   async function registerStudent(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
-    if (!selected || !placementClassId) return;
+    if (!selected || registrationStep !== 2 || !registrationConfirmed || !placementClassId) return;
     setSaving(true);
     setError('');
     setSuccess('');
@@ -455,6 +649,7 @@ export function AdmissionsPage() {
       const registration = data?.[0] as { student_id: string; student_number: string } | undefined;
       if (!registration) throw new Error('Registration completed without returning the student record.');
       setSuccess(`${selected.student_first_name} ${selected.student_last_name} registered as ${registration.student_number} in ${classById.get(placementClassId) ?? 'the selected class'}.`);
+      setRegistrationWizardOpen(false);
       setRefreshKey((current) => current + 1);
     } catch (registerError) {
       setError(registerError instanceof Error ? registerError.message : 'Could not register this student.');
@@ -537,13 +732,60 @@ export function AdmissionsPage() {
             <select aria-label="Filter by application status" value={filterStatus} onChange={(event) => { setFilterStatus(event.target.value); setPage(0); }}>
               <option value="">All statuses</option>{statuses.map((status) => <option key={status} value={status}>{statusLabels[status]}</option>)}
             </select>
+            <div className="admissions-view-toggle" role="group" aria-label="Application display">
+              <button type="button" className={viewMode === 'board' ? 'active' : ''} aria-pressed={viewMode === 'board'} onClick={() => { setViewMode('board'); setPage(0); }}><Columns3 size={14} />Board</button>
+              <button type="button" className={viewMode === 'list' ? 'active' : ''} aria-pressed={viewMode === 'list'} onClick={() => { setViewMode('list'); setPage(0); }}><List size={14} />List</button>
+              <button type="button" className={viewMode === 'documents' ? 'active' : ''} aria-pressed={viewMode === 'documents'} onClick={() => { setViewMode('documents'); setPage(0); }}><FileCheck2 size={14} />Document queue</button>
+            </div>
           </div>
+          <section className="content-card admissions-completeness" aria-label="Online application completeness">
+            <div><span className="eyebrow">Online application completeness · current page</span><strong>{applications.filter((application) => (completenessById.get(application.id)?.missing.length ?? 0) === 0).length} complete <span>of {applications.length} applications</span></strong></div>
+            <div className="admissions-completeness-counts">
+              <span className="admissions-completeness-complete"><i />{applications.filter((application) => (completenessById.get(application.id)?.missing.length ?? 0) === 0).length} ready for review</span>
+              <span className="admissions-completeness-incomplete"><i />{applications.filter((application) => (completenessById.get(application.id)?.missing.length ?? 0) > 0).length} need follow-up</span>
+            </div>
+          </section>
           {loading ? <LoadingState label="Loading the latest applications…" /> : applications.length === 0
             ? <EmptyState title="No applications found" detail={filterStatus || search ? 'Try changing the status filter or search terms.' : 'Applications submitted through the school website will appear here as they arrive.'} />
-            : <div className="admissions-list">{applications.map((application) => <button type="button" key={application.id} onClick={() => setSelectedId(application.id)} className={`admissions-list-item${selectedId === application.id ? ' selected' : ''}`}>
+            : viewMode === 'documents'
+              ? requiredDocuments.length === 0
+                ? <EmptyState title="No document requirements configured" detail="Add required application documents under Application setup to create a verification queue." />
+                : <div className="admissions-document-queue">
+                  <div className="admissions-document-queue-heading"><strong>Required document verification</strong><span>{documentQueue.filter(({ item }) => item.status === 'pending').length} awaiting review · {documentQueue.length} checklist items on this page</span></div>
+                  {documentQueue.length ? documentQueue.map(({ item, application }) => <button type="button" key={item.id} className="admissions-document-queue-row" onClick={() => setSelectedId(application.id)}>
+                    <span><strong>{item.label}</strong><small>{application.student_first_name} {application.student_last_name} · {application.application_reference}</small></span>
+                    <span className={`admissions-document-queue-status ${item.status}`}>{item.status === 'received' ? 'Received' : item.status === 'waived' ? 'Waived' : 'Pending'}</span>
+                    <span className="admissions-document-queue-stage">{statusLabels[application.status]}</span>
+                  </button>) : <p className="admissions-muted">No checklist items are available on this page.</p>}
+                  <p className="admissions-document-queue-hint">Select an item to open the application and verify its document in the checklist.</p>
+                </div>
+              : viewMode === 'board'
+              ? <div className="admissions-pipeline-board" aria-label="Applications grouped by pipeline status">
+                {statuses.map((status) => <section className="admissions-pipeline-column" key={status} aria-label={`${statusLabels[status]} applications`}>
+                  <header><span>{statusLabels[status]}</span><strong>{counters[status].toLocaleString()}</strong></header>
+                  <div className="admissions-pipeline-cards">
+                    {applicationsByStatus[status].map((application) => <button type="button" key={application.id} onClick={() => setSelectedId(application.id)} className={`admissions-pipeline-card${selectedId === application.id ? ' selected' : ''}`}>
+                      <strong>{application.student_first_name} {application.student_last_name}</strong>
+                      <span>{application.application_reference}</span>
+                      <small>{application.applying_for} · {displayTimestamp(application.submitted_at)}</small>
+                      <small>{application.assigned_to
+                        ? admissionsMembers.find((member) => member.profile_id === application.assigned_to)?.profile?.full_name || 'Assigned'
+                        : 'Unassigned'}</small>
+                      <small className={(completenessById.get(application.id)?.missing.length ?? 0) === 0 ? 'admissions-completeness-badge complete' : 'admissions-completeness-badge incomplete'}>
+                        {completenessById.get(application.id)?.complete ?? 0}/{completenessById.get(application.id)?.total ?? 0} required items · {(completenessById.get(application.id)?.missing.length ?? 0) === 0 ? 'Complete' : 'Follow-up needed'}
+                      </small>
+                    </button>)}
+                    {!applicationsByStatus[status].length && <small className="admissions-pipeline-empty">No applications on this page.</small>}
+                  </div>
+                </section>)}
+              </div>
+              : <div className="admissions-list">{applications.map((application) => <button type="button" key={application.id} onClick={() => setSelectedId(application.id)} className={`admissions-list-item${selectedId === application.id ? ' selected' : ''}`}>
               <span className="admissions-list-top"><strong>{application.student_first_name} {application.student_last_name}</strong><span className={`admission-status status-${application.status}`}>{statusLabels[application.status]}</span></span>
               <span className="admissions-list-ref">{application.application_reference} · {application.applying_for}</span>
               <span className="admissions-list-date">{displayTimestamp(application.submitted_at)} · {application.source === 'public_website' ? 'Website' : 'School entered'}</span>
+              <span className={(completenessById.get(application.id)?.missing.length ?? 0) === 0 ? 'admissions-completeness-badge complete' : 'admissions-completeness-badge incomplete'}>
+                {completenessById.get(application.id)?.complete ?? 0}/{completenessById.get(application.id)?.total ?? 0} required items · {(completenessById.get(application.id)?.missing.length ?? 0) === 0 ? 'Complete' : 'Follow-up needed'}
+              </span>
             </button>)}</div>}
           <div className="admissions-pagination"><span>{total ? `${page * pageSize + 1}–${Math.min((page + 1) * pageSize, total)} of ${total}` : '0 applications'}</span><div>
             <button className="button button-quiet" type="button" onClick={() => setPage((current) => Math.max(0, current - 1))} disabled={page === 0 || loading}><ChevronLeft size={15} />Previous</button>
@@ -575,6 +817,13 @@ export function AdmissionsPage() {
                 </dl></section>
               </div>
               {!!selected.custom_fields && Object.keys(selected.custom_fields).length > 0 && <section className="admissions-notes"><h3>Additional application details</h3><dl className="admissions-custom-fields">{Object.entries(selected.custom_fields).map(([key, value]) => <div key={key}><dt>{key.replace(/_/g, ' ')}</dt><dd>{value || '—'}</dd></div>)}</dl></section>}
+              <section className="admissions-completeness-detail">
+                <h3>Application completeness</h3>
+                {(completenessById.get(selected.id)?.missing.length ?? 0) === 0
+                  ? <p className="admissions-completeness-complete"><i />All required application details and document checks are complete.</p>
+                  : <><p className="admissions-completeness-incomplete"><i />{completenessById.get(selected.id)?.complete ?? 0} of {completenessById.get(selected.id)?.total ?? 0} required items complete</p>
+                    <ul>{completenessById.get(selected.id)?.missing.map((item) => <li key={item}>{item} is missing or still pending verification</li>)}</ul></>}
+              </section>
               <label className="field"><span>Assigned admissions staff</span><select value={assignedTo} disabled={saving} onChange={(event) => void assignApplication(event.target.value)}>
                 <option value="">Unassigned</option>{admissionsMembers.map((member) => <option key={member.profile_id} value={member.profile_id}>{member.profile?.full_name || member.profile?.email || member.profile_id} · {member.role.replace(/_/g, ' ')}</option>)}
               </select></label>
@@ -606,15 +855,85 @@ export function AdmissionsPage() {
                 <button className="button button-primary" type="submit" disabled={saving}><Check size={15} />{saving ? 'Saving…' : 'Save review'}</button>
               </form>}
 
-              {selected.status === 'accepted' && <form className="admissions-registration" onSubmit={(event) => void registerStudent(event)}>
-                <h3>Register student &amp; place in class</h3>
-                <p>This creates the student record, generates a school student number, and enrolls the student into the selected class.</p>
-                <label className="field"><span>Class placement</span><select value={placementClassId} onChange={(event) => setPlacementClassId(event.target.value)} required>
-                  <option value="">Select a class</option>{classes.map((schoolClass) => <option key={schoolClass.id} value={schoolClass.id}>{schoolClass.name}{schoolClass.grade_level ? ` · ${schoolClass.grade_level}` : ''}</option>)}
-                </select></label>
-                <button className="button button-primary" type="submit" disabled={saving || classes.length === 0}><GraduationCap size={15} />{saving ? 'Registering…' : 'Complete registration'}</button>
-                {classes.length === 0 && <p className="admissions-muted">Create a school class before registering this student.</p>}
-              </form>}
+              <section className="admissions-offer-tracking">
+                <h3>Offer, acceptance &amp; deposit</h3>
+                {selected.status === 'accepted' || selected.status === 'registered'
+                  ? <form onSubmit={(event) => void saveOfferTracking(event)}>
+                    <div className="admissions-offer-grid">
+                      <label className="field"><span>Offer status</span><select value={offerTracking.offer_status} disabled={saving} onChange={(event) => setOfferTracking((current) => ({ ...current, offer_status: event.target.value as OfferStatus }))}>
+                        <option value="not_offered">Not offered</option><option value="offered">Offered</option><option value="accepted">Accepted by family</option><option value="declined">Declined by family</option><option value="expired">Expired</option>
+                      </select></label>
+                      <label className="field"><span>Offer sent</span><input type="date" required={offerTracking.offer_status !== 'not_offered'} value={offerTracking.offer_sent_at} disabled={saving} onChange={(event) => setOfferTracking((current) => ({ ...current, offer_sent_at: event.target.value }))} /></label>
+                      <label className="field"><span>Offer expires</span><input type="date" required={offerTracking.offer_status === 'expired'} value={offerTracking.offer_expires_at} disabled={saving} onChange={(event) => setOfferTracking((current) => ({ ...current, offer_expires_at: event.target.value }))} /></label>
+                      <label className="field"><span>Family response date</span><input type="date" required={offerTracking.offer_status === 'accepted' || offerTracking.offer_status === 'declined'} value={offerTracking.offer_responded_at} disabled={saving} onChange={(event) => setOfferTracking((current) => ({ ...current, offer_responded_at: event.target.value }))} /></label>
+                      <label className="field"><span>Deposit status</span><select value={offerTracking.deposit_status} disabled={saving} onChange={(event) => {
+                        const depositStatus = event.target.value as DepositStatus;
+                        setOfferTracking((current) => ({
+                          ...current,
+                          deposit_status: depositStatus,
+                          deposit_amount: depositStatus === 'not_required' || depositStatus === 'waived' ? '0' : current.deposit_amount === '0' ? '' : current.deposit_amount,
+                          deposit_received: depositStatus === 'not_required' || depositStatus === 'pending' || depositStatus === 'waived' ? '0' : current.deposit_received,
+                          deposit_received_at: depositStatus === 'not_required' || depositStatus === 'pending' || depositStatus === 'waived' ? '' : current.deposit_received_at,
+                          payment_reference: depositStatus === 'not_required' || depositStatus === 'pending' || depositStatus === 'waived' ? '' : current.payment_reference,
+                        }));
+                      }}>
+                        <option value="not_required">Not required</option><option value="pending">Pending</option><option value="partially_received">Partially received</option><option value="received">Received in full</option><option value="waived">Waived</option>
+                      </select></label>
+                      <label className="field"><span>Deposit due</span><input type="date" value={offerTracking.deposit_due_at} disabled={saving} onChange={(event) => setOfferTracking((current) => ({ ...current, deposit_due_at: event.target.value }))} /></label>
+                      <label className="field"><span>Required amount</span><input type="number" min="0.01" step="0.01" required={['pending', 'partially_received', 'received'].includes(offerTracking.deposit_status)} value={offerTracking.deposit_amount} disabled={saving || ['not_required', 'waived'].includes(offerTracking.deposit_status)} onChange={(event) => setOfferTracking((current) => ({ ...current, deposit_amount: event.target.value }))} /></label>
+                      <label className="field"><span>Currency (ISO 4217)</span><input type="text" minLength={3} maxLength={3} pattern="[A-Za-z]{3}" required value={offerTracking.deposit_currency} disabled={saving} onChange={(event) => setOfferTracking((current) => ({ ...current, deposit_currency: event.target.value.toUpperCase() }))} /></label>
+                      <label className="field"><span>Amount received</span><input type="number" min="0.01" step="0.01" required={['partially_received', 'received'].includes(offerTracking.deposit_status)} value={offerTracking.deposit_received} disabled={saving || !['partially_received', 'received'].includes(offerTracking.deposit_status)} onChange={(event) => setOfferTracking((current) => ({ ...current, deposit_received: event.target.value }))} /></label>
+                      <label className="field"><span>Receipt date</span><input type="date" required={['partially_received', 'received'].includes(offerTracking.deposit_status)} value={offerTracking.deposit_received_at} disabled={saving || !['partially_received', 'received'].includes(offerTracking.deposit_status)} onChange={(event) => setOfferTracking((current) => ({ ...current, deposit_received_at: event.target.value }))} /></label>
+                      <label className="field"><span>Payment reference</span><input type="text" maxLength={120} required={['partially_received', 'received'].includes(offerTracking.deposit_status)} value={offerTracking.payment_reference} disabled={saving || !['partially_received', 'received'].includes(offerTracking.deposit_status)} onChange={(event) => setOfferTracking((current) => ({ ...current, payment_reference: event.target.value }))} /></label>
+                      <label className="field admissions-offer-note"><span>Internal notes</span><textarea rows={2} maxLength={1000} value={offerTracking.note} disabled={saving} onChange={(event) => setOfferTracking((current) => ({ ...current, note: event.target.value }))} /></label>
+                    </div>
+                    <p className="admissions-muted">Record confirmed deposits and their receipt reference only. This tracker does not process or charge payments.</p>
+                    <button className="button button-primary" type="submit" disabled={saving}><Check size={15} />{saving ? 'Saving…' : 'Save offer & deposit'}</button>
+                  </form>
+                  : <p className="admissions-muted">Move the application to Accepted to start tracking an offer, family response, or deposit.</p>}
+              </section>
+
+              {selected.status === 'accepted' && <section className="admissions-registration">
+                <h3>Enrolment conversion wizard</h3>
+                {!registrationWizardOpen
+                  ? <><p>Review the accepted applicant, choose a class, and create the student record in two guided steps.</p>
+                    <button className="button button-primary" type="button" onClick={() => {
+                      setRegistrationWizardOpen(true);
+                      setRegistrationStep(1);
+                      setRegistrationDetailsVerified(false);
+                      setRegistrationConfirmed(false);
+                    }}><GraduationCap size={15} />Start registration</button></>
+                  : <form className="admissions-registration-wizard" onSubmit={(event) => void registerStudent(event)}>
+                    <div className="admissions-registration-progress"><span className={registrationStep === 1 ? 'active' : 'complete'}>1 · Verify details</span><i /><span className={registrationStep === 2 ? 'active' : ''}>2 · Place &amp; create</span></div>
+                    {registrationStep === 1 ? <>
+                      <p>Confirm the source application details before creating the student record.</p>
+                      <dl className="admissions-registration-review">
+                        <dt>Student</dt><dd>{selected.student_first_name} {selected.student_last_name}</dd>
+                        <dt>Date of birth</dt><dd>{displayDate(selected.date_of_birth)}</dd>
+                        <dt>Student email</dt><dd>{selected.student_email || 'Not provided'}</dd>
+                        <dt>Requested year / class</dt><dd>{selected.applying_for}{selected.academic_year ? ` · ${selected.academic_year}` : ''}</dd>
+                        <dt>Guardian context</dt><dd>{selected.guardian_name} · {selected.guardian_email} · {selected.guardian_phone}</dd>
+                      </dl>
+                      <p className="admissions-muted">The student record will use the student name, date of birth, email, and active status. Guardian details remain on the application for onboarding.</p>
+                      <label className="admissions-registration-confirm"><input type="checkbox" checked={registrationDetailsVerified} onChange={(event) => setRegistrationDetailsVerified(event.target.checked)} />I verified these details against the application and supporting documents.</label>
+                      <div className="admissions-registration-actions">
+                        <button className="button button-quiet" type="button" onClick={() => setRegistrationWizardOpen(false)}>Cancel</button>
+                        <button className="button button-primary" type="button" disabled={!registrationDetailsVerified} onClick={() => setRegistrationStep(2)}>Continue to placement</button>
+                      </div>
+                    </> : <>
+                      <p>Select the destination class, then confirm creation. A unique student number is generated by the school system.</p>
+                      <label className="field"><span>Class placement</span><select value={placementClassId} onChange={(event) => setPlacementClassId(event.target.value)} required>
+                        <option value="">Select a class</option>{classes.map((schoolClass) => <option key={schoolClass.id} value={schoolClass.id}>{schoolClass.name}{schoolClass.grade_level ? ` · ${schoolClass.grade_level}` : ''}</option>)}
+                      </select></label>
+                      <label className="admissions-registration-confirm"><input type="checkbox" checked={registrationConfirmed} onChange={(event) => setRegistrationConfirmed(event.target.checked)} />Create the student record and enroll them in the selected class.</label>
+                      {classes.length === 0 && <p className="admissions-muted">Create a school class before registering this student.</p>}
+                      <div className="admissions-registration-actions">
+                        <button className="button button-quiet" type="button" onClick={() => { setRegistrationStep(1); setRegistrationConfirmed(false); }}>Back</button>
+                        <button className="button button-primary" type="submit" disabled={saving || !registrationConfirmed || !placementClassId || classes.length === 0}><GraduationCap size={15} />{saving ? 'Registering…' : 'Create student record'}</button>
+                      </div>
+                    </>}
+                  </form>}
+              </section>}
 
               {selected.status === 'registered' && <div className="admissions-registered"><Check size={17} /><div><strong>Student registered</strong><span>Placed in {classById.get(selected.registered_class_id ?? '') ?? 'the assigned class'}.</span></div></div>}
 

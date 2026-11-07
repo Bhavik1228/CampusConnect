@@ -335,13 +335,17 @@ export function AcademicCalendarPage() {
       setSubjects((subjectResult.data ?? []) as Subject[]);
       setTeachers((teacherResult.data ?? []) as Teacher[]);
       const yearId = yearList.find((item) => item.is_current)?.id ?? yearList[0]?.id ?? '';
-      if (!termYearId && yearId) setTermYearId(yearId);
-      if (!dateYearId && yearId) setDateYearId(yearId);
-      if (!weekPatternId && patternList[0]) setWeekPatternId(patternList[0].id);
+      setTermYearId((current) => yearList.some((item) => item.id === current) ? current : yearId);
+      setDateYearId((current) => yearList.some((item) => item.id === current) ? current : yearId);
+      setWeekPatternId((current) => patternList.some((item) => item.id === current)
+        ? current
+        : patternList[0]?.id ?? '');
       setBellScheduleId((current) => bellScheduleList.some((item) => item.id === current)
         ? current
         : bellScheduleList[0]?.id ?? '');
-      if (!bellPatternId && patternList[0]) setBellPatternId(patternList[0].id);
+      setBellPatternId((current) => patternList.some((item) => item.id === current)
+        ? current
+        : patternList[0]?.id ?? '');
 
       if (patternList.length) {
         const patternDayResult = await client.from('academic_calendar_pattern_days')
@@ -472,6 +476,10 @@ export function AcademicCalendarPage() {
     event.preventDefault();
     if (!schoolId || !calendarId) return;
     if (yearEnd <= yearStart) { setError('The academic year end must be after its start.'); return; }
+    if (years.some((item) => yearStart <= item.end_date && yearEnd >= item.start_date)) {
+      setError('Academic year dates cannot overlap another year in this calendar.');
+      return;
+    }
     setSaving(true);
     setError('');
     try {
@@ -501,6 +509,17 @@ export function AcademicCalendarPage() {
     event.preventDefault();
     if (!schoolId || !calendarId || !termYearId) return;
     if (termEnd <= termStart) { setError('The term end must be after its start.'); return; }
+    const academicYear = years.find((item) => item.id === termYearId);
+    if (!academicYear) { setError('Choose an academic year in the selected calendar.'); return; }
+    if (termStart < academicYear.start_date || termEnd > academicYear.end_date) {
+      setError('Term dates must fall within the selected academic year.');
+      return;
+    }
+    if (terms.some((item) => item.academic_year_id === termYearId
+      && termStart <= item.end_date && termEnd >= item.start_date)) {
+      setError('Term dates cannot overlap another term in the selected academic year.');
+      return;
+    }
     setSaving(true);
     setError('');
     try {

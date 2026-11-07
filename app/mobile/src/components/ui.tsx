@@ -16,8 +16,8 @@ import { useEffect, useState } from 'react';
 export const colors = {
   navy: '#10152B',
   navyLight: '#202847',
-  violet: '#7357F5',
-  violetLight: '#F0EDFF',
+  violet: '#326B57',
+  violetLight: '#E8F1EB',
   white: '#FFFFFF',
   canvas: '#F6F7FB',
   text: '#182033',
@@ -84,17 +84,21 @@ export function Button({ title, onPress, disabled = false, variant = 'primary' }
   disabled?: boolean;
   variant?: 'primary' | 'secondary' | 'danger';
 }) {
+  const [focused, setFocused] = useState(false);
   return (
     <Pressable
       accessibilityRole="button"
       accessibilityState={{ disabled }}
       disabled={disabled}
       onPress={onPress}
+      onFocus={() => setFocused(true)}
+      onBlur={() => setFocused(false)}
       style={({ pressed }) => [
         styles.button,
         variant === 'secondary' && styles.secondaryButton,
         variant === 'danger' && styles.dangerButton,
         disabled && styles.disabledButton,
+        focused && !disabled && styles.focusedButton,
         pressed && !disabled && styles.pressedButton,
       ]}>
       <Text style={[styles.buttonText, variant === 'secondary' && styles.secondaryButtonText]}>{title}</Text>
@@ -132,20 +136,21 @@ const styles = StyleSheet.create({
   bodyText: { color: colors.text, fontSize: 14, lineHeight: 20 },
   mutedText: { color: colors.muted },
   field: { gap: 6 },
-  fieldLabel: { color: colors.text, fontSize: 13, fontWeight: '600' },
+  fieldLabel: { color: colors.text, fontSize: 14, fontWeight: '600' },
   input: { minHeight: 46, borderWidth: 1, borderColor: colors.border, borderRadius: 11, paddingHorizontal: 12, paddingVertical: 10, color: colors.text, backgroundColor: colors.white, fontSize: 15 },
   multiline: { minHeight: 92, textAlignVertical: 'top' },
-  button: { minHeight: 46, justifyContent: 'center', alignItems: 'center', borderRadius: 12, backgroundColor: colors.violet, paddingHorizontal: 16, paddingVertical: 12 },
+  button: { minHeight: 46, justifyContent: 'center', alignItems: 'center', borderWidth: 2, borderColor: 'transparent', borderRadius: 12, backgroundColor: colors.violet, paddingHorizontal: 16, paddingVertical: 12 },
   buttonText: { color: colors.white, fontWeight: '700', fontSize: 14 },
   secondaryButton: { backgroundColor: colors.violetLight, borderWidth: 1, borderColor: '#D9D0FF' },
   secondaryButtonText: { color: '#5037CC' },
   dangerButton: { backgroundColor: colors.danger },
   disabledButton: { opacity: 0.48 },
+  focusedButton: { borderColor: colors.text },
   pressedButton: { opacity: 0.8 },
   loading: { alignItems: 'center', justifyContent: 'center', gap: 10, padding: 24 },
-  message: { borderRadius: 10, padding: 12, fontSize: 13, lineHeight: 18, overflow: 'hidden' },
+  message: { borderRadius: 10, padding: 12, fontSize: 14, lineHeight: 20, overflow: 'hidden' },
   errorMessage: { color: colors.danger, backgroundColor: colors.dangerBg },
   successMessage: { color: colors.success, backgroundColor: colors.successBg },
   infoMessage: { color: '#4338A8', backgroundColor: colors.violetLight },
-  offlineBanner: { backgroundColor: '#FFF4E5', color: '#8A4B00', padding: 10, borderRadius: 9, fontSize: 12 },
+  offlineBanner: { backgroundColor: '#FFF4E5', color: '#8A4B00', padding: 10, borderRadius: 9, fontSize: 14, lineHeight: 20 },
 });

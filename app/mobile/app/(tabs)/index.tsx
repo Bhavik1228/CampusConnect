@@ -25,7 +25,7 @@ export default function HomeScreen() {
             ? <Image source={{ uri: selectedSchool.school_logo_path }} accessibilityLabel={`${selectedSchool.school_name} logo`} style={{ width: 52, height: 52, borderRadius: 12, backgroundColor: colors.white }} />
             : <Text accessibilityLabel={`${selectedSchool.school_name} logo`} style={{ width: 52, height: 52, borderRadius: 12, overflow: 'hidden', backgroundColor: colors.white, color: colors.navy, textAlign: 'center', textAlignVertical: 'center', fontSize: 20, fontWeight: '800' }}>{selectedSchool.school_name.slice(0, 1).toUpperCase()}</Text>}
           <View style={{ flex: 1, gap: 4 }}>
-            <Text style={{ color: '#C8BEFF', fontSize: 12, fontWeight: '800', letterSpacing: 1 }}>CAMPUS CONNECT</Text>
+            <Text style={{ color: '#A9D1B6', fontSize: 14, fontWeight: '700' }}>Campus Connect</Text>
             <Text style={{ color: colors.white, fontSize: 20, fontWeight: '800' }}>{selectedSchool.school_name}</Text>
           </View>
         </View>
