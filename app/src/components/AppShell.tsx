@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { Navigate, NavLink, Outlet, useLocation, useNavigate } from 'react-router-dom';
 import {
   Activity, BookCopy, BookMarked, BookOpenCheck, BookOpenText, CalendarDays, Check, ChevronDown, ClipboardList, Workflow, Globe,
@@ -118,6 +118,9 @@ export function AppShell() {
   const [maintenance, setMaintenance] = useState<{ active: boolean; scope: string | null; read_only: boolean; notice: string; ends_at: string | null; emergency: boolean } | null>(null);
   const navigate = useNavigate();
   const location = useLocation();
+  const performanceRoute = useRef(location.pathname);
+  const performanceSessionId = useRef(crypto.randomUUID());
+  performanceRoute.current = location.pathname;
   const sidebarPreferenceKey = `campus-connect-sidebar:${user?.id ?? 'anonymous'}:${activeMembership?.school_id ?? 'no-school'}`;
   const isHealthcareRole = activeMembership?.role === 'nurse' || activeMembership?.role === 'doctor';
   const isSecretaryRole = activeMembership?.role === 'secretary';
@@ -443,7 +446,7 @@ export function AppShell() {
     let persisting = false;
     let persistAgain = false;
     let persistTimer: number | undefined;
-    const sessionId = crypto.randomUUID();
+    const sessionId = performanceSessionId.current;
     const observers: { observer: PerformanceObserver; consume: (entry: PerformanceEntry) => void }[] = [];
 
     const observe = (type: string, consume: (entry: PerformanceEntry) => void) => {
@@ -521,6 +524,155 @@ export function AppShell() {
       observers.forEach(({ observer }) => observer.disconnect());
     };
   }, [activeMembership?.school_id, user?.id]);
+
+  useEffect(() => {
+    const targetSchoolId = activeMembership?.school_id;
+    if (!targetSchoolId || !user?.id || typeof PerformanceObserver === 'undefined') return;
+
+    let remainingSamples = 40;
+    let flushTimer: number | undefined;
+    let flushing = false;
+    const sessionId = crypto.randomUUID();
+    const queued: {
+      event_id: string;
+      school_id: string;
+      profile_id: string;
+      session_id: string;
+      event_type: 'request' | 'database';
+      label: string;
+      route: string;
+      duration_ms: number;
+      status_code: number | null;
+    }[] = [];
+
+    const flush = async () => {
+      if (flushing || queued.length === 0) return;
+      flushing = true;
+      const batch = queued.splice(0, 20);
+      try {
+        const { error } = await requireSupabase().from('platform_runtime_performance_events').insert(batch);
+        if (error) throw error;
+      } catch (error) {
+        console.error('Could not record request performance samples.', error);
+      } finally {
+        flushing = false;
+        if (queued.length) void flush();
+      }
+    };
+
+    const observer = new PerformanceObserver((list) => {
+      for (const entry of list.getEntries() as (PerformanceResourceTiming & { responseStatus?: number })[]) {
+        if (remainingSamples <= 0) break;
+        let url: URL;
+        try {
+          url = new URL(entry.name);
+        } catch {
+          continue;
+        }
+
+        const configuredSupabaseUrl = import.meta.env.VITE_SUPABASE_URL;
+        if (!configuredSupabaseUrl || url.host !== new URL(configuredSupabaseUrl).host) continue;
+
+        const segments = url.pathname.split('/').filter(Boolean);
+        const restIndex = segments.indexOf('rest');
+        const functionsIndex = segments.indexOf('functions');
+        const authIndex = segments.indexOf('auth');
+        const storageIndex = segments.indexOf('storage');
+        let eventType: 'request' | 'database';
+        let label: string;
+        if (restIndex >= 0 && segments[restIndex + 1] === 'v1' && segments[restIndex + 2]) {
+          eventType = 'database';
+          const resource = segments[restIndex + 2] === 'rpc'
+            ? `rpc:${segments[restIndex + 3] ?? 'unknown'}`
+            : segments[restIndex + 2];
+          label = `db:${resource.replace(/[^a-zA-Z0-9:_-]/g, '').slice(0, 60)}`;
+        } else if (functionsIndex >= 0 && segments[functionsIndex + 1] === 'v1' && segments[functionsIndex + 2]) {
+          eventType = 'request';
+          label = `function:${segments[functionsIndex + 2].replace(/[^a-zA-Z0-9_-]/g, '').slice(0, 60)}`;
+        } else if (authIndex >= 0 && segments[authIndex + 1] === 'v1' && segments[authIndex + 2]) {
+          eventType = 'request';
+          label = `auth:${segments[authIndex + 2].replace(/[^a-zA-Z0-9_-]/g, '').slice(0, 60)}`;
+        } else if (storageIndex >= 0 && segments[storageIndex + 1] === 'v1' && segments[storageIndex + 2]) {
+          eventType = 'request';
+          label = `storage:${segments[storageIndex + 2].replace(/[^a-zA-Z0-9_-]/g, '').slice(0, 60)}`;
+        } else {
+          continue;
+        }
+
+        queued.push({
+          event_id: crypto.randomUUID(),
+          school_id: targetSchoolId,
+          profile_id: user.id,
+          session_id: sessionId,
+          event_type: eventType,
+          label,
+          route: performanceRoute.current.slice(0, 160) || '/workspace',
+          duration_ms: Math.min(120000, Math.max(0, entry.duration)),
+          status_code: typeof entry.responseStatus === 'number' && entry.responseStatus >= 100
+            ? Math.min(599, entry.responseStatus)
+            : null,
+        });
+        remainingSamples -= 1;
+      }
+
+      if (queued.length >= 20) {
+        void flush();
+      } else if (queued.length && flushTimer === undefined) {
+        flushTimer = window.setTimeout(() => {
+          flushTimer = undefined;
+          void flush();
+        }, 2000);
+      }
+    });
+
+    observer.observe({ type: 'resource', buffered: true });
+    const flushOnHide = () => { void flush(); };
+    window.addEventListener('pagehide', flushOnHide);
+    return () => {
+      observer.disconnect();
+      window.removeEventListener('pagehide', flushOnHide);
+      if (flushTimer !== undefined) window.clearTimeout(flushTimer);
+      void flush();
+    };
+  }, [activeMembership?.school_id, user?.id]);
+
+  useEffect(() => {
+    const targetSchoolId = activeMembership?.school_id;
+    if (!targetSchoolId || !user?.id) return;
+    const route = location.pathname.slice(0, 160) || '/workspace';
+    const startedAt = performance.now();
+    let firstFrame = 0;
+    let secondFrame = 0;
+    const record = (durationMs: number) => {
+      void requireSupabase().from('platform_runtime_performance_events').insert({
+        event_id: crypto.randomUUID(),
+        school_id: targetSchoolId,
+        profile_id: user.id,
+        session_id: performanceSessionId.current,
+        event_type: 'page',
+        label: 'route-render',
+        route,
+        duration_ms: Math.min(120000, Math.max(0, durationMs)),
+        status_code: null,
+      }).then(({ error }) => {
+        if (error) console.error('Could not record page performance sample.', error);
+      });
+    };
+
+    const navigation = performance.getEntriesByType('navigation')[0];
+    if (location.key === 'default' && navigation) {
+      record(navigation.duration);
+      return;
+    }
+
+    firstFrame = window.requestAnimationFrame(() => {
+      secondFrame = window.requestAnimationFrame(() => record(performance.now() - startedAt));
+    });
+    return () => {
+      window.cancelAnimationFrame(firstFrame);
+      window.cancelAnimationFrame(secondFrame);
+    };
+  }, [activeMembership?.school_id, location.key, location.pathname, user?.id]);
 
   async function logout() {
     setLogoutError('');

@@ -51,6 +51,8 @@ import { SupportPage } from '../pages/SupportPage';
 import { SystemOwnerSupportPage } from '../pages/SystemOwnerSupportPage';
 import { SystemOwnerErrorsPage } from '../pages/SystemOwnerErrorsPage';
 import { SystemOwnerReleasesPage } from '../pages/SystemOwnerReleasesPage';
+import { SystemOwnerPerformancePage } from '../pages/SystemOwnerPerformancePage';
+import { SystemOwnerIncidentsPage } from '../pages/SystemOwnerIncidentsPage';
 import { PrerequisiteDemoPage } from '../pages/PrerequisiteDemoPage';
 import { DraftRecoveryDemoPage } from '../pages/DraftRecoveryDemoPage';
 import { PastPaperPipelinePage } from '../pages/PastPaperPipelinePage';
@@ -171,6 +173,8 @@ export function ProtectedApp() {
             <Route path="settings" element={<SystemOwnerSettingsPage />} />
             <Route path="maintenance" element={<SystemOwnerMaintenancePage />} />
             <Route path="errors" element={<SystemOwnerErrorsPage />} />
+            <Route path="errors/incidents" element={<SystemOwnerIncidentsPage />} />
+            <Route path="performance" element={<SystemOwnerPerformancePage />} />
             <Route path="releases" element={<SystemOwnerReleasesPage />} />
             <Route path="support" element={<SystemOwnerSupportPage />} />
           </Route>

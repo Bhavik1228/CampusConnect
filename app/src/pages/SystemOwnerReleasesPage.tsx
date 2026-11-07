@@ -50,38 +50,51 @@ export function SystemOwnerReleasesPage() {
   const { user } = useAuth();
   const [deployments, setDeployments] = useState<ReleaseDeployment[]>([]);
   const [drafts, setDrafts] = useState<Record<string, string>>({});
+  const [nextCursor, setNextCursor] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
+  const [loadingOlder, setLoadingOlder] = useState(false);
   const [savingId, setSavingId] = useState('');
   const [error, setError] = useState('');
   const [notice, setNotice] = useState('');
 
-  const loadReleases = useCallback(async (background = false) => {
+  const loadReleases = useCallback(async (cursor: string | null = null, background = false) => {
     if (!user) return;
-    if (background) setRefreshing(true);
+    if (cursor) setLoadingOlder(true);
+    else if (background) setRefreshing(true);
     else setLoading(true);
     setError('');
-    setNotice('');
+    if (!cursor) setNotice('');
     try {
       const { data, error: requestError } = await requireSupabase().functions.invoke('system-owner-admin', {
-        body: { action: 'release-history' },
+        body: { action: 'release-history', cursor },
       });
       if (requestError) throw requestError;
-      if (!data || !Array.isArray(data.deployments) || !data.deployments.every(isDeployment)) {
+      if (!data || !Array.isArray(data.deployments) || !data.deployments.every(isDeployment)
+        || (data.nextCursor !== null && typeof data.nextCursor !== 'string')) {
         throw new Error('The system owner service returned invalid release history data.');
       }
-      setDeployments(data.deployments);
-      setDrafts(Object.fromEntries(data.deployments.map((deployment: ReleaseDeployment) =>
-        [deployment.id, deployment.knownIssues])));
+      const fetched = data.deployments as ReleaseDeployment[];
+      setDeployments((current) => cursor
+        ? [...current, ...fetched.filter((item) => !current.some((existing) => existing.id === item.id))]
+        : fetched);
+      setDrafts((current) => ({
+        ...Object.fromEntries(fetched.map((deployment) => [deployment.id, deployment.knownIssues])),
+        ...(cursor ? current : {}),
+      }));
+      setNextCursor(data.nextCursor);
     } catch (loadError) {
       setError(loadError instanceof Error ? loadError.message : 'Could not load Vercel release history.');
     } finally {
-      setLoading(false);
-      setRefreshing(false);
+      if (cursor) setLoadingOlder(false);
+      else {
+        setLoading(false);
+        setRefreshing(false);
+      }
     }
   }, [user]);
 
-  useEffect(() => { void loadReleases(); }, [loadReleases]);
+  useEffect(() => { void loadReleases(null); }, [loadReleases]);
 
   async function saveKnownIssues(event: FormEvent<HTMLFormElement>, deployment: ReleaseDeployment) {
     event.preventDefault();
@@ -123,7 +136,7 @@ export function SystemOwnerReleasesPage() {
         <p>Recent successful production deployments, linked commit changes, and owner-maintained known issues.</p>
       </div>
       <div className="system-owner-header-actions">
-        <button className="button button-secondary" type="button" onClick={() => void loadReleases(true)} disabled={loading || refreshing}>
+        <button className="button button-secondary" type="button" onClick={() => void loadReleases(null, true)} disabled={loading || refreshing}>
           <RefreshCw size={15} className={refreshing ? 'spin' : undefined} /> Refresh
         </button>
       </div>
@@ -139,7 +152,7 @@ export function SystemOwnerReleasesPage() {
         <span>Check that VERCEL_PROJECT_ID and the Vercel token are configured for the system-owner-admin function.</span>
       </div>
     </section>}
-    {!!deployments.length && <section className="system-owner-release-list" aria-label="Recent Vercel production deployments">
+    {!!deployments.length && <section className="system-owner-release-list" aria-label="Vercel production deployments">
       {deployments.map((deployment) => {
         const draft = drafts[deployment.id] ?? '';
         const saved = deployment.knownIssues;
@@ -190,6 +203,9 @@ export function SystemOwnerReleasesPage() {
         </article>;
       })}
     </section>}
-    <p className="system-owner-muted">Showing up to 30 successful production deployments from Vercel. Commit messages are the available change summary; known issues are maintained here by the system owner.</p>
+    {!loading && nextCursor && <button className="button button-secondary system-owner-release-more" type="button" disabled={loadingOlder} onClick={() => void loadReleases(nextCursor)}>
+      <RefreshCw size={14} className={loadingOlder ? 'spin' : undefined} /> {loadingOlder ? 'Loading older releases…' : 'Load older releases'}
+    </button>}
+    <p className="system-owner-muted">Loads production deployments from Vercel in pages of 100; use “Load older releases” to continue through the available history. Commit messages are the available change summary; known issues are maintained here by the system owner.</p>
   </main>;
 }

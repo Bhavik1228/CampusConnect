@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useState } from 'react';
 import { Activity, AlertTriangle, Clock3, RefreshCw, ShieldAlert } from 'lucide-react';
+import { NavLink } from 'react-router-dom';
 import { ErrorState, LoadingState } from '../components/Feedback';
 import { useAuth } from '../contexts/AuthContext';
 import { requireSupabase } from '../lib/supabase';
@@ -116,6 +117,11 @@ export function SystemOwnerErrorsPage() {
         </button>
       </div>
     </header>
+
+    <nav className="system-owner-error-tabs" aria-label="Errors and incidents">
+      <NavLink to="/system-owner/errors" end className={({ isActive }) => isActive ? 'active' : ''}>Error dashboard</NavLink>
+      <NavLink to="/system-owner/errors/incidents" className={({ isActive }) => isActive ? 'active' : ''}>System incident log</NavLink>
+    </nav>
 
     {error && <ErrorState message={error} />}
     {!dashboard && loading && <LoadingState label="Loading application error events…" />}

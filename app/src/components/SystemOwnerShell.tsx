@@ -1,5 +1,5 @@
 import { useState } from 'react';
-import { AlertTriangle, Building2, Gauge, History, LifeBuoy, LogOut, Menu, Settings, ShieldAlert, X } from 'lucide-react';
+import { AlertTriangle, Building2, Gauge, History, LifeBuoy, LogOut, Menu, Settings, ShieldAlert, Activity, X } from 'lucide-react';
 import { NavLink, Outlet, useLocation, useNavigate } from 'react-router-dom';
 import { useAuth } from '../contexts/AuthContext';
 import { ErrorState } from './Feedback';
@@ -10,6 +10,7 @@ const links = [
   { to: '/system-owner/settings', label: 'Platform settings', icon: Settings },
   { to: '/system-owner/maintenance', label: 'Maintenance mode', icon: ShieldAlert },
   { to: '/system-owner/errors', label: 'Error dashboard', icon: AlertTriangle },
+  { to: '/system-owner/performance', label: 'Performance monitoring', icon: Activity },
   { to: '/system-owner/releases', label: 'Release history', icon: History },
   { to: '/system-owner/support', label: 'Support requests', icon: LifeBuoy },
 ];
@@ -20,6 +21,8 @@ const titles: Record<string, string> = {
   '/system-owner/settings': 'Platform settings',
   '/system-owner/maintenance': 'Maintenance mode',
   '/system-owner/errors': 'Error dashboard',
+  '/system-owner/errors/incidents': 'System incident log',
+  '/system-owner/performance': 'Performance monitoring',
   '/system-owner/releases': 'Release history',
   '/system-owner/support': 'Support requests',
 };
@@ -58,7 +61,7 @@ export function SystemOwnerShell() {
     <aside className="sidebar desktop-sidebar">{sidebar()}</aside>
     {mobileOpen && <div className="mobile-backdrop" onClick={() => setMobileOpen(false)}><aside className="sidebar mobile-sidebar" onClick={(event) => event.stopPropagation()}>{sidebar()}</aside></div>}
     <main className="workspace">
-      <header className="topbar"><div className="topbar-left"><button className="icon-button mobile-menu" onClick={() => setMobileOpen(true)} aria-label="Open navigation"><Menu size={21} /></button><span className="breadcrumbs">System owner <strong>{titles[location.pathname] ?? 'Platform control'}</strong></span></div><span className="role-badge"><span></span>system owner</span></header>
+      <header className="topbar"><div className="topbar-left"><button className="icon-button mobile-menu" onClick={() => setMobileOpen(true)} aria-label="Open navigation"><Menu size={21} /></button><span className="breadcrumbs">System owner <strong>{titles[location.pathname] ?? (location.pathname.startsWith('/system-owner/errors/') ? 'System incident log' : 'Platform control')}</strong></span></div><span className="role-badge"><span></span>system owner</span></header>
       <div className="page-content">{logoutError && <ErrorState message={logoutError} />}<Outlet /></div>
       <footer className="workspace-footer"><span>Campus Connect</span><span>Exclusive platform administration</span></footer>
     </main>

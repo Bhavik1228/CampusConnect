@@ -39,6 +39,18 @@ type OwnerRequest = {
   windowDays?: unknown;
   vercelDeploymentId?: unknown;
   knownIssues?: unknown;
+  cursor?: unknown;
+  incidentId?: unknown;
+  title?: unknown;
+  severity?: unknown;
+  incidentStatus?: unknown;
+  startedAt?: unknown;
+  resolvedAt?: unknown;
+  affectedServices?: unknown;
+  impact?: unknown;
+  cause?: unknown;
+  fix?: unknown;
+  lessons?: unknown;
 };
 
 const schoolTypes = ['primary', 'secondary', 'k12', 'university', 'other'];
@@ -107,7 +119,7 @@ function safeVercelUrl(value: unknown, allowedHost: (hostname: string) => boolea
   }
 }
 
-async function getVercelProductionDeployments() {
+async function getVercelProductionDeployments(cursor: string | null) {
   const token = Deno.env.get('VERCEL_TOKEN');
   const projectId = Deno.env.get('VERCEL_PROJECT_ID');
   const teamId = Deno.env.get('VERCEL_TEAM_ID');
@@ -119,7 +131,8 @@ async function getVercelProductionDeployments() {
   url.searchParams.set('projectId', projectId);
   url.searchParams.set('target', 'production');
   url.searchParams.set('state', 'READY');
-  url.searchParams.set('limit', '30');
+  url.searchParams.set('limit', '100');
+  if (cursor) url.searchParams.set('until', cursor);
   if (teamId) url.searchParams.set('teamId', teamId);
 
   const response = await fetch(url, {
@@ -145,7 +158,7 @@ async function getVercelProductionDeployments() {
     throw new Error('Vercel returned an invalid deployment history response.');
   }
 
-  return payload.deployments.map((item): VercelDeployment => {
+  const deployments = payload.deployments.map((item): VercelDeployment => {
     if (!isRecord(item)
       || !isNonEmptyString(item.uid)
       || !isNonEmptyString(item.name)
@@ -178,6 +191,11 @@ async function getVercelProductionDeployments() {
       },
     };
   });
+  const rawCursor = isRecord(payload.pagination) ? payload.pagination.next : null;
+  const nextCursor = (typeof rawCursor === 'number' && Number.isSafeInteger(rawCursor) && rawCursor > 0)
+    ? String(rawCursor)
+    : (isNonEmptyString(rawCursor) && /^\d{1,20}$/.test(rawCursor) ? rawCursor : null);
+  return { deployments, nextCursor };
 }
 
 async function collectSystemHealth(serviceClient: ReturnType<typeof createClient>) {
@@ -321,8 +339,122 @@ Deno.serve(async (request: Request) => {
       return respond(200, { errorDashboard });
     }
 
+    if (payload.action === 'performance-dashboard') {
+      const windowDays = payload.windowDays;
+      if (windowDays !== 7 && windowDays !== 30 && windowDays !== 90) {
+        return respond(400, { error: 'Choose a 7, 30, or 90 day performance dashboard window.' });
+      }
+      const retentionCutoff = new Date(Date.now() - 90 * 24 * 60 * 60 * 1000).toISOString();
+      const { error: retentionError } = await serviceClient
+        .from('platform_runtime_performance_events')
+        .delete()
+        .lt('created_at', retentionCutoff);
+      if (retentionError) throw retentionError;
+      const { data: performanceDashboard, error: dashboardError } = await serviceClient.rpc(
+        'platform_owner_performance_dashboard',
+        { window_days: windowDays },
+      );
+      if (dashboardError) throw dashboardError;
+      const { data: vitalRows, error: vitalError } = await serviceClient
+        .from('platform_performance_metrics')
+        .select('metric_name,metric_value')
+        .gte('created_at', new Date(Date.now() - windowDays * 24 * 60 * 60 * 1000).toISOString())
+        .order('created_at', { ascending: false })
+        .limit(5000);
+      if (vitalError) throw vitalError;
+      const coreWebVitals = ['lcp', 'inp', 'cls'].map((name) => {
+        const values = (vitalRows ?? [])
+          .filter((row) => row.metric_name === name)
+          .map((row) => Number(row.metric_value))
+          .filter((value) => Number.isFinite(value) && value >= 0)
+          .sort((left, right) => left - right);
+        return {
+          name,
+          sampleCount: values.length,
+          p75: values.length ? values[Math.ceil(values.length * 0.75) - 1] : null,
+        };
+      });
+      return respond(200, { performanceDashboard: { ...performanceDashboard, coreWebVitals } });
+    }
+
+    if (payload.action === 'incident-list') {
+      const { data: incidents, error: incidentsError } = await serviceClient
+        .from('platform_incidents')
+        .select('id,title,severity,status,started_at,resolved_at,affected_services,impact,cause,fix,lessons,created_at,updated_at')
+        .order('started_at', { ascending: false })
+        .limit(500);
+      if (incidentsError) throw incidentsError;
+      return respond(200, { incidents: incidents ?? [] });
+    }
+
+    if (payload.action === 'save-incident') {
+      const incidentId = payload.incidentId;
+      const title = payload.title;
+      const severity = payload.severity;
+      const incidentStatus = payload.incidentStatus;
+      const startedAt = payload.startedAt;
+      const resolvedAt = payload.resolvedAt;
+      const affectedServices = payload.affectedServices;
+      const impact = payload.impact;
+      const cause = payload.cause;
+      const fix = payload.fix;
+      const lessons = payload.lessons;
+      const validSeverities = ['critical', 'high', 'medium', 'low'];
+      const validStatuses = ['investigating', 'identified', 'monitoring', 'resolved'];
+      const validDate = (value: unknown): value is string =>
+        typeof value === 'string' && Number.isFinite(Date.parse(value));
+      if ((incidentId !== undefined && !isUuid(incidentId))
+        || typeof title !== 'string' || title.trim().length < 3 || title.trim().length > 160
+        || typeof severity !== 'string' || !validSeverities.includes(severity)
+        || typeof incidentStatus !== 'string' || !validStatuses.includes(incidentStatus)
+        || !validDate(startedAt)
+        || (resolvedAt !== null && resolvedAt !== undefined && !validDate(resolvedAt))
+        || !isShortText(affectedServices, 500)
+        || !isShortText(impact, 2000)
+        || !isShortText(cause, 3000)
+        || !isShortText(fix, 3000)
+        || !isShortText(lessons, 3000)) {
+        return respond(400, { error: 'Provide a valid incident with supported severity, status, dates, and field lengths.' });
+      }
+      const resolvedAtValue = typeof resolvedAt === 'string' ? resolvedAt : null;
+      if (resolvedAtValue && Date.parse(resolvedAtValue) < Date.parse(startedAt)) {
+        return respond(400, { error: 'The recovery time cannot be earlier than the incident start time.' });
+      }
+      if (incidentStatus === 'resolved' && !resolvedAtValue) {
+        return respond(400, { error: 'Provide a recovery time for a resolved incident.' });
+      }
+
+      const incidentValues = {
+        title: title.trim(),
+        severity,
+        status: incidentStatus,
+        started_at: new Date(startedAt).toISOString(),
+        resolved_at: resolvedAtValue ? new Date(resolvedAtValue).toISOString() : null,
+        affected_services: affectedServices.trim(),
+        impact: impact.trim(),
+        cause: cause.trim(),
+        fix: fix.trim(),
+        lessons: lessons.trim(),
+        updated_at: new Date().toISOString(),
+        updated_by: user.id,
+      };
+      const query = incidentId
+        ? serviceClient.from('platform_incidents').update(incidentValues).eq('id', incidentId)
+        : serviceClient.from('platform_incidents').insert({ ...incidentValues, created_by: user.id });
+      const { data: incident, error: saveError } = await query
+        .select('id,title,severity,status,started_at,resolved_at,affected_services,impact,cause,fix,lessons,created_at,updated_at')
+        .maybeSingle();
+      if (saveError) throw saveError;
+      if (!incident) return respond(404, { error: 'The incident was not found.' });
+      return respond(200, { incident });
+    }
+
     if (payload.action === 'release-history') {
-      const deployments = await getVercelProductionDeployments();
+      const cursor = payload.cursor === undefined || payload.cursor === null ? null : payload.cursor;
+      if (cursor !== null && (typeof cursor !== 'string' || !/^\d{1,20}$/.test(cursor))) {
+        return respond(400, { error: 'Provide a valid Vercel release history cursor.' });
+      }
+      const { deployments, nextCursor } = await getVercelProductionDeployments(cursor);
       const deploymentIds = deployments.map((deployment) => deployment.id);
       let notesByDeployment = new Map<string, { knownIssues: string; updatedAt: string }>();
       if (deploymentIds.length) {
@@ -342,6 +474,7 @@ Deno.serve(async (request: Request) => {
           knownIssues: notesByDeployment.get(deployment.id)?.knownIssues ?? '',
           knownIssuesUpdatedAt: notesByDeployment.get(deployment.id)?.updatedAt ?? null,
         })),
+        nextCursor,
       });
     }
 
@@ -353,11 +486,6 @@ Deno.serve(async (request: Request) => {
         || typeof knownIssues !== 'string'
         || knownIssues.length > 3000) {
         return respond(400, { error: 'Provide a valid deployment and known-issues note under 3,000 characters.' });
-      }
-
-      const deployments = await getVercelProductionDeployments();
-      if (!deployments.some((deployment) => deployment.id === deploymentId)) {
-        return respond(404, { error: 'That deployment is no longer in the recent production release history. Refresh the page and try again.' });
       }
 
       const trimmedIssues = knownIssues.trim();
