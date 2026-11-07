@@ -10,6 +10,7 @@ import { AuthScreen } from './AuthScreen';
 import { SchoolSetup } from './SchoolSetup';
 import { DashboardPage } from '../pages/DashboardPage';
 import { DirectoryPage } from '../pages/DirectoryPage';
+import { ClassStructurePage } from '../pages/ClassStructurePage';
 import { AcademicPages } from '../pages/AcademicPages';
 import { AttendancePage } from '../pages/AttendancePage';
 import { SchoolSettingsPage } from '../pages/SchoolSettingsPage';
@@ -198,7 +199,7 @@ export function ProtectedApp() {
           <Route path="/website-management" element={<WebsiteManagementPage />} />
           <Route path="/admin-workflows" element={<AdministrativeWorkflowsPage />} />
           <Route path="/automations" element={<AutomationsPage />} />
-          <Route path="/classes" element={<DirectoryPage kind="classes" />} />
+          <Route path="/classes" element={<ClassStructurePage />} />
           <Route path="/subjects" element={<DirectoryPage kind="subjects" />} />
           <Route path="/timetable" element={<TimetableDashboardPage />} />
           <Route path="/academic-calendar" element={<AcademicCalendarPage />} />
