@@ -2,7 +2,7 @@ import { Fragment, useEffect, useMemo, useState, type FormEvent } from 'react';
 import type { jsPDF } from 'jspdf';
 import QRCode from 'qrcode';
 import {
-  Award, Check, Download, FileText, GraduationCap, History, LockKeyhole, MessageSquare,
+  AlertTriangle, Award, Check, Download, FileText, GraduationCap, History, LockKeyhole, MessageSquare,
   Pencil, Plus, Save, Settings2, ShieldCheck, Sparkles, X,
 } from 'lucide-react';
 import { useAuth } from '../contexts/AuthContext';
@@ -49,7 +49,9 @@ type Student = {
   first_name: string;
   last_name: string;
   status: string;
+  class_id: string | null;
 };
+type ClassChoice = { id: string; name: string };
 type Assessment = {
   id: string;
   title: string;
@@ -128,6 +130,51 @@ function gradeFor(percentage: number, boundaries: Record<string, number>) {
     .sort((left, right) => Number(right[1]) - Number(left[1]))
     .find(([, boundary]) => percentage >= Number(boundary));
   return entry?.[0] ?? '—';
+}
+
+function median(values: number[]) {
+  const sorted = [...values].sort((left, right) => left - right);
+  const middle = Math.floor(sorted.length / 2);
+  return sorted.length % 2 ? sorted[middle] : (sorted[middle - 1] + sorted[middle]) / 2;
+}
+
+async function loadSchoolStudents(schoolId: string) {
+  const rows: Student[] = [];
+  for (let offset = 0; ; offset += 500) {
+    const { data, error } = await requireSupabase().from('students')
+      .select('id,student_number,first_name,last_name,status,class_id')
+      .eq('school_id', schoolId).order('last_name').order('first_name').order('id').range(offset, offset + 499);
+    if (error) throw error;
+    const batch = (data ?? []) as Student[];
+    rows.push(...batch);
+    if (batch.length < 500) return rows;
+  }
+}
+
+async function loadSchoolResults(schoolId: string) {
+  const rows: Result[] = [];
+  for (let offset = 0; ; offset += 500) {
+    const { data, error } = await requireSupabase().from('learning_assessment_results')
+      .select('*').eq('school_id', schoolId)
+      .order('assessment_date', { ascending: false }).order('created_at', { ascending: false }).order('id')
+      .range(offset, offset + 499);
+    if (error) throw error;
+    const batch = (data ?? []) as Result[];
+    rows.push(...batch);
+    if (batch.length < 500) return rows;
+  }
+}
+
+async function loadSchoolClasses(schoolId: string) {
+  const rows: ClassChoice[] = [];
+  for (let offset = 0; ; offset += 500) {
+    const { data, error } = await requireSupabase().from('school_classes')
+      .select('id,name').eq('school_id', schoolId).order('name').order('id').range(offset, offset + 499);
+    if (error) throw error;
+    const batch = (data ?? []) as ClassChoice[];
+    rows.push(...batch);
+    if (batch.length < 500) return rows;
+  }
 }
 
 function hexRgb(hex: string): [number, number, number] {
@@ -355,6 +402,7 @@ export function GradesResultsPage() {
   const canManage = isSchoolAdmin || role === 'academic_coordinator';
   const canRecordResults = canManage || role === 'teacher';
   const [results, setResults] = useState<Result[]>([]);
+  const [classes, setClasses] = useState<ClassChoice[]>([]);
   const [revisions, setRevisions] = useState<ResultRevision[]>([]);
   const [students, setStudents] = useState<Student[]>([]);
   const [assessments, setAssessments] = useState<Assessment[]>([]);
@@ -364,6 +412,11 @@ export function GradesResultsPage() {
   const [boundaries, setBoundaries] = useState<Record<string, number>>(DEFAULT_BOUNDARIES);
   const [gradingScale, setGradingScale] = useState<GradingScale['grading_scale']>('percentage');
   const [activeView, setActiveView] = useState<'results' | 'reports' | 'settings'>('results');
+  const [entryMode, setEntryMode] = useState<'single' | 'grid'>('single');
+  const [gridAssessmentId, setGridAssessmentId] = useState('');
+  const [gridClassId, setGridClassId] = useState('');
+  const [gridAssessmentDate, setGridAssessmentDate] = useState(new Date().toISOString().slice(0, 10));
+  const [gridMarks, setGridMarks] = useState<Record<string, string>>({});
   const [form, setForm] = useState<ResultForm>(EMPTY_FORM);
   const [editingResult, setEditingResult] = useState<Result | null>(null);
   const [search, setSearch] = useState('');
@@ -403,34 +456,48 @@ export function GradesResultsPage() {
   }
 
   useEffect(() => {
-    if (!schoolId) return;
+    const activeSchoolId = schoolId;
+    if (!activeSchoolId) return;
     let alive = true;
-    async function load() {
+    async function load(activeSchoolId: string) {
       setLoading(true);
       setError('');
+      setResults([]);
+      setStudents([]);
+      setClasses([]);
       try {
         const client = requireSupabase();
-        const [resultResponse, studentResponse, assessmentResponse, scaleResponse, templateResponse, brandingResponse] = await Promise.all([
-          client.from('learning_assessment_results').select('*').eq('school_id', schoolId).order('assessment_date', { ascending: false }),
-          client.from('students').select('id, student_number, first_name, last_name, status').eq('school_id', schoolId).order('last_name').order('first_name'),
-          client.from('learning_assessments').select('id, title, subject, total_marks').eq('school_id', schoolId).order('title'),
-          client.from('school_academic_policies').select('grading_scale, grade_boundaries, report_card_template').eq('school_id', schoolId).maybeSingle(),
-          client.from('school_report_templates').select('*').eq('school_id', schoolId).order('created_at', { ascending: false }),
-          client.from('schools').select('logo_path,primary_color,motto,contact_email,contact_phone,website').eq('id', schoolId).single(),
+        const [loadedResults, loadedStudents, loadedClasses, assessmentResponse, scaleResponse, templateResponse, brandingResponse] = await Promise.all([
+          loadSchoolResults(activeSchoolId),
+          loadSchoolStudents(activeSchoolId),
+          loadSchoolClasses(activeSchoolId),
+          client.from('learning_assessments').select('id, title, subject, total_marks').eq('school_id', activeSchoolId).order('title'),
+          client.from('school_academic_policies').select('grading_scale, grade_boundaries, report_card_template').eq('school_id', activeSchoolId).maybeSingle(),
+          client.from('school_report_templates').select('*').eq('school_id', activeSchoolId).order('created_at', { ascending: false }),
+          client.from('schools').select('logo_path,primary_color,motto,contact_email,contact_phone,website').eq('id', activeSchoolId).single(),
         ]);
-        for (const response of [resultResponse, studentResponse, assessmentResponse, scaleResponse, templateResponse, brandingResponse]) {
+        for (const response of [assessmentResponse, scaleResponse, templateResponse, brandingResponse]) {
           if (response.error) throw response.error;
         }
         if (!brandingResponse.data) throw new Error('School document branding could not be loaded.');
         const revisionResponse = canManage
-          ? await client.from('learning_result_revisions').select('result_id, previous_marks, previous_comment, reason, created_at').eq('school_id', schoolId).order('created_at', { ascending: false })
+          ? await client.from('learning_result_revisions').select('result_id, previous_marks, previous_comment, reason, created_at').eq('school_id', activeSchoolId).order('created_at', { ascending: false })
           : null;
         if (revisionResponse?.error) throw revisionResponse.error;
         if (!alive) return;
-        setResults((resultResponse.data ?? []) as Result[]);
+        setResults(loadedResults);
         setRevisions((revisionResponse?.data ?? []) as ResultRevision[]);
-        setStudents((studentResponse.data ?? []) as Student[]);
+        setStudents(loadedStudents);
+        setClasses(loadedClasses);
         setAssessments((assessmentResponse.data ?? []) as Assessment[]);
+        const availableAssessments = ((assessmentResponse.data ?? []) as Assessment[]).filter((assessment) => Number(assessment.total_marks) > 0);
+        setGridAssessmentId((current) => availableAssessments.some((assessment) => assessment.id === current)
+          ? current
+          : availableAssessments[0]?.id ?? '');
+        setGridClassId((current) => loadedClasses.some((schoolClass) => schoolClass.id === current)
+          ? current
+          : loadedClasses[0]?.id ?? '');
+        setGridMarks({});
         setTemplates((templateResponse.data ?? []) as ReportTemplate[]);
         setDocumentBranding(brandingResponse.data);
         const scale = scaleResponse.data as (GradingScale & { report_card_template: string | null }) | null;
@@ -445,7 +512,7 @@ export function GradesResultsPage() {
         if (alive) setLoading(false);
       }
     }
-    void load();
+    void load(activeSchoolId);
     return () => { alive = false; };
   }, [schoolId, canManage]);
 
@@ -468,6 +535,41 @@ export function GradesResultsPage() {
   const selectedMaximum = editingResult
     ? Number(editingResult.maximum_marks)
     : Number(selectedAssessment?.total_marks ?? 0);
+  const gridStudents = useMemo(
+    () => students.filter((student) => student.status === 'active' && student.class_id === gridClassId),
+    [students, gridClassId],
+  );
+  const gridResultsByStudent = useMemo(() => {
+    const byStudent = new Map<string, Result>();
+    for (const result of results) {
+      if (result.assessment_id === gridAssessmentId && !byStudent.has(result.student_id)) {
+        byStudent.set(result.student_id, result);
+      }
+    }
+    return byStudent;
+  }, [gridAssessmentId, results]);
+  const gridScores = useMemo(() => gridStudents.flatMap((student) => {
+    const savedResult = gridResultsByStudent.get(student.id);
+    const value = savedResult
+      ? Number(savedResult.marks_obtained)
+      : gridMarks[student.id]?.trim() ? Number(gridMarks[student.id]) : null;
+    return value !== null && Number.isFinite(value) ? [{ studentId: student.id, mark: value }] : [];
+  }), [gridMarks, gridResultsByStudent, gridStudents]);
+  const outlierStudentIds = useMemo(() => {
+    if (gridScores.length < 5) return new Set<string>();
+    const center = median(gridScores.map((item) => item.mark));
+    const medianDeviation = median(gridScores.map((item) => Math.abs(item.mark - center)));
+    if (medianDeviation === 0) {
+      return new Set(gridScores.filter((item) => item.mark !== center).map((item) => item.studentId));
+    }
+    return new Set(gridScores
+      .filter((item) => Math.abs(0.6745 * (item.mark - center) / medianDeviation) > 3.5)
+      .map((item) => item.studentId));
+  }, [gridScores]);
+  const missingGridMarks = gridStudents.filter((student) =>
+    !gridResultsByStudent.has(student.id) && !gridMarks[student.id]?.trim()).length;
+  const enteredGridMarks = gridStudents.filter((student) =>
+    !gridResultsByStudent.has(student.id) && Boolean(gridMarks[student.id]?.trim())).length;
   const pdfSchool = {
     name: activeMembership?.school.name ?? 'School',
     address: activeMembership?.school.address,
@@ -550,6 +652,74 @@ export function GradesResultsPage() {
       setNotice(editingResult ? 'Result updated and the correction was recorded.' : 'Assessment marks recorded as a draft.');
     } catch (saveError) {
       setError(errorMessage(saveError, 'Could not save this result.'));
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  async function saveGridMarks() {
+    if (!schoolId || !user || !gridAssessmentId || !gridClassId || !gridAssessmentDate) {
+      setError('Choose an assessment, class, and date before saving the mark-entry grid.');
+      return;
+    }
+    const assessment = assessmentsById.get(gridAssessmentId);
+    if (!assessment || Number(assessment.total_marks) <= 0) {
+      setError('Choose an assessment with a valid total mark.');
+      return;
+    }
+    const rows = gridStudents.flatMap((student) => {
+      if (gridResultsByStudent.has(student.id) || !gridMarks[student.id]?.trim()) return [];
+      const marks = Number(gridMarks[student.id]);
+      if (!Number.isFinite(marks) || marks < 0 || marks > assessment.total_marks
+        || Math.abs(marks * 100 - Math.round(marks * 100)) > 0.000001) {
+        return [{ student, marks: Number.NaN }];
+      }
+      return [{ student, marks }];
+    });
+    if (!rows.length) {
+      setError('Enter at least one mark for a student without an existing result.');
+      return;
+    }
+    const invalid = rows.find((row) => !Number.isFinite(row.marks));
+    if (invalid) {
+      setError(`Enter a mark from 0 to ${assessment.total_marks} with no more than two decimal places for ${invalid.student.first_name} ${invalid.student.last_name}.`);
+      return;
+    }
+
+    setSaving(true);
+    setError('');
+    setNotice('');
+    const savedRows: Result[] = [];
+    try {
+      for (let offset = 0; offset < rows.length; offset += 200) {
+        const batch = rows.slice(offset, offset + 200);
+        const { data, error: insertError } = await requireSupabase().from('learning_assessment_results')
+          .insert(batch.map(({ student, marks }) => ({
+            school_id: schoolId,
+            created_by: user.id,
+            student_id: student.id,
+            assessment_id: assessment.id,
+            marks_obtained: marks,
+            maximum_marks: assessment.total_marks,
+            assessment_date: gridAssessmentDate,
+            teacher_comment: '',
+            correction_reason: '',
+            status: 'draft',
+          })))
+          .select();
+        if (insertError) throw insertError;
+        const savedBatch = (data ?? []) as Result[];
+        savedRows.push(...savedBatch);
+        setResults((current) => [...savedBatch, ...current]);
+      }
+      const outlierCount = rows.filter((row) => outlierStudentIds.has(row.student.id)).length;
+      setGridMarks({});
+      setNotice(`Saved ${savedRows.length} mark${savedRows.length === 1 ? '' : 's'} as drafts.${outlierCount ? ` ${outlierCount} potential outlier${outlierCount === 1 ? '' : 's'} flagged for review.` : ''}`);
+    } catch (saveError) {
+      if (savedRows.length) {
+        setNotice(`${savedRows.length} mark${savedRows.length === 1 ? '' : 's'} saved before the remaining batch failed.`);
+      }
+      setError(errorMessage(saveError, 'Could not save the mark-entry grid.'));
     } finally {
       setSaving(false);
     }
@@ -771,12 +941,17 @@ export function GradesResultsPage() {
             <article className="grades-stat"><span><ShieldCheck size={16} /></span><small>AWAITING APPROVAL</small><strong>{results.filter((result) => result.status === 'draft').length}</strong></article>
             <article className="grades-stat"><span><Award size={16} /></span><small>PUBLISHED RESULTS</small><strong>{publishedResults.length}</strong></article>
           </div>
-          {canRecordResults && <section className="content-card grades-entry-card">
+          {canRecordResults && <>
+            <div className="grades-entry-modes" role="tablist" aria-label="Mark entry mode">
+              <button type="button" role="tab" className={entryMode === 'single' ? 'active' : ''} onClick={() => setEntryMode('single')} aria-selected={entryMode === 'single'}>Single result</button>
+              <button type="button" role="tab" className={entryMode === 'grid' ? 'active' : ''} onClick={() => setEntryMode('grid')} aria-selected={entryMode === 'grid'}>Class mark-entry grid</button>
+            </div>
+          {entryMode === 'single' && <section className="content-card grades-entry-card">
             <div className="section-heading"><div><span className="eyebrow">{editingResult ? 'Update record' : 'New assessment mark'}</span><h2>{editingResult ? 'Edit student result' : 'Record student marks'}</h2></div>{editingResult && <button className="button button-quiet" onClick={cancelEdit}><X size={14} />Cancel</button>}</div>
             <form className="grades-entry-form" onSubmit={(event) => void saveResult(event)}>
               <DraftRecoveryControls entity="report_comment" draft={reportDraft} onRestore={restoreReportDraft} />
               <label className="field"><span>Student</span><select required value={form.student_id} disabled={Boolean(editingResult)} onChange={(event) => setForm((current) => ({ ...current, student_id: event.target.value }))}><option value="">Choose a student</option>{students.filter((student) => student.status === 'active' || student.id === form.student_id).map((student) => <option key={student.id} value={student.id}>{student.last_name}, {student.first_name} · {student.student_number}</option>)}</select></label>
-              <label className="field"><span>Assessment</span><select required value={form.assessment_id} disabled={Boolean(editingResult)} onChange={(event) => setForm((current) => ({ ...current, assessment_id: event.target.value, marks_obtained: '' }))}><option value="">Choose an assessment</option>{recordableAssessments.map((assessment) => <option key={assessment.id} value={assessment.id}>{assessment.subject || 'Assessment'} · {assessment.title} ({assessment.total_marks} marks)</option>)}{editingResult && !recordableAssessments.some((assessment) => assessment.id === editingResult.assessment_id) && <option value={editingResult.assessment_id}>{assessmentsById.get(editingResult.assessment_id)?.title ?? 'Saved assessment'} · {editingResult.maximum_marks} marks</option>}</select></label>
+              <label className="field"><span>Assessment</span><select required value={form.assessment_id} disabled={Boolean(editingResult)} onChange={(event) => setForm((current) => ({ ...current, assessment_id: event.target.value, marks_obtained: '' }))}><option value="">Choose an assessment</option>{recordableAssessments.map((assessment) => <option key={assessment.id} value={assessment.id}>{assessment.subject || 'Assessment'}: {assessment.title} ({assessment.total_marks} marks)</option>)}{editingResult && !recordableAssessments.some((assessment) => assessment.id === editingResult.assessment_id) && <option value={editingResult.assessment_id}>{assessmentsById.get(editingResult.assessment_id)?.title ?? 'Saved assessment'} ({editingResult.maximum_marks} marks)</option>}</select></label>
               <label className="field"><span>Marks earned</span><input required type="number" min="0" max={selectedMaximum || undefined} step="0.01" value={form.marks_obtained} onChange={(event) => setForm((current) => ({ ...current, marks_obtained: event.target.value }))} placeholder="0.00" /></label>
               <label className="field"><span>Out of</span><input readOnly value={selectedMaximum || ''} placeholder="Select an assessment" /></label>
               <label className="field"><span>Assessment date</span><input required type="date" value={form.assessment_date} onChange={(event) => setForm((current) => ({ ...current, assessment_date: event.target.value }))} /></label>
@@ -787,6 +962,56 @@ export function GradesResultsPage() {
               <div className="grades-entry-actions"><span>Percentage is calculated automatically from the marks entered.</span><button className="button button-primary" disabled={saving || (!recordableAssessments.length && !editingResult)}><Save size={14} />{saving ? 'Saving…' : editingResult ? 'Save correction' : 'Record draft result'}</button></div>
             </form>
           </section>}
+          {entryMode === 'grid' && <section className="content-card grades-entry-card grades-grid-card">
+            <div className="section-heading"><div><span className="eyebrow">Class mark entry</span><h2>Missing marks and outlier checks</h2></div></div>
+            <div className="grades-grid-controls">
+              <label className="field"><span>Assessment</span><select value={gridAssessmentId} onChange={(event) => {
+                setGridAssessmentId(event.target.value);
+                setGridMarks({});
+              }}><option value="">Choose an assessment</option>{recordableAssessments.map((assessment) => <option key={assessment.id} value={assessment.id}>{assessment.subject || 'Assessment'}: {assessment.title} · {assessment.total_marks} marks</option>)}</select></label>
+              <label className="field"><span>Class</span><select value={gridClassId} onChange={(event) => {
+                setGridClassId(event.target.value);
+                setGridMarks({});
+              }}><option value="">Choose a class</option>{classes.map((schoolClass) => <option key={schoolClass.id} value={schoolClass.id}>{schoolClass.name}</option>)}</select></label>
+              <label className="field"><span>Assessment date</span><input type="date" required value={gridAssessmentDate} onChange={(event) => setGridAssessmentDate(event.target.value)} /></label>
+            </div>
+            {!recordableAssessments.length && <p className="grades-permission-note">Create an assessment with a total mark greater than zero before entering class marks.</p>}
+            {gridAssessmentId && gridClassId && <>
+              <div className="grades-grid-summary">
+                <span><strong>{missingGridMarks}</strong> missing marks</span>
+                <span><strong>{enteredGridMarks}</strong> ready to save</span>
+                <span><strong>{outlierStudentIds.size}</strong> potential outliers</span>
+                <small>Outliers use a modified z-score and are flagged for human review; they are not automatically changed or blocked.</small>
+              </div>
+              {gridStudents.length ? <div className="table-scroll grades-grid-scroll">
+                <table className="grades-table grades-entry-grid">
+                  <thead><tr><th>Student</th><th>Existing mark</th><th>Enter mark / check</th></tr></thead>
+                  <tbody>{gridStudents.map((student) => {
+                    const existing = gridResultsByStudent.get(student.id);
+                    const isOutlier = outlierStudentIds.has(student.id);
+                    return <tr key={student.id} className={isOutlier ? 'grades-grid-outlier' : ''}>
+                      <td><strong>{student.last_name}, {student.first_name}</strong><small>{student.student_number}</small></td>
+                      <td>{existing
+                        ? <><strong>{Number(existing.marks_obtained).toFixed(2)} / {Number(existing.maximum_marks).toFixed(2)}</strong><small>{existing.status} result</small></>
+                        : <span className="muted-cell">No mark recorded</span>}</td>
+                      <td>{existing
+                        ? <><span className="grades-grid-locked">Use result correction to change a saved mark.</span>
+                          {isOutlier && <small className="grades-grid-outlier-note"><AlertTriangle size={12} />Check this result</small>}</>
+                        : <><input aria-label={`Marks for ${student.first_name} ${student.last_name}`} type="number" min="0"
+                          max={assessmentsById.get(gridAssessmentId)?.total_marks ?? undefined} step="0.01"
+                          value={gridMarks[student.id] ?? ''} onChange={(event) => setGridMarks((current) => ({ ...current, [student.id]: event.target.value }))} placeholder="Missing" />
+                          {isOutlier && <small className="grades-grid-outlier-note"><AlertTriangle size={12} />Check this result</small>}</>}
+                    </td></tr>;
+                  })}</tbody>
+                </table>
+              </div> : <div className="grades-empty"><GraduationCap size={22} /><strong>No active students in this class</strong><span>Choose another class or update student class assignments.</span></div>}
+              <div className="grades-entry-actions">
+                <span>{missingGridMarks} active students have no mark recorded for this assessment.</span>
+                <button type="button" className="button button-primary" disabled={saving || enteredGridMarks === 0} onClick={() => void saveGridMarks()}><Save size={14} />{saving ? 'Saving…' : `Save ${enteredGridMarks} draft mark${enteredGridMarks === 1 ? '' : 's'}`}</button>
+              </div>
+            </>}
+          </section>}
+          </>}
           <section className="content-card grades-list-card">
             <div className="section-heading"><div><span className="eyebrow">Assessment history</span><h2>Student results</h2></div><span className="table-count">{filteredResults.length} records</span></div>
             <div className="grades-filters">
@@ -880,7 +1105,7 @@ export function GradesResultsPage() {
               <label className="field"><span>Report footer</span><input maxLength={200} value={templateDraft.footer} onChange={(event) => setTemplateDraft((current) => ({ ...current, footer: event.target.value }))} placeholder="School message or confidentiality note" /></label>
               <button className="button button-primary" disabled={saving}><Save size={14} />{saving ? 'Saving…' : 'Save & select template'}</button>
             </form>
-            <div className="grades-originals-list"><strong><Sparkles size={14} /> Five original designs included</strong><span>Classic · Modern · Minimal · Academic · Vibrant</span></div>
+            <div className="grades-originals-list"><strong><Sparkles size={14} /> Five original designs included</strong><span>Classic, Modern, Minimal, Academic, Vibrant</span></div>
           </section>
         </div>
       )}

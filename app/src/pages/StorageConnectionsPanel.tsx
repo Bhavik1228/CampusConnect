@@ -183,7 +183,7 @@ export function StorageConnectionsPanel() {
           <div className="settings-subheading"><h3>Your R2 buckets</h3><p>Add multiple buckets. Each resource can select which connected bucket stores its file.</p></div>
           {connections.length === 0 ? <p className="storage-empty">No school-owned R2 buckets connected yet.</p> : <div className="storage-connection-list">{connections.map((connection) => <article key={connection.id} className="storage-connection">
             <span className="storage-option-icon"><Cloud size={16} /></span>
-            <div><strong>{connection.label}</strong><small>Cloudflare R2 · Credentials encrypted · Added {new Date(connection.created_at).toLocaleDateString()}</small></div>
+            <div><strong>{connection.label}</strong><small>Cloudflare R2, credentials encrypted, added {new Date(connection.created_at).toLocaleDateString()}</small></div>
             {canManage && <button type="button" className="icon-button danger" aria-label={`Remove ${connection.label}`} title="Remove storage connection" onClick={() => void removeConnection(connection)}><Trash2 size={15} /></button>}
           </article>)}</div>}
         </section>
@@ -192,7 +192,7 @@ export function StorageConnectionsPanel() {
           {paperStorage.configured
             ? <div className="storage-connection">
               <span className="storage-option-icon"><Cloud size={16} /></span>
-              <div><strong>{paperStorage.bucketName}</strong><small>Cloudflare R2 · Past papers only · Credentials encrypted</small></div>
+              <div><strong>{paperStorage.bucketName}</strong><small>Cloudflare R2, past papers only, credentials encrypted</small></div>
               {canManage && <button type="button" className="icon-button danger" aria-label="Disconnect past-paper R2 bucket" title="Disconnect past-paper R2 bucket" onClick={() => void removePaperStorage()}><Trash2 size={15} /></button>}
             </div>
             : <p className="storage-empty">No dedicated past-paper R2 bucket configured.</p>}

@@ -7,7 +7,7 @@ import type { ReactNode } from 'react';
 // do not have access to the DOM or browser APIs.
 export default function Root({ children }: { children: ReactNode }) {
   return (
-    <html lang="en">
+    <html lang="en" style={{ overflowX: 'clip' }}>
       <head>
         <meta charSet="utf-8" />
         <meta httpEquiv="X-UA-Compatible" content="IE=edge" />
@@ -23,14 +23,21 @@ export default function Root({ children }: { children: ReactNode }) {
         <style dangerouslySetInnerHTML={{ __html: responsiveBackground }} />
         {/* Add any additional <head> elements that you want globally available on web... */}
       </head>
-      <body>{children}</body>
+      <body style={{ overflowX: 'clip' }}>{children}</body>
     </html>
   );
 }
 
 const responsiveBackground = `
+html, body {
+  overflow-x: clip;
+}
 body {
   background-color: #fff;
+}
+:focus-visible {
+  outline: 3px solid #326B57;
+  outline-offset: 2px;
 }
 @media (prefers-color-scheme: dark) {
   body {

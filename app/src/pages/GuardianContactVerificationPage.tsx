@@ -184,7 +184,7 @@ export function GuardianContactVerificationPage() {
               const matchesVerifiedValue = Boolean(value && verification?.checked_value === normalizedContact(channel, value));
               const effectiveStatus = matchesVerifiedValue ? verification?.status ?? 'unverified' : 'unverified';
               const statusLabel = !value ? 'Not provided' : effectiveStatus === 'verified' ? 'Verified' : effectiveStatus === 'invalid' ? 'Invalid' : verification?.status === 'verified' || verification?.status === 'invalid' ? 'Changed · reverify' : 'Unverified';
-              return <section key={channel} className="guardian-contact-card">
+              return <section key={channel} className="guardian-contact-channel">
                 <div className="guardian-contact-heading"><span>{channel === 'email' ? 'Email address' : 'Phone number'}</span><strong className={`guardian-contact-status ${effectiveStatus}`}>{statusLabel}</strong></div>
                 <strong className="guardian-contact-value">{value || 'No contact value on file'}</strong>
                 {verification?.verification_method && matchesVerifiedValue && <small className="guardian-contact-method">{methodLabels[verification.verification_method]} · {formatCheckedAt(verification.updated_at)}</small>}

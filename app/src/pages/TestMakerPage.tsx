@@ -13,6 +13,19 @@ import { useRecoverableDraft } from '../lib/recoverable-drafts';
 type Difficulty = 'Foundation' | 'Standard' | 'Challenging' | 'Mixed';
 type AssessmentStatus = 'draft' | 'ready';
 type LearningView = 'assessments' | 'library' | 'papers' | 'results';
+type BlueprintDifficulty = 'Foundation' | 'Standard' | 'Challenging';
+type AssessmentBlueprint = {
+  enabled: boolean;
+  target_question_count: number | null;
+  target_total_marks: number | null;
+  difficulty_targets: Record<BlueprintDifficulty, number | null>;
+};
+const EMPTY_BLUEPRINT: AssessmentBlueprint = {
+  enabled: false,
+  target_question_count: null,
+  target_total_marks: null,
+  difficulty_targets: { Foundation: null, Standard: null, Challenging: null },
+};
 type Question = {
   id: string;
   department_id: string | null;
@@ -86,6 +99,7 @@ type Assessment = {
   permitted_resources: string;
   mark_scheme: string;
   question_ids: string[];
+  blueprint: AssessmentBlueprint;
   status: AssessmentStatus;
   department_id: string | null;
   updated_at: string;
@@ -139,7 +153,7 @@ const EMPTY_ASSESSMENT: AssessmentForm = {
   syllabus_code: '', topic: '', subtopic: '', duration_minutes: 60, total_marks: 0,
   difficulty: 'Mixed', instructions: 'Answer all questions. Show your working where appropriate.',
   question_order: 'As selected', permitted_resources: 'No calculators', mark_scheme: '',
-  question_ids: [], status: 'draft',
+  question_ids: [], blueprint: { ...EMPTY_BLUEPRINT, difficulty_targets: { ...EMPTY_BLUEPRINT.difficulty_targets } }, status: 'draft',
   department_id: null,
 };
 function localDate() {
@@ -150,7 +164,17 @@ function localDate() {
 
 function toAssessmentForm(assessment: Assessment): AssessmentForm {
   const { id: _id, created_by: _createdBy, updated_at: _updatedAt, ...form } = assessment;
-  return form;
+  return {
+    ...form,
+    blueprint: {
+      ...EMPTY_BLUEPRINT,
+      ...(assessment.blueprint ?? {}),
+      difficulty_targets: {
+        ...EMPTY_BLUEPRINT.difficulty_targets,
+        ...(assessment.blueprint?.difficulty_targets ?? {}),
+      },
+    },
+  };
 }
 
 function getErrorMessage(error: unknown, fallback: string) {
@@ -239,7 +263,18 @@ export function TestMakerPage() {
 
   function restoreAssessmentDraft(value: { activeAssessmentId: string; form: AssessmentForm }) {
     setActiveAssessmentId(value.activeAssessmentId);
-    setForm(value.form);
+    setForm({
+      ...EMPTY_ASSESSMENT,
+      ...value.form,
+      blueprint: {
+        ...EMPTY_BLUEPRINT,
+        ...(value.form.blueprint ?? {}),
+        difficulty_targets: {
+          ...EMPTY_BLUEPRINT.difficulty_targets,
+          ...(value.form.blueprint?.difficulty_targets ?? {}),
+        },
+      },
+    });
     setView('assessments');
     setNotice('Saved test draft restored. Review the fields before saving to the school record.');
   }
@@ -337,6 +372,50 @@ export function TestMakerPage() {
     return selectedQuestions;
   }, [form.question_order, selectedQuestions]);
   const calculatedMarks = selectedQuestions.reduce((sum, question) => sum + Number(question.marks || 0), 0);
+  const actualDifficultyCounts = selectedQuestions.reduce<Record<BlueprintDifficulty, number>>((counts, question) => {
+    if (question.difficulty in counts) {
+      const difficulty = question.difficulty as BlueprintDifficulty;
+      counts[difficulty] += 1;
+    }
+    return counts;
+  }, { Foundation: 0, Standard: 0, Challenging: 0 });
+  const blueprintIssues = useMemo(() => {
+    const blueprint = form.blueprint;
+    const issues: string[] = [];
+    if (form.status === 'ready' && !selectedQuestions.length) {
+      issues.push('Add at least one question before marking the test ready.');
+    }
+    if (!blueprint.enabled) return issues;
+
+    const targets = Object.values(blueprint.difficulty_targets);
+    if (blueprint.target_question_count === null
+      && blueprint.target_total_marks === null
+      && targets.every((target) => target === null)) {
+      issues.push('Set at least one blueprint target or turn blueprint controls off.');
+    }
+    if (blueprint.target_question_count !== null && selectedQuestions.length !== blueprint.target_question_count) {
+      issues.push(`Question count is ${selectedQuestions.length}; target is ${blueprint.target_question_count}.`);
+    }
+    if (blueprint.target_total_marks !== null && Math.abs(calculatedMarks - blueprint.target_total_marks) > 0.001) {
+      issues.push(`Selected questions total ${calculatedMarks} marks; target is ${blueprint.target_total_marks}.`);
+    }
+    for (const difficulty of Object.keys(blueprint.difficulty_targets) as BlueprintDifficulty[]) {
+      const target = blueprint.difficulty_targets[difficulty];
+      if (target !== null && actualDifficultyCounts[difficulty] !== target) {
+        issues.push(`${difficulty} questions: ${actualDifficultyCounts[difficulty]} selected; target is ${target}.`);
+      }
+    }
+    if (blueprint.target_total_marks !== null
+      && form.total_marks > 0
+      && form.total_marks !== blueprint.target_total_marks) {
+      issues.push(`The test total marks field must match the blueprint target of ${blueprint.target_total_marks}.`);
+    }
+    if (blueprint.target_question_count !== null && targets.every((target) => target !== null)
+      && targets.reduce<number>((total, target) => total + (target ?? 0), 0) !== blueprint.target_question_count) {
+      issues.push('Difficulty targets must add up to the target question count.');
+    }
+    return issues;
+  }, [actualDifficultyCounts, calculatedMarks, form.blueprint, form.status, form.total_marks, selectedQuestions.length]);
   const visibleQuestions = questions.filter((question) => {
     const text = `${question.question_text} ${question.topic} ${question.subtopic} ${question.source_name}`.toLowerCase();
     return text.includes(query.toLowerCase()) && (!topicFilter || question.topic === topicFilter);
@@ -390,6 +469,10 @@ export function TestMakerPage() {
     }
     if (isHod && (!form.department_id || !hodDepartmentIds.includes(form.department_id))) {
       setError('Choose one of your assigned departments for this assessment.');
+      return;
+    }
+    if (form.status === 'ready' && blueprintIssues.length) {
+      setError(`Resolve the blueprint before marking this test ready: ${blueprintIssues[0]}`);
       return;
     }
     setSaving(true);
@@ -765,7 +848,7 @@ export function TestMakerPage() {
             <form onSubmit={(event) => void saveAssessment(event)}>
                 <DraftRecoveryControls entity="assessment" draft={assessmentDraft} onRestore={restoreAssessmentDraft} />
               <div className="section-heading"><div><span className="eyebrow">{activeAssessmentId ? 'Edit assessment' : 'New assessment'}</span><h2>{form.title || 'Untitled test'}</h2></div>
-                <div className="editor-heading-actions"><button type="button" className="button button-quiet" disabled={!form.title.trim()} onClick={() => printDocument('paper')}><Printer size={14} /> Paper / PDF</button><button type="button" className="button button-quiet" disabled={!form.title.trim()} onClick={() => printDocument('answer-sheet')}><FileText size={14} /> Answer sheet</button><button className="button button-primary" disabled={saving}><Save size={14} />{saving ? 'Saving…' : 'Save test'}</button></div>
+                <div className="editor-heading-actions"><button type="button" className="button button-quiet" disabled={!form.title.trim()} onClick={() => printDocument('paper')}><Printer size={14} /> Paper / PDF</button><button type="button" className="button button-quiet" disabled={!form.title.trim()} onClick={() => printDocument('answer-sheet')}><FileText size={14} /> Answer sheet</button><button className="button button-primary" disabled={saving || (form.status === 'ready' && blueprintIssues.length > 0)}><Save size={14} />{saving ? 'Saving…' : 'Save test'}</button></div>
               </div>
 
               <div className="test-form-section">
@@ -800,6 +883,52 @@ export function TestMakerPage() {
                 </div>
               </div>
 
+              <div className="test-form-section test-blueprint-section">
+                <h3>Blueprint controls</h3>
+                <p>Set targets for the paper; a test can only be marked ready when its selected questions meet them.</p>
+                <div className="test-form-grid">
+                  <label className="settings-checkbox-label span-2">
+                    <input type="checkbox" checked={form.blueprint.enabled} onChange={(event) => setForm((current) => ({
+                      ...current,
+                      blueprint: { ...current.blueprint, enabled: event.target.checked },
+                    }))} />
+                    <span>Enforce blueprint targets before marking ready</span>
+                  </label>
+                  <label>Target question count<input type="number" min="1" max="10000" step="1" disabled={!form.blueprint.enabled}
+                    value={form.blueprint.target_question_count ?? ''}
+                    onChange={(event) => setForm((current) => ({
+                      ...current,
+                      blueprint: { ...current.blueprint, target_question_count: event.target.value ? Number(event.target.value) : null },
+                    }))} placeholder="No target" /></label>
+                  <label>Target total marks<input type="number" min="0.01" max="999999.99" step="0.01" disabled={!form.blueprint.enabled}
+                    value={form.blueprint.target_total_marks ?? ''}
+                    onChange={(event) => setForm((current) => ({
+                      ...current,
+                      blueprint: { ...current.blueprint, target_total_marks: event.target.value ? Number(event.target.value) : null },
+                    }))} placeholder="No target" /></label>
+                  {(['Foundation', 'Standard', 'Challenging'] as const).map((difficulty) => (
+                    <label key={difficulty}>{difficulty} questions<input type="number" min="0" max="10000" step="1" disabled={!form.blueprint.enabled}
+                      value={form.blueprint.difficulty_targets[difficulty] ?? ''}
+                      onChange={(event) => setForm((current) => ({
+                        ...current,
+                        blueprint: {
+                          ...current.blueprint,
+                          difficulty_targets: {
+                            ...current.blueprint.difficulty_targets,
+                            [difficulty]: event.target.value ? Number(event.target.value) : null,
+                          },
+                        },
+                      }))} placeholder="No target" /></label>
+                  ))}
+                </div>
+                <div className={`test-blueprint-status${blueprintIssues.length ? ' has-issues' : ''}`} role="status" aria-live="polite">
+                  {blueprintIssues.length ? <ul>{blueprintIssues.map((issue) => <li key={issue}>{issue}</li>)}
+                  </ul> : form.blueprint.enabled
+                    ? <span>Targets currently match: {selectedQuestions.length} questions · {calculatedMarks} marks.</span>
+                    : <span>Blueprint controls are off; question selection is not constrained.</span>}
+                </div>
+              </div>
+
               <div className="test-form-section test-question-section">
                 <div className="section-heading"><div><h3>Assemble questions</h3><p>{selectedQuestions.length} selected · {calculatedMarks} marks from questions</p></div><button type="button" className="text-action" onClick={() => setView('library')}><Library size={14} /> Manage library</button></div>
                 {selectedQuestions.length ? <div className="selected-question-list">{selectedQuestions.map((question, index) => <article key={question.id}><div><span className="question-number">{index + 1}</span><p>{question.question_text}</p><small>{question.topic}{question.subtopic ? ` · ${question.subtopic}` : ''}</small></div><strong>{question.marks} marks</strong><button type="button" className="icon-button" onClick={() => toggleQuestion(question.id)} aria-label="Remove question"><X size={15} /></button></article>)}</div> : <p className="test-inline-empty">No questions selected. Add questions from your school library.</p>}
@@ -815,7 +944,7 @@ export function TestMakerPage() {
             <div className="section-heading"><div><span className="eyebrow">{editingResultId ? 'Correct a recorded mark' : 'Record an assessment'}</span><h2>{editingResultId ? 'Edit result' : 'Enter student marks'}</h2></div></div>
             <form className="result-entry-form" onSubmit={(event) => void saveResult(event)}>
               <label>Student<select required value={resultForm.student_id} disabled={Boolean(editingResultId)} onChange={(event) => setResultForm((current) => ({ ...current, student_id: event.target.value }))}><option value="">Choose a student</option>{students.filter((student) => student.status === 'active' || student.id === resultForm.student_id).map((student) => <option key={student.id} value={student.id}>{student.last_name}, {student.first_name} · {student.student_number}</option>)}</select></label>
-              <label>Test<select required value={resultForm.assessment_id} disabled={Boolean(editingResultId)} onChange={(event) => setResultForm((current) => ({ ...current, assessment_id: event.target.value, marks_obtained: '' }))}><option value="">Choose a test</option>{recordableAssessments.map((assessment) => <option key={assessment.id} value={assessment.id}>{assessment.title} · {assessment.total_marks} marks</option>)}{editingResult && !recordableAssessments.some((assessment) => assessment.id === editingResult.assessment_id) && <option value={editingResult.assessment_id}>{assessments.find((assessment) => assessment.id === editingResult.assessment_id)?.title ?? 'Saved test'} · {editingResult.maximum_marks} marks</option>}</select></label>
+              <label>Test<select required value={resultForm.assessment_id} disabled={Boolean(editingResultId)} onChange={(event) => setResultForm((current) => ({ ...current, assessment_id: event.target.value, marks_obtained: '' }))}><option value="">Choose a test</option>{recordableAssessments.map((assessment) => <option key={assessment.id} value={assessment.id}>{assessment.title} ({assessment.total_marks} marks)</option>)}{editingResult && !recordableAssessments.some((assessment) => assessment.id === editingResult.assessment_id) && <option value={editingResult.assessment_id}>{assessments.find((assessment) => assessment.id === editingResult.assessment_id)?.title ?? 'Saved test'} ({editingResult.maximum_marks} marks)</option>}</select></label>
               <div className="result-entry-fields">
                 <label>Marks earned<input required type="number" min="0" max={resultMaximumMarks || undefined} step="0.01" value={resultForm.marks_obtained} onChange={(event) => setResultForm((current) => ({ ...current, marks_obtained: event.target.value }))} placeholder="0" /></label>
                 <label>Out of<input readOnly value={resultMaximumMarks || ''} aria-label="Maximum marks for selected test" placeholder="Select a test" /></label>
@@ -873,7 +1002,7 @@ export function TestMakerPage() {
               </div>
               {catalogueQuestions.map((question) => <article className="library-question" key={question.id}>
                 <div className="library-question-main">
-                  <div className="library-question-meta"><span>{question.topic}{question.subtopic ? ` · ${question.subtopic}` : ''}</span>{question.syllabus_code && <span>{question.syllabus_code}</span>}<span>{question.examination_year ?? 'Year n/a'} · {question.examination_session ?? 'Session n/a'} · Paper {question.paper_number ?? 'n/a'} · Variant {question.variant ?? 'n/a'}</span><span>{question.marks} marks</span></div>
+                  <div className="library-question-meta"><span>{question.topic}{question.subtopic ? `, ${question.subtopic}` : ''}</span>{question.syllabus_code && <span>{question.syllabus_code}</span>}<span>{question.examination_year ?? 'Year n/a'}, {question.examination_session ?? 'Session n/a'}, paper {question.paper_number ?? 'n/a'}, variant {question.variant ?? 'n/a'}</span><span>{question.marks} marks</span></div>
                   <p>{question.question_text}</p>
                   <small>{question.source_name}{question.source_url && <> · <a href={question.source_url} target="_blank" rel="noreferrer">Source <ExternalLink size={10} /></a></>}</small>
                 </div>

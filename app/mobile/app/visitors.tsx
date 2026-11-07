@@ -172,10 +172,10 @@ export default function VisitorsScreen() {
       {selected ? <Card>
         <Heading>Verified badge</Heading>
         <Text style={{ color: colors.text, fontSize: 18, fontWeight: '800' }}>{selected.visitor_name}</Text>
-        <BodyText>{selected.badge_number} · {selected.status.replace('_', ' ')}</BodyText>
-        <BodyText>Host: {selected.host_name}{selected.host_department ? ` · ${selected.host_department}` : ''}</BodyText>
+        <BodyText>Badge: {selected.badge_number}, status: {selected.status.replace('_', ' ')}</BodyText>
+        <BodyText>Host: {selected.host_name}{selected.host_department ? `, ${selected.host_department}` : ''}</BodyText>
         <BodyText>Purpose: {selected.purpose}</BodyText>
-        <BodyText>Visit: {selected.visit_date} · valid until {selected.valid_until}</BodyText>
+        <BodyText>Visit: {selected.visit_date}, valid until {selected.valid_until}</BodyText>
         {selected.status === 'expected' && selected.valid_until >= new Date().toISOString().slice(0, 10) ? <Button title="Check in visitor" disabled={saving} onPress={() => void transition(selected, 'checked_in')} /> : null}
         {selected.status === 'checked_in' ? <Button title="Check out visitor" disabled={saving} onPress={() => void transition(selected, 'checked_out')} /> : null}
         {selected.status === 'expected' ? <Button title="Cancel visit" variant="secondary" disabled={saving} onPress={() => void transition(selected, 'cancelled')} /> : null}

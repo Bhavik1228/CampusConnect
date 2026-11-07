@@ -230,7 +230,7 @@ export function WebsiteManagementPage() {
                 {showDraftPreview ? 'Hide draft preview' : 'Preview draft'}
               </button>
             </div>
-            {showDraftPreview && <section className="content-card" aria-label="Draft website preview">
+            {showDraftPreview && <section className="website-draft-preview" aria-label="Draft website preview">
               <span className="eyebrow">{website.slug}</span>
               <h2>{content.hero_title || 'Homepage headline'}</h2>
               <p>{content.hero_message || 'Welcome message preview'}</p>

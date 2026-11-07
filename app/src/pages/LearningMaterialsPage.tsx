@@ -410,7 +410,7 @@ export function LearningMaterialsPage() {
       <div className="materials-storage-note"><span><FolderOpen size={17} /></span><p><strong>Private learning library</strong> Files are stored in Cloudflare R2; Supabase controls who can see each resource. Supported file size: up to 500 MB.</p></div>
       {notice && <p className="inline-success" role="status">{notice}</p>}
       {error && <ErrorState message={error} />}
-      <section className="content-card materials-content">
+      <section className="materials-content">
         <div className="materials-toolbar">
           <label className="table-search"><Search size={16} /><input value={query} onChange={(event) => setQuery(event.target.value)} placeholder="Search title, topic, subject, or class" aria-label="Search learning materials" /></label>
           <label className="materials-filter"><Filter size={14} /><select aria-label="Filter by class" value={classFilter} onChange={(event) => setClassFilter(event.target.value)}><option value="">All classes</option>{[...new Map(materials.map((material) => [material.class_id, material.school_class?.name ?? 'Class'])).entries()].map(([id, name]) => <option key={id} value={id}>{name}</option>)}</select></label>

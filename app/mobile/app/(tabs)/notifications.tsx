@@ -65,7 +65,7 @@ export default function NotificationsScreen() {
           ? <Card><Heading>All caught up</Heading><BodyText muted>There are no notifications for this school.</BodyText></Card>
           : <View style={{ gap: 10 }}>{items.map((item) => (
             <Pressable key={item.id} onPress={() => void markRead(item)}>
-              <Card style={{ borderColor: item.read_at ? colors.border : '#C7BDFF' }}>
+              <Card style={{ borderColor: item.read_at ? colors.border : colors.violetLight }}>
                 <Text style={{ color: colors.text, fontWeight: '700' }}>{item.title}</Text>
                 {item.body ? <BodyText>{item.body}</BodyText> : null}
                 <Text style={{ color: colors.muted, fontSize: 14 }}>{new Date(item.created_at).toLocaleString()}</Text>

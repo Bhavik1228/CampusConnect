@@ -738,7 +738,7 @@ export function AdmissionsPage() {
               <button type="button" className={viewMode === 'documents' ? 'active' : ''} aria-pressed={viewMode === 'documents'} onClick={() => { setViewMode('documents'); setPage(0); }}><FileCheck2 size={14} />Document queue</button>
             </div>
           </div>
-          <section className="content-card admissions-completeness" aria-label="Online application completeness">
+          <section className="admissions-completeness" aria-label="Online application completeness">
             <div><span className="eyebrow">Online application completeness · current page</span><strong>{applications.filter((application) => (completenessById.get(application.id)?.missing.length ?? 0) === 0).length} complete <span>of {applications.length} applications</span></strong></div>
             <div className="admissions-completeness-counts">
               <span className="admissions-completeness-complete"><i />{applications.filter((application) => (completenessById.get(application.id)?.missing.length ?? 0) === 0).length} ready for review</span>
@@ -904,7 +904,7 @@ export function AdmissionsPage() {
                       setRegistrationConfirmed(false);
                     }}><GraduationCap size={15} />Start registration</button></>
                   : <form className="admissions-registration-wizard" onSubmit={(event) => void registerStudent(event)}>
-                    <div className="admissions-registration-progress"><span className={registrationStep === 1 ? 'active' : 'complete'}>1 · Verify details</span><i /><span className={registrationStep === 2 ? 'active' : ''}>2 · Place &amp; create</span></div>
+                    <div className="admissions-registration-progress"><span className={registrationStep === 1 ? 'active' : 'complete'}>Step 1: Verify details</span><i /><span className={registrationStep === 2 ? 'active' : ''}>Step 2: Place and create</span></div>
                     {registrationStep === 1 ? <>
                       <p>Confirm the source application details before creating the student record.</p>
                       <dl className="admissions-registration-review">

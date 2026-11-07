@@ -46,6 +46,7 @@ create index students_school_registration_group_idx on public.students(school_id
 
 alter table public.school_houses enable row level security;
 alter table public.school_registration_groups enable row level security;
+revoke all on public.school_houses, public.school_registration_groups from anon, authenticated;
 grant select, insert, update, delete on public.school_houses, public.school_registration_groups to authenticated;
 
 create policy "School members read houses"

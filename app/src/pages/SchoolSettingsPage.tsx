@@ -707,7 +707,7 @@ export function SchoolSettingsPage() {
                   <p className="inline-warning">No campuses have been configured yet. Add the first campus below.</p>
                 ) : (
                   campuses.map((campus, index) => (
-                    <div key={campus.id || `campus-${index}`} className="settings-campus-card">
+                    <div key={campus.id || `campus-${index}`} className="settings-campus-record">
                       <div className="settings-fields settings-fields-spaced">
                         <TextField label="Campus name" value={campus.name} disabled={!canEdit} maxLength={120} onChange={(value) => setCampuses((current) => current.map((item, itemIndex) => itemIndex === index ? { ...item, name: value } : item))} />
                         <TextField label="Campus code" value={campus.code ?? ''} disabled={!canEdit} maxLength={30} placeholder="MAIN" onChange={(value) => setCampuses((current) => current.map((item, itemIndex) => itemIndex === index ? { ...item, code: value || null } : item))} />

@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useState, type FormEvent } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState, type FormEvent } from 'react';
 import {
   Check, ClipboardCheck, Download, FileClock,
   Printer, Save, Send, Settings2, UserRoundCheck,
@@ -47,6 +47,32 @@ interface AttendanceSession {
   override_reason: string | null;
   submitted_at: string | null;
   recorded_by: string;
+}
+
+interface AttendanceQueueRecord {
+  student_id: string;
+  status: Status;
+  note: string | null;
+  arrival_time: string | null;
+  departure_time: string | null;
+  absence_reason: string | null;
+  absence_category: AbsenceCategory;
+}
+
+interface AttendanceQueueItem {
+  key: string;
+  user_id: string;
+  school_id: string;
+  class_id: string;
+  attendance_date: string;
+  academic_year_id: string | null;
+  term_id: string | null;
+  session_type: SessionType;
+  lesson_entry_id: string | null;
+  non_school_day_override: boolean;
+  override_reason: string | null;
+  records: AttendanceQueueRecord[];
+  queued_at: string;
 }
 
 interface AcademicYearChoice { id: string; name: string; calendar_id: string; start_date: string; end_date: string }
@@ -126,6 +152,27 @@ function explainError(error: unknown, fallback: string) {
   return error instanceof Error ? error.message : fallback;
 }
 
+function readAttendanceQueue(raw: string | null): AttendanceQueueItem[] {
+  if (!raw) return [];
+  const parsed: unknown = JSON.parse(raw);
+  if (!Array.isArray(parsed) || parsed.some((item) => !item
+    || typeof item.key !== 'string'
+    || typeof item.user_id !== 'string'
+    || typeof item.school_id !== 'string'
+    || typeof item.class_id !== 'string'
+    || typeof item.attendance_date !== 'string'
+    || !Array.isArray(item.records)
+    || item.records.some((record: unknown) => !record
+      || typeof record !== 'object'
+      || !('student_id' in record)
+      || typeof record.student_id !== 'string'
+      || !('status' in record)
+      || !['present', 'absent', 'late', 'excused'].includes(String(record.status))))) {
+    throw new Error('The saved attendance sync queue is invalid. It was kept on this device; contact support before clearing browser data.');
+  }
+  return parsed as AttendanceQueueItem[];
+}
+
 export function AttendancePage() {
   const { activeMembership, user } = useAuth();
   const [searchParams, setSearchParams] = useSearchParams();
@@ -182,11 +229,19 @@ export function AttendancePage() {
   const [loading, setLoading] = useState(true);
   const [loadingRoster, setLoadingRoster] = useState(false);
   const [saving, setSaving] = useState(false);
+  const [offlineQueue, setOfflineQueue] = useState<AttendanceQueueItem[]>([]);
+  const [queueReadyKey, setQueueReadyKey] = useState('');
+  const [isOnline, setIsOnline] = useState(() => typeof navigator === 'undefined' || navigator.onLine);
+  const [syncingQueue, setSyncingQueue] = useState(false);
   const [error, setError] = useState('');
   const [notice, setNotice] = useState('');
+  const queueSyncInFlight = useRef(false);
 
   const role = activeMembership?.role;
   const schoolId = activeMembership?.school_id;
+  const queueStorageKey = schoolId && user
+    ? `campus-connect:attendance-queue:v1:${schoolId}:${user.id}`
+    : '';
   const canManage = role === 'school_admin' || role === 'academic_coordinator';
   const canRecord = canManage || role === 'teacher';
   const canSeePersonal = role === 'student' || role === 'parent';
@@ -203,6 +258,45 @@ export function AttendancePage() {
     excused: students.filter((student) => student.status === 'excused').length,
   }), [students]);
   const readOnlyRegister = session?.status === 'closed' || (session?.status === 'submitted' && !canManage);
+  const pendingAttendanceQueue = useMemo(
+    () => offlineQueue.filter((item) => item.school_id === schoolId && item.user_id === user?.id),
+    [offlineQueue, schoolId, user?.id],
+  );
+
+  useEffect(() => {
+    if (!queueStorageKey) {
+      setOfflineQueue([]);
+      setQueueReadyKey('');
+      return;
+    }
+    try {
+      setOfflineQueue(readAttendanceQueue(localStorage.getItem(queueStorageKey)));
+      setQueueReadyKey(queueStorageKey);
+    } catch (queueError) {
+      setQueueReadyKey('');
+      setError(explainError(queueError, 'Could not load the saved attendance sync queue.'));
+    }
+  }, [queueStorageKey]);
+
+  useEffect(() => {
+    if (!queueStorageKey || queueReadyKey !== queueStorageKey) return;
+    try {
+      if (offlineQueue.length) localStorage.setItem(queueStorageKey, JSON.stringify(offlineQueue));
+      else localStorage.removeItem(queueStorageKey);
+    } catch (queueError) {
+      setError(explainError(queueError, 'Could not persist the attendance sync queue on this device.'));
+    }
+  }, [offlineQueue, queueReadyKey, queueStorageKey]);
+
+  useEffect(() => {
+    const updateOnlineState = () => setIsOnline(navigator.onLine);
+    window.addEventListener('online', updateOnlineState);
+    window.addEventListener('offline', updateOnlineState);
+    return () => {
+      window.removeEventListener('online', updateOnlineState);
+      window.removeEventListener('offline', updateOnlineState);
+    };
+  }, []);
 
   useEffect(() => {
     if (role !== 'teacher') return;
@@ -546,10 +640,58 @@ export function AttendancePage() {
   async function saveRegister(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
     if (!schoolId || !classId || !user || !students.length || readOnlyRegister) return;
+    const recordChanges: AttendanceQueueRecord[] = students.flatMap((student) => student.status ? [{
+      student_id: student.id,
+      status: student.status,
+      note: student.note.trim() || null,
+      arrival_time: student.arrival_time || null,
+      departure_time: student.departure_time || null,
+      absence_reason: student.absence_reason.trim() || null,
+      absence_category: student.absence_category,
+    }] : []);
+    if (!recordChanges.length) {
+      setError('Mark at least one student before saving the register.');
+      return;
+    }
+    if (students.some((student) => student.status === 'late' && !student.arrival_time)) {
+      setError('Enter an arrival time for every student marked late.');
+      return;
+    }
+    if (overrideDay && !overrideReason.trim()) {
+      setError('Enter a reason for the non-school-day exception before saving.');
+      return;
+    }
     setSaving(true);
     setError('');
     setNotice('');
+    const queueKey = [schoolId, classId, date, sessionType, sessionType === 'lesson' ? lessonId : ''].join(':');
+    const queuedItem: AttendanceQueueItem = {
+      key: queueKey,
+      user_id: user.id,
+      school_id: schoolId,
+      class_id: classId,
+      attendance_date: date,
+      academic_year_id: yearId || null,
+      term_id: termId || null,
+      session_type: sessionType,
+      lesson_entry_id: sessionType === 'lesson' ? lessonId : null,
+      non_school_day_override: overrideDay,
+      override_reason: overrideDay ? overrideReason.trim() : null,
+      records: recordChanges,
+      queued_at: new Date().toISOString(),
+    };
+    const saveToOfflineQueue = () => {
+      if (!queueStorageKey || queueReadyKey !== queueStorageKey) {
+        throw new Error('The secure attendance sync queue is not ready on this device. Reconnect and try again.');
+      }
+      setOfflineQueue((current) => [...current.filter((item) => item.key !== queueKey), queuedItem]);
+      setNotice(`${recordChanges.length} attendance record${recordChanges.length === 1 ? '' : 's'} saved on this device and waiting to sync.`);
+    };
     try {
+      if (!navigator.onLine) {
+        saveToOfflineQueue();
+        return;
+      }
       const client = requireSupabase();
       let activeSession = session;
       if (!activeSession) {
@@ -579,31 +721,124 @@ export function AttendancePage() {
         }).eq('school_id', schoolId).eq('id', activeSession.id);
         if (updateError) throw updateError;
       }
-      const updates = students.filter((student) => student.status).map((student) => ({
+      const updates = recordChanges.map((record) => ({
         school_id: schoolId,
         session_id: activeSession?.id,
-        student_id: student.id,
-        status: student.status,
-        note: student.note.trim() || null,
-        arrival_time: student.arrival_time || null,
-        departure_time: student.departure_time || null,
-        absence_reason: student.absence_reason.trim() || null,
-        absence_category: student.absence_category,
+        ...record,
       }));
-      if (!updates.length) throw new Error('Mark at least one student before saving the register.');
-      if (students.some((student) => student.status === 'late' && !student.arrival_time)) {
-        throw new Error('Enter an arrival time for every student marked late.');
-      }
       const { error: recordsError } = await client.from('attendance_records').upsert(updates, { onConflict: 'session_id,student_id' });
       if (recordsError) throw recordsError;
       setNotice(`${updates.length} attendance record${updates.length === 1 ? '' : 's'} saved${students.length - updates.length ? `; ${students.length - updates.length} student(s) remain unmarked` : ''}.`);
       await Promise.all([loadRegister(), loadHistory()]);
     } catch (saveError) {
-      setError(explainError(saveError, 'Could not save this attendance register.'));
+      if (!navigator.onLine) {
+        try {
+          saveToOfflineQueue();
+        } catch (queueError) {
+          setError(explainError(queueError, 'Could not save the attendance changes locally.'));
+        }
+      } else {
+        setError(explainError(saveError, 'Could not save this attendance register.'));
+      }
     } finally {
       setSaving(false);
     }
   }
+
+  const syncAttendanceQueue = useCallback(async () => {
+    if (!isOnline || !schoolId || !user || queueSyncInFlight.current || !pendingAttendanceQueue.length) return;
+    queueSyncInFlight.current = true;
+    setSyncingQueue(true);
+    setError('');
+    const syncedItems = new Map<string, string>();
+    let syncFailure = '';
+    try {
+      const client = requireSupabase();
+      for (const queued of pendingAttendanceQueue) {
+        try {
+          const loadQueuedSession = () => {
+            const query = client.from('attendance_sessions').select('id,status')
+              .eq('school_id', queued.school_id).eq('class_id', queued.class_id)
+              .eq('attendance_date', queued.attendance_date).eq('session_type', queued.session_type);
+            return queued.session_type === 'lesson'
+              ? query.eq('lesson_entry_id', queued.lesson_entry_id).maybeSingle()
+              : query.is('lesson_entry_id', null).maybeSingle();
+          };
+          let sessionResult = await loadQueuedSession();
+          if (sessionResult.error) throw sessionResult.error;
+          let activeSession = sessionResult.data;
+          if (!activeSession) {
+            const { data: createdSession, error: createError } = await client.from('attendance_sessions').insert({
+              school_id: queued.school_id,
+              class_id: queued.class_id,
+              attendance_date: queued.attendance_date,
+              academic_year_id: queued.academic_year_id,
+              term_id: queued.term_id,
+              session_type: queued.session_type,
+              lesson_entry_id: queued.lesson_entry_id,
+              recorded_by: user.id,
+              non_school_day_override: queued.non_school_day_override,
+              override_reason: queued.override_reason,
+            }).select('id,status').single();
+            if (createError?.code === '23505') {
+              sessionResult = await loadQueuedSession();
+              if (sessionResult.error) throw sessionResult.error;
+              activeSession = sessionResult.data;
+            } else if (createError) {
+              throw createError;
+            } else {
+              activeSession = createdSession;
+            }
+          }
+          if (!activeSession) throw new Error('The attendance session could not be created or loaded.');
+          if (activeSession.status !== 'open') {
+            throw new Error(`The ${queued.attendance_date} register is ${activeSession.status} and cannot accept queued marks.`);
+          }
+          if (canManage) {
+            const { error: updateError } = await client.from('attendance_sessions').update({
+              academic_year_id: queued.academic_year_id,
+              term_id: queued.term_id,
+              non_school_day_override: queued.non_school_day_override,
+              override_reason: queued.override_reason,
+            }).eq('school_id', queued.school_id).eq('id', activeSession.id);
+            if (updateError) throw updateError;
+          }
+          const updates = queued.records.map((record) => ({
+            school_id: queued.school_id,
+            session_id: activeSession.id,
+            ...record,
+          }));
+          const { error: recordsError } = await client.from('attendance_records')
+            .upsert(updates, { onConflict: 'session_id,student_id' });
+          if (recordsError) throw recordsError;
+          syncedItems.set(queued.key, queued.queued_at);
+        } catch (itemError) {
+          syncFailure = explainError(itemError, 'Could not sync an attendance register.');
+          break;
+        }
+      }
+      if (syncedItems.size) {
+        setOfflineQueue((current) => current.filter((item) => syncedItems.get(item.key) !== item.queued_at));
+        if (syncFailure) {
+          setError(`${syncedItems.size} queued register(s) synced. The remaining queue was kept on this device: ${syncFailure}`);
+        } else {
+          setNotice(`${syncedItems.size} queued attendance register${syncedItems.size === 1 ? '' : 's'} synced.`);
+          await Promise.all([loadRegister(), loadHistory()]);
+        }
+      } else if (syncFailure) {
+        setError(`Attendance sync is still pending; the queue was kept on this device. ${syncFailure}`);
+      }
+    } catch (queueError) {
+      setError(explainError(queueError, 'Could not sync the saved attendance queue.'));
+    } finally {
+      queueSyncInFlight.current = false;
+      setSyncingQueue(false);
+    }
+  }, [isOnline, schoolId, user, pendingAttendanceQueue, canManage, loadRegister, loadHistory]);
+
+  useEffect(() => {
+    if (isOnline) void syncAttendanceQueue();
+  }, [isOnline, syncAttendanceQueue]);
 
   async function transitionSession(nextStatus: 'submitted' | 'closed' | 'open') {
     if (!session) return;
@@ -804,6 +1039,22 @@ export function AttendancePage() {
       </div>
       {error && <ErrorState message={error} />}
       {notice && <SuccessMessage message={notice} />}
+      {canRecord && (pendingAttendanceQueue.length > 0 || !isOnline) && <section className="content-card attendance-sync-queue" aria-live="polite">
+        <div className="attendance-sync-queue-heading">
+          <div><span className={`attendance-connection-indicator${isOnline ? ' is-online' : ''}`} />
+            <div><strong>{isOnline ? `${pendingAttendanceQueue.length} register${pendingAttendanceQueue.length === 1 ? '' : 's'} waiting to sync` : 'You are offline'}</strong>
+              <p>{isOnline ? 'Queued marks are kept on this device until successfully saved to the school register.' : 'Saved marks will remain on this device and sync when the connection returns.'}</p>
+            </div>
+          </div>
+          <button type="button" className="button button-quiet" onClick={() => void syncAttendanceQueue()} disabled={!isOnline || syncingQueue || !pendingAttendanceQueue.length}>
+            <Save size={14} />{syncingQueue ? 'Syncing…' : 'Sync now'}
+          </button>
+        </div>
+        {!!pendingAttendanceQueue.length && <ul>{pendingAttendanceQueue.map((item) => <li key={item.key}>
+          <span><strong>{classes.find((schoolClass) => schoolClass.id === item.class_id)?.name ?? 'Class'}</strong> · {item.attendance_date} · {sessionTypes.find((type) => type.value === item.session_type)?.label ?? item.session_type}</span>
+          <small>{item.records.length} marked student{item.records.length === 1 ? '' : 's'}</small>
+        </li>)}</ul>}
+      </section>}
 
       {canRecord && tab === 'register' && <>
         <section className="content-card attendance-controls attendance-setup-controls">
@@ -833,8 +1084,8 @@ export function AttendancePage() {
         {session && <section className={`attendance-session-banner attendance-session-${session.status}`}>
           <div><strong>{sessionTypes.find((item) => item.value === session.session_type)?.label} · {session.status}</strong><span>{session.submitted_at ? `Submitted ${new Date(session.submitted_at).toLocaleString()}` : 'Draft register; edits are saved as they are recorded.'}</span></div>
           <div className="attendance-session-actions">
-            {session.status === 'open' && <button type="button" className="button button-primary" onClick={() => void transitionSession('submitted')} disabled={saving || (requireComplete && unmarkedCount > 0)}><Send size={15} />Submit register</button>}
-            {session.status === 'submitted' && canManage && <><button type="button" className="button button-quiet" onClick={() => void transitionSession('open')} disabled={saving}>Reopen for correction</button><button type="button" className="button button-primary" onClick={() => void transitionSession('closed')} disabled={saving}><Check size={15} />Close and lock</button></>}
+            {session.status === 'open' && <button type="button" className="button button-primary" onClick={() => void transitionSession('submitted')} disabled={!isOnline || saving || (requireComplete && unmarkedCount > 0)}><Send size={15} />Submit register</button>}
+            {session.status === 'submitted' && canManage && <><button type="button" className="button button-quiet" onClick={() => void transitionSession('open')} disabled={!isOnline || saving}>Reopen for correction</button><button type="button" className="button button-primary" onClick={() => void transitionSession('closed')} disabled={!isOnline || saving}><Check size={15} />Close and lock</button></>}
             {session.status === 'closed' && <span className="attendance-lock-label"><Check size={14} />Locked</span>}
           </div>
         </section>}
@@ -847,12 +1098,12 @@ export function AttendancePage() {
                   {!readOnlyRegister && <div className="attendance-bulk-actions"><span>Mark all students:</span>{enabledStatuses.map((item) => <button type="button" key={item.status} className={`status-option status-${item.status}`} onClick={() => setStudents((current) => current.map((student) => ({ ...student, status: item.status })))}>{item.label}</button>)}</div>}
                   <div className="table-scroll"><table><thead><tr><th>Student</th><th>Student ID</th><th>Attendance status</th><th>Arrival / departure</th><th>Absence reason</th><th>Staff note</th></tr></thead><tbody>{students.map((student) => <tr key={student.id}>
                     <td><strong>{student.first_name} {student.last_name}</strong></td><td className="mono-cell">{student.student_number}</td>
-                    <td><div className="status-selector"><button type="button" className={`status-option status-unmarked${!student.status ? ' selected' : ''}`} onClick={() => updateStudent(student.id, { status: '' })} disabled={readOnlyRegister}>—</button>{enabledStatuses.map((item) => <button type="button" key={item.status} className={`status-option status-${item.status}${student.status === item.status ? ' selected' : ''}`} aria-pressed={student.status === item.status} onClick={() => updateStudent(student.id, { status: item.status })} disabled={readOnlyRegister}>{item.label}</button>)}</div></td>
+                    <td><div className="status-selector"><button type="button" className={`status-option status-unmarked${!student.status ? ' selected' : ''}`} aria-label={`Clear attendance status for ${student.first_name} ${student.last_name}`} onClick={() => updateStudent(student.id, { status: '' })} disabled={readOnlyRegister}>Clear</button>{enabledStatuses.map((item) => <button type="button" key={item.status} className={`status-option status-${item.status}${student.status === item.status ? ' selected' : ''}`} aria-pressed={student.status === item.status} onClick={() => updateStudent(student.id, { status: item.status })} disabled={readOnlyRegister}>{item.label}</button>)}</div></td>
                     <td><div className="attendance-time-fields"><label><span>In</span><input type="time" value={student.arrival_time} onChange={(event) => updateStudent(student.id, { arrival_time: event.target.value, ...(lateAfter && event.target.value > lateAfter ? { status: 'late' as const } : {}) })} disabled={readOnlyRegister} aria-label={`${student.first_name} arrival time`} /></label><label><span>Out</span><input type="time" value={student.departure_time} onChange={(event) => updateStudent(student.id, { departure_time: event.target.value })} disabled={readOnlyRegister} aria-label={`${student.first_name} departure time`} /></label></div></td>
                     <td><div className="attendance-reason-fields"><select value={student.absence_category} onChange={(event) => updateStudent(student.id, { absence_category: event.target.value as AbsenceCategory })} disabled={readOnlyRegister || !['absent', 'excused'].includes(student.status)} aria-label={`${student.first_name} absence category`}>{absenceCategories.map((item) => <option key={item.value} value={item.value}>{item.label}</option>)}</select><input value={student.absence_reason} onChange={(event) => updateStudent(student.id, { absence_reason: event.target.value })} maxLength={500} placeholder="Reason" disabled={readOnlyRegister || !['absent', 'excused'].includes(student.status)} aria-label={`${student.first_name} absence reason`} /></div></td>
                     <td><input className="attendance-note-input" value={student.note} onChange={(event) => updateStudent(student.id, { note: event.target.value })} maxLength={500} placeholder="Optional staff note" disabled={readOnlyRegister} aria-label={`${student.first_name} staff note`} /></td>
                   </tr>)}</tbody></table></div>
-                  <div className="attendance-form-footer"><span>{students.length} enrolled · {unmarkedCount} unmarked{requireComplete ? ' · all students required to submit' : ''}</span><div className="attendance-session-actions"><button type="submit" className="button button-primary" disabled={saving || readOnlyRegister || !students.some((student) => student.status)}><Save size={15} />{saving ? 'Saving…' : session ? 'Save changes' : 'Open and save register'}</button></div></div>
+                  <div className="attendance-form-footer"><span>{students.length} enrolled · {unmarkedCount} unmarked{requireComplete ? ' · all students required to submit' : ''}</span><div className="attendance-session-actions"><button type="submit" className="button button-primary" disabled={saving || readOnlyRegister || !students.some((student) => student.status)}><Save size={15} />{saving ? 'Saving…' : !isOnline ? 'Queue offline marks' : session ? 'Save changes' : 'Open and save register'}</button></div></div>
                 </form>}
       </>}
 

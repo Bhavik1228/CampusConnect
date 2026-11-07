@@ -25,12 +25,12 @@ export default function HomeScreen() {
             ? <Image source={{ uri: selectedSchool.school_logo_path }} accessibilityLabel={`${selectedSchool.school_name} logo`} style={{ width: 52, height: 52, borderRadius: 12, backgroundColor: colors.white }} />
             : <Text accessibilityLabel={`${selectedSchool.school_name} logo`} style={{ width: 52, height: 52, borderRadius: 12, overflow: 'hidden', backgroundColor: colors.white, color: colors.navy, textAlign: 'center', textAlignVertical: 'center', fontSize: 20, fontWeight: '800' }}>{selectedSchool.school_name.slice(0, 1).toUpperCase()}</Text>}
           <View style={{ flex: 1, gap: 4 }}>
-            <Text style={{ color: '#A9D1B6', fontSize: 14, fontWeight: '700' }}>Campus Connect</Text>
+            <Text style={{ color: colors.accent, fontSize: 14, fontWeight: '700' }}>Campus Connect</Text>
             <Text style={{ color: colors.white, fontSize: 20, fontWeight: '800' }}>{selectedSchool.school_name}</Text>
           </View>
         </View>
-        <Text style={{ color: '#D3D8E8' }}>{selectedSchool.announcement ?? 'Your school workspace, on the move.'}</Text>
-        <Link href="/scan" style={{ color: '#FFFFFF', backgroundColor: colors.violet, padding: 13, borderRadius: 11, textAlign: 'center', fontWeight: '700' }}>
+        <Text style={{ color: colors.onDarkMuted }}>{selectedSchool.announcement ?? 'Your school workspace, on the move.'}</Text>
+        <Link href="/scan" style={{ color: colors.white, backgroundColor: colors.violet, padding: 13, borderRadius: 11, textAlign: 'center', fontWeight: '700' }}>
           Open scanner
         </Link>
       </Card>

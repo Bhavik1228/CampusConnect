@@ -28,7 +28,7 @@ const navigation: NavigationGroup[] = [
     { to: '/timetable', label: 'Timetable', icon: CalendarClock, module: 'module_timetable' },
     { to: '/academic-calendar', label: 'Academic calendar', icon: CalendarDays },
     { to: '/attendance', label: 'Attendance', icon: ClipboardCheck, module: 'module_attendance' },
-    { to: '/classes', label: 'Classes', icon: UsersRound },
+    { to: '/classes', label: 'Classes & groups', icon: UsersRound },
     { to: '/subjects', label: 'Subjects', icon: BookMarked },
     { to: '/calendar', label: 'Calendar', icon: CalendarDays },
   ] },

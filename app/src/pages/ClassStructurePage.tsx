@@ -132,7 +132,15 @@ export function ClassStructurePage() {
       if (failed) throw failed;
       const calendarRows = (calendarResult.data ?? []) as CalendarRow[];
       const yearRows = (yearResult.data ?? []) as YearRow[];
-      const patternYears = yearRows.filter((item) => item.calendar_id === groupCalendarId);
+      const defaultCalendarId = calendarRows.find((item) => item.is_default)?.id ?? calendarRows[0]?.id ?? '';
+      const selectedClassCalendarId = calendarRows.some((item) => item.id === classCalendarId)
+        ? classCalendarId
+        : defaultCalendarId;
+      const selectedGroupCalendarId = calendarRows.some((item) => item.id === groupCalendarId)
+        ? groupCalendarId
+        : defaultCalendarId;
+      const classYears = yearRows.filter((item) => item.calendar_id === selectedClassCalendarId);
+      const groupYears = yearRows.filter((item) => item.calendar_id === selectedGroupCalendarId);
       setClasses((classResult.data ?? []) as ClassRow[]);
       setCalendars(calendarRows);
       setYears(yearRows);
@@ -140,24 +148,21 @@ export function ClassStructurePage() {
       setHouses((houseResult.data ?? []) as HouseRow[]);
       setGroups((groupResult.data ?? []) as RegistrationGroupRow[]);
       setPlacements((placementResult.data ?? []) as PlacementRow[]);
-      setClassCalendarId((current) => calendarRows.some((item) => item.id === current)
-        ? current
-        : calendarRows.find((item) => item.is_default)?.id ?? calendarRows[0]?.id ?? '');
+      setClassCalendarId(selectedClassCalendarId);
       setClassYearId((current) => yearRows.some((item) => item.id === current)
+        && classYears.some((item) => item.id === current)
         ? current
-        : yearRows.find((item) => item.is_current)?.id ?? '');
-      setGroupCalendarId((current) => calendarRows.some((item) => item.id === current)
+        : classYears.find((item) => item.is_current)?.id ?? classYears[0]?.id ?? '');
+      setGroupCalendarId(selectedGroupCalendarId);
+      setGroupYearId((current) => groupYears.some((item) => item.id === current)
         ? current
-        : calendarRows.find((item) => item.is_default)?.id ?? calendarRows[0]?.id ?? '');
-      setGroupYearId((current) => patternYears.some((item) => item.id === current)
-        ? current
-        : patternYears.find((item) => item.is_current)?.id ?? patternYears[0]?.id ?? '');
+        : groupYears.find((item) => item.is_current)?.id ?? groupYears[0]?.id ?? '');
     } catch (loadError) {
       setError(loadError instanceof Error ? loadError.message : 'Could not load classes, houses, and registration groups.');
     } finally {
       setLoading(false);
     }
-  }, [schoolId, canManage, groupCalendarId]);
+  }, [schoolId, canManage, classCalendarId, groupCalendarId]);
 
   useEffect(() => { void load(); }, [load, refreshKey]);
 
@@ -258,7 +263,7 @@ export function ClassStructurePage() {
     setSuccess('');
     try {
       const { error: updateError } = await requireSupabase().from('school_houses')
-        .update({ name: house.name.trim(), color: house.color, house_lead_teacher_id: house.house_lead_teacher_id })
+        .update({ name: house.name.trim(), color: house.color, house_lead_teacher_id: house.house_lead_teacher_id, updated_at: new Date().toISOString() })
         .eq('school_id', schoolId).eq('id', house.id);
       if (updateError) throw updateError;
       setSuccess(`${house.name} updated.`);
@@ -295,7 +300,7 @@ export function ClassStructurePage() {
     setSuccess('');
     try {
       const { error: updateError } = await requireSupabase().from('school_registration_groups')
-        .update({ name: group.name.trim(), tutor_teacher_id: group.tutor_teacher_id })
+        .update({ name: group.name.trim(), tutor_teacher_id: group.tutor_teacher_id, updated_at: new Date().toISOString() })
         .eq('school_id', schoolId).eq('id', group.id);
       if (updateError) throw updateError;
       setSuccess(`${group.name} updated.`);
@@ -357,11 +362,6 @@ export function ClassStructurePage() {
     }
   }
 
-  function teacherName(teacherId: string | null) {
-    const teacher = teachers.find((item) => item.id === teacherId);
-    return teacher ? `${teacher.first_name} ${teacher.last_name}` : 'Unassigned';
-  }
-
   if (!schoolId) return <div className="page-stack"><ErrorState message="Select a school workspace to manage class structure." /></div>;
 
   return <div className="page-stack">
@@ -371,7 +371,7 @@ export function ClassStructurePage() {
     </div>
     {error && <ErrorState message={error} />}
     {success && <SuccessMessage message={success} />}
-    <section className="content-card calendar-management">
+    <section className="calendar-management">
       <div className="calendar-tabs" role="tablist" aria-label="Class structure tools">
         {tabs.filter((item) => canManage || item.id !== 'placements').map((item) => <button key={item.id} type="button" role="tab" aria-selected={tab === item.id} className={tab === item.id ? 'active' : ''} onClick={() => setTab(item.id)}>{item.label}</button>)}
       </div>
@@ -381,7 +381,7 @@ export function ClassStructurePage() {
             <h2>Create a class</h2>
             <label className="field"><span>Class name</span><input required minLength={1} maxLength={100} value={className} onChange={(event) => setClassName(event.target.value)} placeholder="e.g. Year 7 Blue" /></label>
             <label className="field"><span>Grade level</span><input maxLength={50} value={gradeLevel} onChange={(event) => setGradeLevel(event.target.value)} placeholder="e.g. Year 7" /></label>
-            <label className="field"><span>Academic calendar</span><select required value={classCalendarId} onChange={(event) => setClassCalendarId(event.target.value)}><option value="">Choose calendar</option>{calendars.map((calendar) => <option key={calendar.id} value={calendar.id}>{calendar.name}{calendar.division_name ? ` · ${calendar.division_name}` : calendar.is_default ? ' · Default' : ''}</option>)}</select></label>
+            <label className="field"><span>Academic calendar</span><select required value={classCalendarId} onChange={(event) => { setClassCalendarId(event.target.value); setClassYearId(''); }}><option value="">Choose calendar</option>{calendars.map((calendar) => <option key={calendar.id} value={calendar.id}>{calendar.name}{calendar.division_name ? ` · ${calendar.division_name}` : calendar.is_default ? ' · Default' : ''}</option>)}</select></label>
             <label className="field"><span>Academic year</span><select value={classYearId} onChange={(event) => setClassYearId(event.target.value)}><option value="">Not assigned</option>{years.filter((item) => item.calendar_id === classCalendarId).map((item) => <option key={item.id} value={item.id}>{item.name}</option>)}</select></label>
             <button className="button button-primary" type="submit" disabled={saving || !calendars.length}><Plus size={15} />Create class</button>
           </form>}

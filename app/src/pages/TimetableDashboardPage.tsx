@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useState, type FormEvent } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState, type FormEvent } from 'react';
 import {
   AlertTriangle, ArrowUpRight, BookOpen, CalendarClock, CalendarDays, Check,
   Clock3, Download, DoorOpen, Edit3, Plus, Printer, RefreshCw, Users,
@@ -30,6 +30,13 @@ interface YearChoice { id: string; name: string; calendar_id: string; is_current
 interface PatternChoice { id: string; name: string; calendar_id: string }
 interface BellScheduleChoice { id: string; name: string; calendar_id: string; week_pattern_id: string; cycle_weeks: number }
 interface AcademicWeekChoice { calendar_id: string; academic_year_id: string; starts_on: string; ends_on: string; cycle_week: number }
+type ReadinessStatus = 'ready' | 'warning' | 'blocker';
+interface ReadinessCheck { key: string; label: string; status: ReadinessStatus; detail: string }
+interface TimetableReadiness {
+  ready_for_manual_planning: boolean;
+  ready_for_auto_generation: boolean;
+  checks: ReadinessCheck[];
+}
 
 interface TimetableEntry {
   id: string;
@@ -46,7 +53,7 @@ interface TimetableEntry {
   cycle_week: number;
   bell_period_id: string | null;
   updated_at: string;
-  class: Relation<{ name: string }>;
+  class: Relation<{ name: string; room: string | null }>;
   subject: Relation<{ name: string }>;
   teacher: Relation<{ first_name: string; last_name: string }>;
   schedule: Relation<{ name: string; status: ScheduleStatus; updated_at: string }>;
@@ -70,7 +77,7 @@ const dayLabels = ['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Satu
 const timetableSelect = [
   'id', 'schedule_id', 'class_id', 'subject_id', 'teacher_id', 'day_of_week',
   'starts_at', 'ends_at', 'room', 'entry_type', 'label', 'updated_at', 'cycle_week', 'bell_period_id',
-  'class:school_classes(name)', 'subject:subjects(name)',
+  'class:school_classes(name,room)', 'subject:subjects(name)',
   'teacher:teacher_profiles(first_name,last_name)',
   'schedule:timetable_schedules(name,status,updated_at)',
 ].join(',');
@@ -167,6 +174,27 @@ function displayUpdatedAt(value: string) {
     .format(new Date(value));
 }
 
+function ReadinessChecklist({ report, loading }: { report: TimetableReadiness | null; loading: boolean }) {
+  if (loading) return <p className="timetable-readiness-message" role="status">Checking calendar, classes, subjects, staff, and scheduling constraints…</p>;
+  if (!report) return <p className="timetable-readiness-message">Readiness data is not available yet.</p>;
+  const summary = report.ready_for_auto_generation
+    ? 'Ready for manual planning and automatic generation.'
+    : report.ready_for_manual_planning
+      ? 'Manual planning is available. Review warnings before automatic generation.'
+      : 'Resolve the blockers below before adding lessons.';
+  return <>
+    <p className="timetable-readiness-message">{summary}</p>
+    <ul className="timetable-readiness-checks">
+      {report.checks.map((check) => <li className={`timetable-readiness-check is-${check.status}`} key={check.key}>
+        <div><strong>{check.label}</strong><span className={`readiness-badge is-${check.status}`}>
+          {check.status === 'ready' ? 'Ready' : check.status === 'warning' ? 'Recommended' : 'Blocked'}
+        </span></div>
+        <p>{check.detail}</p>
+      </li>)}
+    </ul>
+  </>;
+}
+
 async function loadEntries(schoolId: string) {
   const client = requireSupabase();
   const entries: TimetableEntry[] = [];
@@ -204,6 +232,10 @@ export function TimetableDashboardPage() {
   const [selectedScheduleId, setSelectedScheduleId] = useState('');
   const [selectedTimetableClassId, setSelectedTimetableClassId] = useState('');
   const [selectedTimetableCycle, setSelectedTimetableCycle] = useState(1);
+  const [roomFinderDay, setRoomFinderDay] = useState(1);
+  const [roomFinderCycle, setRoomFinderCycle] = useState(1);
+  const [roomFinderStartsAt, setRoomFinderStartsAt] = useState('09:00');
+  const [roomFinderEndsAt, setRoomFinderEndsAt] = useState('10:00');
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState('');
@@ -214,6 +246,9 @@ export function TimetableDashboardPage() {
   const [scheduleYearId, setScheduleYearId] = useState('');
   const [schedulePatternId, setSchedulePatternId] = useState('');
   const [scheduleBellId, setScheduleBellId] = useState('');
+  const [readinessReport, setReadinessReport] = useState<TimetableReadiness | null>(null);
+  const [readinessLoading, setReadinessLoading] = useState(false);
+  const readinessRequestId = useRef(0);
 
   const refresh = useCallback(async () => {
     if (!schoolId) return;
@@ -270,9 +305,61 @@ export function TimetableDashboardPage() {
     }
   }, [schoolId]);
 
+  const loadReadiness = useCallback(async (
+    calendarId: string | null,
+    yearId: string | null,
+    patternId: string | null,
+    bellScheduleId: string | null,
+  ) => {
+    if (!schoolId) return;
+    const requestId = ++readinessRequestId.current;
+    setReadinessLoading(true);
+    try {
+      const { data, error: readinessError } = await requireSupabase().rpc('get_timetable_readiness', {
+        target_school: schoolId,
+        target_calendar: calendarId || null,
+        target_year: yearId || null,
+        target_pattern: patternId || null,
+        target_bell_schedule: bellScheduleId || null,
+      });
+      if (readinessError) throw readinessError;
+      if (requestId === readinessRequestId.current) setReadinessReport(data as unknown as TimetableReadiness);
+    } catch (readinessError) {
+      if (requestId === readinessRequestId.current) {
+        setReadinessReport(null);
+        setError(readinessError instanceof Error ? readinessError.message : 'Could not check timetable readiness.');
+      }
+    } finally {
+      if (requestId === readinessRequestId.current) setReadinessLoading(false);
+    }
+  }, [schoolId]);
+
   useEffect(() => { void refresh(); }, [refresh]);
 
   const activeSchedule = schedules.find((schedule) => schedule.id === selectedScheduleId) ?? null;
+  const readinessCalendarId = activeSchedule?.calendar_id
+    ?? calendars.find((calendar) => calendar.is_default)?.id
+    ?? calendars[0]?.id
+    ?? '';
+  const readinessYearId = activeSchedule?.academic_year_id
+    ?? academicYears.find((year) => year.calendar_id === readinessCalendarId && year.is_current)?.id
+    ?? '';
+  const readinessPatternId = activeSchedule?.week_pattern_id
+    ?? weekPatterns.find((pattern) => pattern.calendar_id === readinessCalendarId && pattern.name === 'Standard')?.id
+    ?? weekPatterns.find((pattern) => pattern.calendar_id === readinessCalendarId)?.id
+    ?? '';
+  const readinessBellId = activeSchedule?.bell_schedule_id
+    ?? bellSchedules.find((bell) => bell.calendar_id === readinessCalendarId && bell.week_pattern_id === readinessPatternId)?.id
+    ?? '';
+  useEffect(() => {
+    if (!canManage || !readinessCalendarId) {
+      setReadinessReport(null);
+      setReadinessLoading(false);
+      return;
+    }
+    void loadReadiness(readinessCalendarId, readinessYearId, readinessPatternId, readinessBellId);
+  }, [canManage, readinessCalendarId, readinessYearId, readinessPatternId, readinessBellId, loadReadiness]);
+
   const activeEntries = useMemo(
     () => selectedScheduleId
       ? entries.filter((entry) => entry.schedule_id === selectedScheduleId)
@@ -380,6 +467,31 @@ export function TimetableDashboardPage() {
   const roomAssignmentCoverage = lessons.length
     ? Math.round(lessons.filter((entry) => entry.room?.trim()).length / lessons.length * 100)
     : 0;
+  const knownRooms = useMemo(() => {
+    const rooms = new Map<string, string>();
+    for (const entry of activeEntries) {
+      for (const value of [entry.room, relation(entry.class)?.room]) {
+        const name = value?.trim();
+        if (name) rooms.set(name.toLocaleLowerCase(), rooms.get(name.toLocaleLowerCase()) ?? name);
+      }
+    }
+    return [...rooms.values()].sort((left, right) => left.localeCompare(right));
+  }, [activeEntries]);
+  const roomFinderStart = minutes(roomFinderStartsAt);
+  const roomFinderEnd = minutes(roomFinderEndsAt);
+  const roomFinderValid = Number.isFinite(roomFinderStart) && Number.isFinite(roomFinderEnd)
+    && roomFinderStart < roomFinderEnd;
+  const availableRooms = useMemo(() => {
+    if (!roomFinderValid) return [];
+    return knownRooms.filter((room) => !activeEntries.some((entry) => {
+      const scheduledRoom = entry.room?.trim() || relation(entry.class)?.room?.trim() || '';
+      return scheduledRoom.toLocaleLowerCase() === room.toLocaleLowerCase()
+        && entry.day_of_week === roomFinderDay
+        && entry.cycle_week === roomFinderCycle
+        && minutes(entry.starts_at) < roomFinderEnd
+        && roomFinderStart < minutes(entry.ends_at);
+    }));
+  }, [activeEntries, knownRooms, roomFinderDay, roomFinderCycle, roomFinderEnd, roomFinderStart, roomFinderValid]);
   const recentChanges = useMemo(
     () => activity.filter((change) => !selectedScheduleId || change.scheduleId === selectedScheduleId).slice(0, 5),
     [activity, selectedScheduleId],
@@ -393,13 +505,20 @@ export function TimetableDashboardPage() {
   function openCreateDialog() {
     setScheduleName('');
     const defaultCalendar = calendars.find((calendar) => calendar.is_default) ?? calendars[0];
-    setScheduleCalendarId(defaultCalendar?.id ?? '');
     const currentYear = academicYears.find((item) => item.calendar_id === defaultCalendar?.id && item.is_current);
+    const defaultPattern = weekPatterns.find((item) => item.calendar_id === defaultCalendar?.id && item.name === 'Standard')
+      ?? weekPatterns.find((item) => item.calendar_id === defaultCalendar?.id);
+    const defaultBell = bellSchedules.find((item) => item.calendar_id === defaultCalendar?.id && item.week_pattern_id === defaultPattern?.id);
+    setScheduleCalendarId(defaultCalendar?.id ?? '');
     setScheduleYearId(currentYear?.id ?? '');
-    setSchedulePatternId(weekPatterns.find((item) => item.calendar_id === defaultCalendar?.id && item.name === 'Standard')?.id
-      ?? weekPatterns.find((item) => item.calendar_id === defaultCalendar?.id)?.id
-      ?? '');
-    setScheduleBellId(bellSchedules.find((item) => item.calendar_id === defaultCalendar?.id)?.id ?? '');
+    setSchedulePatternId(defaultPattern?.id ?? '');
+    setScheduleBellId(defaultBell?.id ?? '');
+    void loadReadiness(
+      defaultCalendar?.id ?? '',
+      currentYear?.id ?? '',
+      defaultPattern?.id ?? '',
+      defaultBell?.id ?? '',
+    );
     setScheduleDialog('create');
     setError('');
     setSuccess('');
@@ -463,11 +582,11 @@ export function TimetableDashboardPage() {
     setError('');
     setSuccess('');
     try {
-      const { error: updateError } = await requireSupabase().from('timetable_schedules')
-        .update({ status: 'published' })
-        .eq('id', activeSchedule.id)
-        .eq('school_id', schoolId);
-      if (updateError) throw updateError;
+      const { error: publishError } = await requireSupabase().rpc('publish_timetable_schedule', {
+        target_school: schoolId,
+        target_schedule: activeSchedule.id,
+      });
+      if (publishError) throw publishError;
       setSuccess('Timetable published for students, families, and staff.');
       await refresh();
     } catch (publishError) {
@@ -511,6 +630,20 @@ export function TimetableDashboardPage() {
       {error && <ErrorState message={error} />}
       {success && <SuccessMessage message={success} />}
       {loading ? <LoadingState label="Loading timetable data…" /> : <>
+        {canManage && <section className="content-card timetable-readiness-panel">
+          <div className="section-heading">
+            <div><span className="eyebrow">Schedule readiness</span><h2>Setup and constraints</h2></div>
+            <button type="button" className="button button-quiet" onClick={openCreateDialog}><CalendarClock size={15} />Review setup</button>
+          </div>
+          <p className="timetable-readiness-message" role="status">
+            {readinessLoading ? 'Checking selected calendar and timetable prerequisites…'
+              : readinessReport?.ready_for_auto_generation
+                ? 'Selected calendar is ready for manual planning and automatic generation.'
+                : readinessReport?.ready_for_manual_planning
+                  ? 'Manual planning is available. Review recommended setup before automatic generation.'
+                  : 'Review the checklist before adding or generating timetable lessons.'}
+          </p>
+        </section>}
         {activeSchedule && <TimetableManager
           key={activeSchedule.id}
           schoolId={schoolId ?? ''}
@@ -545,7 +678,7 @@ export function TimetableDashboardPage() {
           {timetableSlots.length ? <div className="print-timetable-scroll">
             <table className="class-timetable-grid">
               <thead><tr><th className="class-timetable-day-heading">Day</th>{timetableSlots.map((slot, index) =>
-                <th key={`${slot.startsAt}:${slot.endsAt}`}><strong>{index}</strong><span>{formatTime(slot.startsAt)}–{formatTime(slot.endsAt)}</span></th>)}</tr></thead>
+                <th key={`${slot.startsAt}:${slot.endsAt}`}><strong>{index}</strong><span>{formatTime(slot.startsAt)} to {formatTime(slot.endsAt)}</span></th>)}</tr></thead>
               <tbody>{timetableDays.map(({ label: day, dayOfWeek }) => <tr key={day}>
                 <th className="class-timetable-day">{day.slice(0, 2)}</th>
                 {timetableSlots.map((slot) => {
@@ -594,20 +727,42 @@ export function TimetableDashboardPage() {
         <section className="dashboard-grid timetable-insight-grid">
           <article className="content-card timetable-panel">
             <div className="section-heading"><div><span className="eyebrow">Attention needed</span><h2>Conflict alerts</h2></div><AlertTriangle size={19} className={conflicts.length ? 'alert-icon' : 'muted-icon'} /></div>
-            {conflicts.length ? <div className="issue-list">{conflicts.slice(0, 5).map((conflict, index) => <div className="issue-row" key={`${conflict.first.id}-${conflict.second.id}-${index}`}>
+            {conflicts.length ? <div className="issue-list timetable-conflict-list">{conflicts.map((conflict, index) => <div className="issue-row" key={`${conflict.first.id}-${conflict.second.id}-${index}`}>
               <span className="issue-icon"><AlertTriangle size={15} /></span>
-              <div><strong>{conflict.resources.join(' · ')}</strong><small>{dayLabels[conflict.first.day_of_week - 1]} · {formatTime(conflict.first.starts_at)}–{formatTime(conflict.first.ends_at)} overlaps {subjectName(conflict.second)}</small></div>
+              <div><strong>{conflict.resources.join(', ')}</strong>
+                <small>{dayLabels[conflict.first.day_of_week - 1]} · {formatTime(conflict.first.starts_at > conflict.second.starts_at ? conflict.first.starts_at : conflict.second.starts_at)}–{formatTime(conflict.first.ends_at < conflict.second.ends_at ? conflict.first.ends_at : conflict.second.ends_at)} · Week {conflict.first.cycle_week}</small>
+                <small>{subjectName(conflict.first)} · {className(conflict.first)} ↔ {subjectName(conflict.second)} · {className(conflict.second)}</small>
+              </div>
             </div>)}</div> : <div className="panel-empty"><Check size={17} /><span>No class, teacher, or room clashes detected.</span></div>}
             {unassignedCount > 0 && <div className="issue-note"><AlertTriangle size={14} />{unassignedCount} lesson{unassignedCount === 1 ? '' : 's'} still need a teacher or room.</div>}
           </article>
           <article className="content-card timetable-panel">
-            <div className="section-heading"><div><span className="eyebrow">Availability</span><h2>Free period overview</h2></div><DoorOpen size={19} className="muted-icon" /></div>
-            <div className="availability-grid">
+            <div className="section-heading"><div><span className="eyebrow">Room finder</span><h2>Find a free room</h2></div><DoorOpen size={19} className="muted-icon" /></div>
+            <div className="room-finder-controls">
+              <label>Day<select value={roomFinderDay} onChange={(event) => setRoomFinderDay(Number(event.target.value))}>
+                {dayLabels.map((day, index) => <option key={day} value={index + 1}>{day}</option>)}
+              </select></label>
+              {activeSchedule?.cycle_weeks === 2 && <label>Rotation<select value={roomFinderCycle} onChange={(event) => setRoomFinderCycle(Number(event.target.value))}>
+                <option value={1}>Week A</option><option value={2}>Week B</option>
+              </select></label>}
+              <label>From<input type="time" value={roomFinderStartsAt} onChange={(event) => setRoomFinderStartsAt(event.target.value)} /></label>
+              <label>Until<input type="time" value={roomFinderEndsAt} onChange={(event) => setRoomFinderEndsAt(event.target.value)} /></label>
+            </div>
+            {!roomFinderValid
+              ? <p className="panel-footnote room-finder-message" role="alert">Choose an end time later than the start time.</p>
+              : knownRooms.length
+                ? <><div className="room-finder-results"><strong>{availableRooms.length} available</strong>
+                  {availableRooms.length
+                    ? <div>{availableRooms.map((room) => <span key={room}>{room}</span>)}</div>
+                    : <p>No configured room is free for this time. Try another period or add more rooms to the timetable.</p>}
+                </div>
+                  <p className="panel-footnote">Availability checks scheduled lessons and class homerooms in the selected timetable, day, and rotation.</p></>
+                : <p className="panel-footnote room-finder-message">No rooms are configured yet. Add room names to lesson assignments or class setup to use the finder.</p>}
+            <div className="availability-grid room-gap-summary">
               <div><strong>{freeWindows}</strong><span>open class gaps</span></div>
               <div><strong>{countOpenWindows(activeEntries, (entry) => entry.teacher_id)}</strong><span>teacher gaps</span></div>
               <div><strong>{countOpenWindows(activeEntries, (entry) => entry.room?.trim() ?? null)}</strong><span>room gaps</span></div>
             </div>
-            <p className="panel-footnote">Gaps are open windows between scheduled lessons in this timetable.</p>
           </article>
         </section>
 
@@ -657,15 +812,39 @@ export function TimetableDashboardPage() {
           {scheduleDialog === 'create' && <>
             <label className="field"><span>Academic calendar / division</span><select required value={scheduleCalendarId} onChange={(event) => {
               const nextCalendar = event.target.value;
+              const nextYear = academicYears.find((item) => item.calendar_id === nextCalendar && item.is_current)?.id ?? '';
+              const nextPattern = weekPatterns.find((item) => item.calendar_id === nextCalendar && item.name === 'Standard')?.id
+                ?? weekPatterns.find((item) => item.calendar_id === nextCalendar)?.id
+                ?? '';
+              const nextBell = bellSchedules.find((item) => item.calendar_id === nextCalendar && item.week_pattern_id === nextPattern)?.id ?? '';
               setScheduleCalendarId(nextCalendar);
-              setScheduleYearId(academicYears.find((item) => item.calendar_id === nextCalendar && item.is_current)?.id ?? '');
-              setSchedulePatternId(weekPatterns.find((item) => item.calendar_id === nextCalendar && item.name === 'Standard')?.id ?? weekPatterns.find((item) => item.calendar_id === nextCalendar)?.id ?? '');
-              setScheduleBellId(bellSchedules.find((item) => item.calendar_id === nextCalendar)?.id ?? '');
+              setScheduleYearId(nextYear);
+              setSchedulePatternId(nextPattern);
+              setScheduleBellId(nextBell);
+              void loadReadiness(nextCalendar, nextYear, nextPattern, nextBell);
             }}>{calendars.map((item) => <option value={item.id} key={item.id}>{item.name}{item.division_name ? ` · ${item.division_name}` : ''}</option>)}</select></label>
-            <label className="field"><span>Academic year (optional)</span><select value={scheduleYearId} onChange={(event) => setScheduleYearId(event.target.value)}><option value="">No academic year</option>{academicYears.filter((item) => item.calendar_id === scheduleCalendarId).map((item) => <option value={item.id} key={item.id}>{item.name}{item.is_current ? ' · Current' : ''}</option>)}</select></label>
-            <label className="field"><span>Week pattern</span><select required value={schedulePatternId} onChange={(event) => setSchedulePatternId(event.target.value)}>{weekPatterns.filter((item) => item.calendar_id === scheduleCalendarId).map((item) => <option value={item.id} key={item.id}>{item.name}</option>)}</select></label>
-            <label className="field"><span>Bell schedule (optional)</span><select value={scheduleBellId} onChange={(event) => setScheduleBellId(event.target.value)}><option value="">No bell periods</option>{bellSchedules.filter((item) => item.calendar_id === scheduleCalendarId && item.week_pattern_id === schedulePatternId).map((item) => <option value={item.id} key={item.id}>{item.name}{item.cycle_weeks === 2 ? ' · A/B cycle' : ''}</option>)}</select></label>
+            <label className="field"><span>Academic year (optional)</span><select value={scheduleYearId} onChange={(event) => {
+              const nextYear = event.target.value;
+              setScheduleYearId(nextYear);
+              void loadReadiness(scheduleCalendarId, nextYear, schedulePatternId, scheduleBellId);
+            }}><option value="">No academic year</option>{academicYears.filter((item) => item.calendar_id === scheduleCalendarId).map((item) => <option value={item.id} key={item.id}>{item.name}{item.is_current ? ' · Current' : ''}</option>)}</select></label>
+            <label className="field"><span>Week pattern</span><select required value={schedulePatternId} onChange={(event) => {
+              const nextPattern = event.target.value;
+              const nextBell = bellSchedules.find((item) => item.calendar_id === scheduleCalendarId && item.week_pattern_id === nextPattern)?.id ?? '';
+              setSchedulePatternId(nextPattern);
+              setScheduleBellId(nextBell);
+              void loadReadiness(scheduleCalendarId, scheduleYearId, nextPattern, nextBell);
+            }}>{weekPatterns.filter((item) => item.calendar_id === scheduleCalendarId).map((item) => <option value={item.id} key={item.id}>{item.name}</option>)}</select></label>
+            <label className="field"><span>Bell schedule (optional)</span><select value={scheduleBellId} onChange={(event) => {
+              const nextBell = event.target.value;
+              setScheduleBellId(nextBell);
+              void loadReadiness(scheduleCalendarId, scheduleYearId, schedulePatternId, nextBell);
+            }}><option value="">No bell periods</option>{bellSchedules.filter((item) => item.calendar_id === scheduleCalendarId && item.week_pattern_id === schedulePatternId).map((item) => <option value={item.id} key={item.id}>{item.name}{item.cycle_weeks === 2 ? ' · A/B cycle' : ''}</option>)}</select></label>
           </>}
+          {scheduleDialog === 'create' && <section className="timetable-readiness-wizard" aria-label="Timetable setup readiness">
+            <div><span className="eyebrow">Readiness check</span><h3>Before you build</h3></div>
+            <ReadinessChecklist report={readinessReport} loading={readinessLoading} />
+          </section>}
           {scheduleDialog === 'create' && <p className="timetable-dialog-note"><BookOpen size={15} />New timetables start as drafts. Add periods manually or generate a weekly schedule in the schedule builder.</p>}
           <div className="modal-actions"><button className="button button-quiet" type="button" onClick={() => setScheduleDialog(null)}>Cancel</button><button className="button button-primary" type="submit" disabled={saving}>{saving ? 'Saving…' : scheduleDialog === 'create' ? 'Create draft' : 'Save details'}</button></div>
         </form>

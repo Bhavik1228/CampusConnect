@@ -651,7 +651,7 @@ export function StudentsPage() {
                 </section>
                 <section className="student-info-section">
                   <h3>Profile completeness <span className="student-section-count">{completenessPercent}%</span></h3>
-                  <div className="student-completeness-track" role="progressbar" aria-label="Student profile completeness" aria-valuenow={completenessPercent} aria-valuemin={0} aria-valuemax={100}><span style={{ width: `${completenessPercent}%` }} /></div>
+                  <div className="student-completeness-track" role="progressbar" aria-label="Student profile completeness" aria-valuenow={completenessPercent} aria-valuemin={0} aria-valuemax={100}><span style={{ transform: `scaleX(${completenessPercent / 100})` }} /></div>
                   <ul className="student-completeness-list">{completenessChecks.map((item) => <li key={item.label} className={item.complete ? 'complete' : ''}>{item.complete ? 'Complete' : 'Missing'} · {item.label}</li>)}</ul>
                 </section>
                 <section className="student-info-section student-quality-findings">

@@ -97,8 +97,8 @@ export function AuditLogPage() {
         <header className="audit-print-heading">
           <span>School activity report</span>
           <h1>{activeMembership.school.name}</h1>
-          <p>Audit log{action ? ` · ${action.replace(/_/g, ' ')}` : ''}{targetTable ? ` · ${targetTable.replace(/_/g, ' ')}` : ''}</p>
-          <small>Generated {printedAt || formatDate(new Date().toISOString())} · Page {page + 1} · Showing {logs.length} of {total.toLocaleString()} matching actions</small>
+          <p>Audit log{action ? `, ${action.replace(/_/g, ' ')}` : ''}{targetTable ? `, ${targetTable.replace(/_/g, ' ')}` : ''}</p>
+          <small>Generated {printedAt || formatDate(new Date().toISOString())}, page {page + 1}, showing {logs.length} of {total.toLocaleString()} matching actions</small>
         </header>
         <div className="audit-filters">
           <label className="field"><span>Action</span><select value={action} onChange={(event) => { setAction(event.target.value); setPage(0); }}>

@@ -705,7 +705,7 @@ export function LibraryPage() {
       {recentReturns.length > 0 && <div className="library-active-checkouts"><h3>Recent returns</h3>{recentReturns.map((checkout) => <article className="library-active-checkout" key={checkout.id}><div><strong>{checkout.book?.title ?? 'Book record unavailable'}</strong><span>{checkout.student ? `${checkout.student.first_name} ${checkout.student.last_name} · ${checkout.student.student_number}` : 'Student record unavailable'}</span><small>Returned {new Date(checkout.returned_at!).toLocaleString()}</small></div><span className="library-request-status approved">Returned</span></article>)}</div>}
     </section>}
 
-    <section className="content-card library-catalogue">
+    <section className="library-catalogue">
       <div className="library-toolbar">
         <label className="library-search"><Search size={16} /><input value={search} onChange={(event) => setSearch(event.target.value)} placeholder="Search title, author, ISBN, publisher or barcode" /></label>
         {canManage && <label className="library-archived-toggle"><input type="checkbox" checked={showArchived} onChange={(event) => setShowArchived(event.target.checked)} /> Show archived</label>}
@@ -743,7 +743,7 @@ export function LibraryPage() {
       {ownRequests.length === 0 ? <p>You have not submitted any book requests yet.</p> : ownRequests.map((request) => <div className="library-request-row" key={request.id}><div><strong>{request.book?.title ?? 'Book'}</strong><small>{request.request_type === 'preorder' ? 'Preorder' : 'Request'} · {new Date(request.created_at).toLocaleDateString()}</small></div><span className={`library-request-status ${request.status}`}>{request.status}</span>{request.decision_note && <p>{request.decision_note}</p>}</div>)}
     </section>}
 
-    {canManage && <section className="content-card library-requests">
+    {canManage && <section className="library-requests">
       <div className="library-section-heading"><div><span className="eyebrow">Library desk</span><h2>Book requests & preorders</h2><p>{pendingRequests.length} awaiting review</p></div><button className="button button-quiet" onClick={() => void load()}>Refresh</button></div>
       {requests.length === 0 ? <p>No book requests have been submitted.</p> : <div className="library-request-list">{requests.map((request) => <article className="library-request-card" key={request.id}>
         <div className="library-request-summary"><div><strong>{request.book?.title ?? 'Book record unavailable'}</strong><small>{request.requester_name || request.requester_email || 'School member'} · {new Date(request.created_at).toLocaleString()}</small></div><span className={`library-request-status ${request.status}`}>{request.request_type === 'preorder' ? 'Preorder' : 'Request'} · {request.status}</span></div>

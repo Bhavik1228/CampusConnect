@@ -807,7 +807,7 @@ export function TimetableManager({
         return <tr key={entry.id}>
           <td>{cycleWeeks === 2 ? `Week ${entry.cycle_week === 1 ? 'A' : 'B'}` : '—'}</td>
           <td>{weekdayOptions.find((item) => item.day === entry.day_of_week)?.label}</td>
-          <td>{entry.starts_at.slice(0, 5)}–{entry.ends_at.slice(0, 5)}</td>
+          <td>{entry.starts_at.slice(0, 5)} to {entry.ends_at.slice(0, 5)}</td>
           <td>{schoolClass?.name ?? 'All classes'}</td>
           <td>{subject?.name ?? entry.label ?? entry.entry_type}</td>
           <td>{teacher ? `${teacher.first_name} ${teacher.last_name}` : entry.entry_type === 'lesson' ? 'Unassigned' : '—'}</td>
@@ -833,7 +833,7 @@ export function TimetableManager({
             setDraftBellPeriodId(event.target.value);
             setDoublePeriod(false);
             if (selected) setDraft((current) => ({ ...current, starts_at: selected.starts_at.slice(0, 5), duration: String(parseMinutes(selected.ends_at.slice(0, 5)) - parseMinutes(selected.starts_at.slice(0, 5))) }));
-          }}><option value="">Choose a configured period</option>{availableBellPeriods.map((period) => <option key={period.id} value={period.id}>P{period.period_number} · {period.name} · {period.starts_at.slice(0, 5)}–{period.ends_at.slice(0, 5)}</option>)}</select></label>
+          }}><option value="">Choose a configured period</option>{availableBellPeriods.map((period) => <option key={period.id} value={period.id}>Period {period.period_number}, {period.name}, {period.starts_at.slice(0, 5)} to {period.ends_at.slice(0, 5)}</option>)}</select></label>
           {draft.entry_type === 'lesson' && nextDoublePeriod && <label className="calendar-checkbox"><input type="checkbox" checked={doublePeriod} onChange={(event) => {
             setDoublePeriod(event.target.checked);
             if (event.target.checked && selectedBellPeriod && nextDoublePeriod) setDraft((current) => ({ ...current, duration: String(parseMinutes(nextDoublePeriod.ends_at.slice(0, 5)) - parseMinutes(selectedBellPeriod.starts_at.slice(0, 5))) }));

@@ -416,7 +416,7 @@ export function AcademicPlanningPage() {
           <button className="button button-secondary" type="button" onClick={() => void simulateRollover()} disabled={saving || !sourceYear || !nextName.trim() || !nextStart || !nextEnd}>Simulate rollover</button>
           {rolloverPreview && <div className="academic-preview-panel">
             <strong>Rollover preview: {rolloverPreview.name}</strong>
-            <span>{rolloverPreview.classes_to_copy} classes · {rolloverPreview.terms_to_copy} terms · {rolloverPreview.students_to_promote} students need class allocation</span>
+            <span>{rolloverPreview.classes_to_copy} classes, {rolloverPreview.terms_to_copy} terms, {rolloverPreview.students_to_promote} students need class allocation</span>
             {rolloverPreview.notes.map((note) => <small key={note}>{note}</small>)}
             {rolloverPreview.conflicts.map((issue, index) => <p className="academic-conflict" key={`${issue.type}-${index}`}><AlertTriangle size={14} />{issue.message}</p>)}
             <button className="button button-primary" type="button" onClick={() => void applyRollover()} disabled={saving || rolloverPreview.conflicts.length > 0}>Apply rollover</button>

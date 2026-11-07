@@ -133,8 +133,8 @@ export function PrerequisiteDemoPage() {
     </div>
 
     <div className="prerequisite-demo-banner" role="note">
-      <strong>Concept demo — no production records are created.</strong>
-      <span>Greenfield Academy (Demo) · School Administrator (Demo)</span>
+      <strong>Concept demo: no production records are created.</strong>
+      <span>Greenfield Academy (Demo), School Administrator (Demo)</span>
     </div>
 
     <div className="prerequisite-demo-layout">

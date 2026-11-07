@@ -124,7 +124,7 @@ export function DraftRecoveryDemoPage() {
     </div>
 
     <div className="prerequisite-demo-banner" role="note">
-      <strong>Concept demo — fictional Greenfield Academy data only.</strong>
+      <strong>Concept demo: fictional Greenfield Academy data only.</strong>
       <span>No Supabase calls or production records. Demo drafts live only in this page's memory.</span>
     </div>
 

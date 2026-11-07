@@ -469,7 +469,7 @@ export function SetupHealthPage() {
                 <details className="setup-health-category-details content-card" key={category.key}>
                   <summary>
                     <span>{category.label}</span>
-                    <small>{checks.filter((check) => check.status === 'passed').length} passed · {checks.filter((check) => check.status === 'failed').length} failed · {checks.filter((check) => check.status === 'warning' || check.status === 'needs_review').length} warnings</small>
+                    <small>{checks.filter((check) => check.status === 'passed').length} passed, {checks.filter((check) => check.status === 'failed').length} failed, {checks.filter((check) => check.status === 'warning' || check.status === 'needs_review').length} warnings</small>
                   </summary>
                   <div className="setup-health-check-list">
                     {checks.map((check) => (

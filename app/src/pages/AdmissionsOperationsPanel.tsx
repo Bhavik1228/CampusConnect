@@ -244,7 +244,7 @@ export function AdmissionsOperationsPanel({ schoolId, section, canConfigure }: P
 
   if (loading) return <LoadingState label="Loading admissions workspace…" />;
 
-  return <section className="content-card admissions-operations-panel">
+  return <section className="admissions-operations-panel">
     {error && <ErrorState message={error} />}
     {success && <SuccessMessage message={success} />}
     {section === 'configuration' && <div className="admissions-config-grid">
@@ -317,7 +317,7 @@ export function AdmissionsOperationsPanel({ schoolId, section, canConfigure }: P
       </form>
       <div className="admissions-config-card">
         <div className="section-heading"><div><span className="eyebrow">Published slots</span><h2>Appointments and open days</h2></div></div>
-        {slots.length ? <div className="admissions-operations-list">{slots.map((slot) => <article key={slot.id}><div><strong>{slot.title} · {slot.slot_type.replace(/_/g, ' ')}</strong><small>{new Date(slot.starts_at).toLocaleString()}–{new Date(slot.ends_at).toLocaleTimeString()} · Capacity {slot.capacity} · {slot.location || 'Location to be confirmed'}</small><small>{slot.active ? 'Visible for booking' : 'Not visible'}</small></div><button className="button button-quiet" type="button" onClick={() => void toggleSlot(slot)} disabled={saving}>{slot.active ? 'Unpublish' : 'Publish'}</button></article>)}</div> : <EmptyState title="No slots scheduled" detail="Create appointment slots or an open-day event for families to book." />}
+        {slots.length ? <div className="admissions-operations-list">{slots.map((slot) => <article key={slot.id}><div><strong>{slot.title}, {slot.slot_type.replace(/_/g, ' ')}</strong><small>{new Date(slot.starts_at).toLocaleString()} to {new Date(slot.ends_at).toLocaleTimeString()}, capacity {slot.capacity}, {slot.location || 'Location to be confirmed'}</small><small>{slot.active ? 'Visible for booking' : 'Not visible'}</small></div><button className="button button-quiet" type="button" onClick={() => void toggleSlot(slot)} disabled={saving}>{slot.active ? 'Unpublish' : 'Publish'}</button></article>)}</div> : <EmptyState title="No slots scheduled" detail="Create appointment slots or an open-day event for families to book." />}
       </div>
       <section className="admissions-config-card">
         <div className="section-heading"><div><span className="eyebrow">Bookings</span><h2>Family reservations</h2></div></div>

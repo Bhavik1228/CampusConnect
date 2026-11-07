@@ -318,7 +318,7 @@ export function SupportPage() {
         {assistant.escalated
           ? <p>The request is saved in the platform owner's persistent inbox.</p>
           : assistant.safeFixAvailable && assistant.retryPath && assistant.retryPath !== '/support' && !assistant.retryPath.startsWith('/system-owner')
-            ? <button className="button button-quiet support-retry-button" type="button" onClick={retryOriginalFeature} disabled={diagnosing}>Retry the feature — automatically report it if it fails again</button>
+            ? <button className="button button-quiet support-retry-button" type="button" onClick={retryOriginalFeature} disabled={diagnosing}>Retry the feature and automatically report a failure</button>
             : <p>If these steps do not resolve it, use the support request form below. Your error code and original details will be attached.</p>}
       </div>}
     </section>

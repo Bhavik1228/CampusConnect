@@ -388,7 +388,7 @@ export function TeacherDashboardPage() {
                 const dayLessons = weeklyLessons.filter((lesson) => lesson.day_of_week === index + 1);
                 if (!dayLessons.length) return null;
                 return <section key={day}><h3>{day}</h3>{dayLessons.map((lesson) => <div className="teacher-week-lesson" key={lesson.id}>
-                  <span>{formatTime(lesson.starts_at)}–{formatTime(lesson.ends_at)}</span>
+                  <span>{formatTime(lesson.starts_at)} to {formatTime(lesson.ends_at)}</span>
                   <strong>{relationName(lesson.subject, 'Lesson')}</strong>
                   <small>{relationName(lesson.class, 'Class')}{lesson.room ? ` · ${lesson.room}` : ''}</small>
                 </div>)}</section>;

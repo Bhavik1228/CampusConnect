@@ -580,11 +580,11 @@ export function PastPaperPipelinePage() {
             {state.questions.length ? <div className="question-library-list">{state.questions.map((question) => (
               <article className="library-question" key={question.id}>
                 <div className="library-question-main">
-                  <div className="library-question-meta"><span>{question.topic ?? 'Topic needs review'}{question.subtopic ? ` · ${question.subtopic}` : ''}</span><span>{question.marks ?? 'Marks n/a'}</span><span>{question.validation_status} · {question.content_use_status}</span><span>{question.question_number ?? 'Question number n/a'} · pages {question.page_start ?? '?'}–{question.page_end ?? '?'}</span></div>
+                  <div className="library-question-meta"><span>{question.topic ?? 'Topic needs review'}{question.subtopic ? `, ${question.subtopic}` : ''}</span><span>{question.marks ?? 'Marks n/a'}</span><span>{question.validation_status}, {question.content_use_status}</span><span>{question.question_number ?? 'Question number n/a'}, pages {question.page_start ?? '?'} to {question.page_end ?? '?'}</span></div>
                   <p>{question.question_text}</p>
-                  <small>{question.curriculum ?? 'Curriculum missing'} · {question.subject_name ?? 'Subject missing'} · {question.syllabus_code} · {question.examination_year ?? 'Year n/a'} · {question.examination_session ?? 'Session n/a'} · Paper {question.paper_number ?? 'n/a'} · Variant {question.variant ?? 'n/a'}</small>
-                  {question.validation_reasons.length > 0 && <small>Validation: {question.validation_reasons.join(' · ')}</small>}
-                  {question.document_id && <small>Extraction: {question.extraction_status} · Classification: {question.classification_status}</small>}
+                  <small>Curriculum: {question.curriculum ?? 'Missing'}, subject: {question.subject_name ?? 'Missing'}, syllabus: {question.syllabus_code}, year: {question.examination_year ?? 'n/a'}, session: {question.examination_session ?? 'n/a'}, paper: {question.paper_number ?? 'n/a'}, variant: {question.variant ?? 'n/a'}</small>
+                  {question.validation_reasons.length > 0 && <small>Validation: {question.validation_reasons.join('; ')}</small>}
+                  {question.document_id && <small>Extraction: {question.extraction_status}, classification: {question.classification_status}</small>}
                   {question.mark_scheme && <small>Mark scheme: {question.mark_scheme}</small>}
                   {question.reviewer_note && <small>Review note: {question.reviewer_note}</small>}
                 </div>
