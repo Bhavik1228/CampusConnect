@@ -27,6 +27,24 @@ interface FeeStructure {
   is_active: boolean;
 }
 
+interface FeeDiscountRule {
+  id: string;
+  fee_structure_id: string | null;
+  name: string;
+  discount_type: 'percentage' | 'fixed';
+  discount_value: number;
+  currency_code: string;
+  minimum_active_siblings: number;
+  is_active: boolean;
+}
+
+interface FeeDiscountPreview {
+  rule_id: string | null;
+  rule_name: string | null;
+  discount_amount: number;
+  active_sibling_count: number;
+}
+
 interface FeeStudent {
   id: string;
   student_number: string;
@@ -121,6 +139,7 @@ export function FinancePage() {
   });
   const [invoiceSearch, setInvoiceSearch] = useState(() => new URLSearchParams(window.location.search).get('search') ?? '');
   const [structures, setStructures] = useState<FeeStructure[]>([]);
+  const [discountRules, setDiscountRules] = useState<FeeDiscountRule[]>([]);
   const [students, setStudents] = useState<FeeStudent[]>([]);
   const [invoices, setInvoices] = useState<FeeInvoice[]>([]);
   const [adjustments, setAdjustments] = useState<FeeAdjustment[]>([]);
@@ -133,6 +152,11 @@ export function FinancePage() {
   const [saving, setSaving] = useState(false);
   const [refreshKey, setRefreshKey] = useState(0);
   const [selectedStructureId, setSelectedStructureId] = useState('');
+  const [invoiceStudentId, setInvoiceStudentId] = useState('');
+  const [invoiceCustomAmount, setInvoiceCustomAmount] = useState('');
+  const [invoiceCurrencyCode, setInvoiceCurrencyCode] = useState('USD');
+  const [discountPreview, setDiscountPreview] = useState<FeeDiscountPreview | null>(null);
+  const [discountPreviewError, setDiscountPreviewError] = useState('');
   const [selectedPaymentStudent, setSelectedPaymentStudent] = useState('');
   const [paymentAllocations, setPaymentAllocations] = useState<Record<string, string>>({});
   const [paymentCurrency, setPaymentCurrency] = useState('USD');
@@ -151,8 +175,9 @@ export function FinancePage() {
     setError('');
     try {
       const client = requireSupabase();
-      const [structureResult, studentResult, invoiceResult, adjustmentResult, paymentResult, allocationResult, brandingResult] = await Promise.all([
+      const [structureResult, discountRuleResult, studentResult, invoiceResult, adjustmentResult, paymentResult, allocationResult, brandingResult] = await Promise.all([
         fetchAllRows((from, to) => client.from('fee_structures').select('id,name,description,amount,currency_code,due_date,is_active').eq('school_id', schoolId).order('name').range(from, to)),
+        fetchAllRows((from, to) => client.from('fee_discount_rules').select('id,fee_structure_id,name,discount_type,discount_value,currency_code,minimum_active_siblings,is_active').eq('school_id', schoolId).order('name').range(from, to)),
         fetchAllRows((from, to) => client.from('finance_student_directory').select('id,student_number,first_name,last_name').eq('school_id', schoolId).order('last_name').range(from, to)),
         fetchAllRows((from, to) => client.from('student_fee_invoices').select('id,student_id,fee_structure_id,invoice_number,description,amount,discount_amount,discount_reason,currency_code,issued_on,due_on,status').eq('school_id', schoolId).order('issued_on', { ascending: false }).range(from, to)),
         fetchAllRows((from, to) => client.from('student_fee_adjustments').select('id,invoice_id,adjustment_type,amount,reason,created_at').eq('school_id', schoolId).order('created_at').range(from, to)),
@@ -163,6 +188,7 @@ export function FinancePage() {
       if (brandingResult.error) throw brandingResult.error;
       setDocumentBranding(brandingResult.data);
       setStructures(structureResult as FeeStructure[]);
+      setDiscountRules(discountRuleResult as FeeDiscountRule[]);
       setStudents(studentResult as FeeStudent[]);
       setInvoices(invoiceResult as FeeInvoice[]);
       setAdjustments(adjustmentResult as FeeAdjustment[]);
@@ -224,10 +250,48 @@ export function FinancePage() {
     });
   }, [invoices, invoiceSearch, studentsById]);
   const selectedStructure = structures.find((structure) => structure.id === selectedStructureId);
+  const invoiceAmount = selectedStructure?.amount ?? Number(invoiceCustomAmount);
+  const invoiceCurrency = selectedStructure?.currency_code ?? invoiceCurrencyCode.trim().toUpperCase();
   const selectedStudentInvoices = openInvoices.filter((invoice) => invoice.student_id === selectedPaymentStudent);
   const selectedStatementStudent = statementStudent || students[0]?.id || '';
   const statementInvoices = invoices.filter((invoice) => invoice.student_id === selectedStatementStudent && invoice.status === 'issued');
   const statementPayments = payments.filter((payment) => payment.student_id === selectedStatementStudent);
+
+  useEffect(() => {
+    if (!schoolId || !canManage || tab !== 'invoices' || !invoiceStudentId || !Number.isFinite(invoiceAmount) || invoiceAmount <= 0) {
+      setDiscountPreview(null);
+      setDiscountPreviewError('');
+      return;
+    }
+
+    let cancelled = false;
+    const timer = window.setTimeout(async () => {
+      setDiscountPreview(null);
+      setDiscountPreviewError('');
+      try {
+        const { data, error: previewError } = await requireSupabase().rpc('get_student_fee_discount', {
+          target_school: schoolId,
+          target_student: invoiceStudentId,
+          target_fee_structure: selectedStructure?.id ?? null,
+          invoice_amount: invoiceAmount,
+          invoice_currency_code: invoiceCurrency,
+        });
+        if (previewError) throw previewError;
+        const result = (Array.isArray(data) ? data[0] : data) as FeeDiscountPreview | null;
+        if (!result) throw new Error('The student discount preview returned no result.');
+        if (!cancelled) setDiscountPreview(result);
+      } catch (previewError) {
+        if (!cancelled) {
+          setDiscountPreviewError(previewError instanceof Error ? previewError.message : 'Could not calculate the automatic fee discount.');
+        }
+      }
+    }, 200);
+
+    return () => {
+      cancelled = true;
+      window.clearTimeout(timer);
+    };
+  }, [canManage, invoiceAmount, invoiceCurrency, invoiceStudentId, schoolId, selectedStructure?.id, tab]);
 
   async function runPdfExport(createPdf: (pdf: typeof import('../lib/finance-pdf')) => Promise<Blob | void>) {
     setFormError('');
@@ -599,18 +663,76 @@ export function FinancePage() {
     }
   }
 
+  async function addDiscountRule(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    if (!schoolId || !user) return;
+    const formElement = event.currentTarget;
+    const form = new FormData(formElement);
+    const discountType = String(form.get('discount_type'));
+    const discountValue = Number(form.get('discount_value'));
+    const currencyCode = String(form.get('currency_code')).trim().toUpperCase();
+    const minimumSiblings = Number(form.get('minimum_active_siblings'));
+    if (!Number.isFinite(discountValue) || discountValue <= 0 || (discountType === 'percentage' && discountValue > 100)) {
+      setFormError('Enter a percentage from 0.01 to 100, or a fixed discount greater than zero.');
+      return;
+    }
+    if (!/^[A-Z]{3}$/.test(currencyCode) || !Number.isInteger(minimumSiblings) || minimumSiblings < 0 || minimumSiblings > 50) {
+      setFormError('Enter a valid currency code and a sibling threshold from 0 to 50.');
+      return;
+    }
+    setSaving(true);
+    setFormError('');
+    setSuccess('');
+    try {
+      const { error: insertError } = await requireSupabase().from('fee_discount_rules').insert({
+        school_id: schoolId,
+        fee_structure_id: String(form.get('fee_structure_id') || '') || null,
+        name: String(form.get('name')).trim(),
+        discount_type: discountType,
+        discount_value: discountValue,
+        currency_code: currencyCode,
+        minimum_active_siblings: minimumSiblings,
+        created_by: user.id,
+      });
+      if (insertError) throw insertError;
+      formElement.reset();
+      showSuccess('Fee discount rule created.');
+    } catch (saveError) {
+      setFormError(saveError instanceof Error ? saveError.message : 'The fee discount rule could not be saved.');
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  async function toggleDiscountRule(rule: FeeDiscountRule) {
+    if (!schoolId) return;
+    setSaving(true);
+    setFormError('');
+    setSuccess('');
+    try {
+      const { error: updateError } = await requireSupabase().from('fee_discount_rules')
+        .update({ is_active: !rule.is_active }).eq('school_id', schoolId).eq('id', rule.id);
+      if (updateError) throw updateError;
+      showSuccess(`Discount rule ${rule.is_active ? 'deactivated' : 'activated'}.`);
+    } catch (updateError) {
+      setFormError(updateError instanceof Error ? updateError.message : 'The discount rule could not be updated.');
+    } finally {
+      setSaving(false);
+    }
+  }
+
   async function createInvoice(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
     if (!schoolId || !user) return;
     const formElement = event.currentTarget;
     const form = new FormData(formElement);
     const amount = selectedStructure ? selectedStructure.amount : Number(form.get('amount'));
-    const discount = Number(form.get('discount_amount') || 0);
-    if (discount > amount) {
-      setFormError('A discount cannot be greater than the invoice amount.');
+    const manualDiscount = Number(form.get('discount_amount') || 0);
+    if (!Number.isFinite(amount) || amount <= 0 || !Number.isFinite(manualDiscount) || manualDiscount < 0) {
+      setFormError('Enter a valid invoice amount and non-negative manual discount.');
       return;
     }
-    if (discount > 0 && !String(form.get('discount_reason')).trim()) {
+    if (manualDiscount > 0 && !String(form.get('discount_reason')).trim()) {
       setFormError('Enter a reason for the discount or scholarship.');
       return;
     }
@@ -618,24 +740,27 @@ export function FinancePage() {
     setFormError('');
     setSuccess('');
     try {
-      const invoiceNumber = `INV-${new Date().toISOString().slice(0, 10).replace(/-/g, '')}-${crypto.randomUUID().slice(0, 8).toUpperCase()}`;
-      const { error: insertError } = await requireSupabase().from('student_fee_invoices').insert({
-        school_id: schoolId,
-        student_id: String(form.get('student_id')),
-        fee_structure_id: selectedStructure?.id || null,
-        invoice_number: invoiceNumber,
-        description: selectedStructure?.name || String(form.get('description')).trim(),
-        amount,
-        discount_amount: discount,
-        discount_reason: discount > 0 ? String(form.get('discount_reason')).trim() : null,
-        currency_code: selectedStructure?.currency_code || String(form.get('currency_code')).trim().toUpperCase(),
-        issued_on: String(form.get('issued_on')),
-        due_on: selectedStructure?.due_date || String(form.get('due_on')),
-        created_by: user.id,
+      const currencyCode = selectedStructure?.currency_code || String(form.get('currency_code')).trim().toUpperCase();
+      const { data, error: createError } = await requireSupabase().rpc('create_student_fee_invoice', {
+        target_school: schoolId,
+        target_student: String(form.get('student_id')),
+        target_fee_structure: selectedStructure?.id ?? null,
+        invoice_description: String(form.get('description') ?? '').trim(),
+        custom_amount: amount,
+        custom_currency_code: currencyCode,
+        manual_discount: manualDiscount,
+        manual_discount_reason: String(form.get('discount_reason') ?? '').trim(),
+        invoice_issued_on: String(form.get('issued_on')),
+        custom_due_on: selectedStructure?.due_date || String(form.get('due_on')),
       });
-      if (insertError) throw insertError;
+      if (createError) throw createError;
+      const invoiceNumber = String(data ?? '');
+      if (!invoiceNumber) throw new Error('Invoice creation completed without an invoice number.');
       formElement.reset();
       setSelectedStructureId('');
+      setInvoiceStudentId('');
+      setInvoiceCustomAmount('');
+      setInvoiceCurrencyCode('USD');
       showSuccess(`Invoice ${invoiceNumber} issued.`);
     } catch (saveError) {
       setFormError(saveError instanceof Error ? saveError.message : 'The invoice could not be created.');
@@ -765,20 +890,46 @@ export function FinancePage() {
           </form>}
           <div className="accounting-table-wrap"><table className="accounting-table"><thead><tr><th>Fee</th><th>Amount</th><th>Default due</th><th>Status</th>{canManage && <th>Manage</th>}</tr></thead><tbody>{structures.map((structure) => <tr key={structure.id}><td><strong>{structure.name}</strong>{structure.description && <small>{structure.description}</small>}</td><td>{money(structure.amount, structure.currency_code)}</td><td>{structure.due_date || '—'}</td><td><span className="accounting-status">{structure.is_active ? 'Active' : 'Inactive'}</span></td>{canManage && <td><button type="button" className="button button-quiet accounting-structure-action" disabled={saving} onClick={async () => { if (!schoolId) return; setSaving(true); setFormError(''); try { const { error: updateError } = await requireSupabase().from('fee_structures').update({ is_active: !structure.is_active }).eq('school_id', schoolId).eq('id', structure.id); if (updateError) throw updateError; showSuccess(`Fee structure ${structure.is_active ? 'deactivated' : 'activated'}.`); } catch (updateError) { setFormError(updateError instanceof Error ? updateError.message : 'The fee structure could not be updated.'); } finally { setSaving(false); } }}>{structure.is_active ? 'Deactivate' : 'Activate'}</button></td>}</tr>)}</tbody></table></div>
           {structures.length === 0 && <EmptyState title="No fee structures yet" detail="Add a fee structure before issuing invoices." />}
+          {canManage && <>
+            <div className="section-heading"><div><span className="eyebrow">Discount policy</span><h2>Discount &amp; sibling rules</h2></div></div>
+            <p className="accounting-help">Rules are applied automatically at invoice time. Sibling eligibility uses active students linked to the same parent/guardian record; a threshold of zero makes a rule generally available.</p>
+            <form className="accounting-form accounting-inline-form" onSubmit={(event) => void addDiscountRule(event)}>
+              <label className="field"><span>Rule name</span><input name="name" required minLength={2} maxLength={120} disabled={saving} /></label>
+              <label className="field"><span>Fee structure</span><select name="fee_structure_id" defaultValue="" disabled={saving}><option value="">All fee structures</option>{structures.map((structure) => <option key={structure.id} value={structure.id}>{structure.name}</option>)}</select></label>
+              <label className="field"><span>Discount type</span><select name="discount_type" defaultValue="percentage" disabled={saving}><option value="percentage">Percentage</option><option value="fixed">Fixed amount</option></select></label>
+              <label className="field"><span>Discount value</span><input name="discount_value" type="number" min="0.01" step="0.01" required disabled={saving} /></label>
+              <label className="field"><span>Currency for fixed amount</span><input name="currency_code" defaultValue="USD" minLength={3} maxLength={3} pattern="[A-Za-z]{3}" required disabled={saving} /></label>
+              <label className="field"><span>Minimum active siblings</span><input name="minimum_active_siblings" type="number" min="0" max="50" step="1" defaultValue="1" required disabled={saving} /></label>
+              <button className="button button-primary" type="submit" disabled={saving}>Add discount rule</button>
+            </form>
+            {discountRules.length ? <div className="accounting-table-wrap"><table className="accounting-table"><thead><tr><th>Rule</th><th>Scope</th><th>Discount</th><th>Eligibility</th><th>Status</th><th>Manage</th></tr></thead><tbody>{discountRules.map((rule) => {
+              const structure = structures.find((item) => item.id === rule.fee_structure_id);
+              const ruleValue = rule.discount_type === 'percentage' ? `${Number(rule.discount_value)}%` : money(Number(rule.discount_value), rule.currency_code);
+              return <tr key={rule.id}><td><strong>{rule.name}</strong></td><td>{structure?.name ?? 'All fee structures'}</td><td>{ruleValue}</td><td>{rule.minimum_active_siblings === 0 ? 'General' : `${rule.minimum_active_siblings}+ active sibling(s)`}</td><td><span className="accounting-status">{rule.is_active ? 'Active' : 'Inactive'}</span></td><td><button type="button" className="button button-quiet accounting-structure-action" disabled={saving} onClick={() => void toggleDiscountRule(rule)}>{rule.is_active ? 'Deactivate' : 'Activate'}</button></td></tr>;
+            })}</tbody></table></div> : <EmptyState title="No discount rules yet" detail="Add a general discount, scholarship, or sibling rule to apply discounts automatically when issuing invoices." />}
+          </>}
         </section>}
         {tab === 'invoices' && <section className="content-card accounting-content-card">
           <div className="section-heading"><div><span className="eyebrow">Student billing</span><h2>Issue an invoice</h2></div><div className="accounting-document-actions"><button type="button" className="button button-quiet accounting-download-button" onClick={downloadAllInvoices}><Download size={15} />Download all invoices PDF</button><FileText size={19} className="muted-icon" /></div></div>
           {canManage && <form className="accounting-form accounting-invoice-form" onSubmit={(event) => void createInvoice(event)}>
-            <label className="field"><span>Student</span><select id="finance-invoice-student" name="student_id" required defaultValue="" disabled={saving}><option value="" disabled>Select a student</option>{students.map((student) => <option key={student.id} value={student.id}>{student.first_name} {student.last_name} · {student.student_number}</option>)}</select></label>
-            <label className="field"><span>Use a fee structure (optional)</span><select value={selectedStructureId} disabled={saving} onChange={(event) => setSelectedStructureId(event.target.value)}><option value="">Custom invoice</option>{structures.filter((structure) => structure.is_active).map((structure) => <option key={structure.id} value={structure.id}>{structure.name} · {money(structure.amount, structure.currency_code)}</option>)}</select></label>
+            <label className="field"><span>Student</span><select id="finance-invoice-student" name="student_id" required value={invoiceStudentId} onChange={(event) => setInvoiceStudentId(event.target.value)} disabled={saving}><option value="" disabled>Select a student</option>{students.map((student) => <option key={student.id} value={student.id}>{student.first_name} {student.last_name} · {student.student_number}</option>)}</select></label>
+            <label className="field"><span>Use a fee structure (optional)</span><select value={selectedStructureId} disabled={saving} onChange={(event) => { const nextId = event.target.value; setSelectedStructureId(nextId); setInvoiceCustomAmount(''); setInvoiceCurrencyCode(structures.find((structure) => structure.id === nextId)?.currency_code ?? 'USD'); }}><option value="">Custom invoice</option>{structures.filter((structure) => structure.is_active).map((structure) => <option key={structure.id} value={structure.id}>{structure.name} · {money(structure.amount, structure.currency_code)}</option>)}</select></label>
             {!selectedStructure && <label className="field"><span>Description</span><input name="description" required minLength={2} maxLength={240} disabled={saving} /></label>}
-            <label className="field"><span>Amount</span><input name="amount" type="number" min="0.01" step="0.01" required value={selectedStructure ? selectedStructure.amount : undefined} readOnly={Boolean(selectedStructure)} disabled={saving} /></label>
-            {!selectedStructure && <label className="field"><span>Currency (ISO code)</span><input name="currency_code" defaultValue="USD" minLength={3} maxLength={3} pattern="[A-Za-z]{3}" required disabled={saving} /></label>}
+            <label className="field"><span>Amount</span><input name="amount" type="number" min="0.01" step="0.01" required value={selectedStructure ? selectedStructure.amount : invoiceCustomAmount} onChange={(event) => setInvoiceCustomAmount(event.target.value)} readOnly={Boolean(selectedStructure)} disabled={saving} /></label>
+            {!selectedStructure && <label className="field"><span>Currency (ISO code)</span><input name="currency_code" value={invoiceCurrencyCode} onChange={(event) => setInvoiceCurrencyCode(event.target.value)} minLength={3} maxLength={3} pattern="[A-Za-z]{3}" required disabled={saving} /></label>}
             <label className="field"><span>Issued on</span><input name="issued_on" type="date" required defaultValue={new Date().toISOString().slice(0, 10)} disabled={saving} /></label>
             {!selectedStructure?.due_date && <label className="field"><span>Due date</span><input name="due_on" type="date" required defaultValue={selectedStructure?.due_date ?? ''} disabled={saving} />{selectedStructure && <small>No default due date is set for this fee.</small>}</label>}
-            <label className="field"><span>Discount / scholarship</span><input name="discount_amount" type="number" min="0" step="0.01" defaultValue="0" disabled={saving} /></label>
-            <label className="field"><span>Discount reason</span><input name="discount_reason" maxLength={240} placeholder="Required when discount is greater than zero" disabled={saving} /></label>
-            <button className="button button-primary accounting-field-wide" type="submit" disabled={saving || students.length === 0}>{saving ? 'Issuing…' : 'Issue student invoice'}</button>
+            <div className="field accounting-field-wide">
+              <span>Automatic discount preview</span>
+              {discountPreviewError ? <small>{discountPreviewError}</small>
+                : discountPreview ? <small>{discountPreview.rule_id
+                  ? `${discountPreview.rule_name}: ${money(Number(discountPreview.discount_amount), invoiceCurrency)} · based on ${discountPreview.active_sibling_count} active sibling(s)`
+                  : `No automatic rule applies (${discountPreview.active_sibling_count} active sibling(s) linked to this family).`}</small>
+                  : invoiceStudentId && invoiceAmount > 0 ? <small>Checking eligible discount rules…</small> : <small>Select a student and enter an amount to check automatic discounts.</small>}
+            </div>
+            <label className="field"><span>Additional manual discount / scholarship</span><input name="discount_amount" type="number" min="0" step="0.01" defaultValue="0" disabled={saving} /></label>
+            <label className="field"><span>Manual discount reason</span><input name="discount_reason" maxLength={200} placeholder="Required when a manual discount is entered" disabled={saving} /></label>
+            <button className="button button-primary accounting-field-wide" type="submit" disabled={saving || students.length === 0 || Boolean(discountPreviewError)}>{saving ? 'Issuing…' : 'Issue student invoice'}</button>
           </form>}
           <label className="table-search command-invoice-search"><FileText size={16} /><input value={invoiceSearch} onChange={(event) => setInvoiceSearch(event.target.value)} placeholder="Search invoice number, student or account reference" aria-label="Search invoices" /></label>
           <div className="accounting-table-wrap"><table className="accounting-table"><thead><tr><th>Invoice</th><th>Student</th><th>Due</th><th>Original</th><th>Discount</th><th>Outstanding</th><th>Adjustment</th><th>PDF</th></tr></thead><tbody>{filteredInvoices.map((invoice) => {

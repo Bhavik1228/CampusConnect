@@ -44,6 +44,15 @@ function expiryLabel(value: string | null) {
   return `Expires in ${days} day(s)`;
 }
 
+function operationErrorMessage(error: unknown, fallback: string) {
+  if (error instanceof Error) return error.message;
+  if (typeof error !== 'object' || error === null || !('message' in error) || typeof error.message !== 'string') {
+    return fallback;
+  }
+  const code = 'code' in error && typeof error.code === 'string' ? ` [${error.code}]` : '';
+  return `${error.message}${code}`;
+}
+
 export function StaffOperationsPanel({ schoolId, section, canManage }: Props) {
   const [staff, setStaff] = useState<StaffRecord[]>([]);
   const [attendance, setAttendance] = useState<AttendanceRecord[]>([]);
@@ -141,7 +150,7 @@ export function StaffOperationsPanel({ schoolId, section, canManage }: Props) {
         setPayrollProfiles(Object.fromEntries(((data ?? []) as PayrollProfile[]).map((profile) => [profile.staff_id, profile])));
       }
     } catch (loadError) {
-      setError(loadError instanceof Error ? loadError.message : 'Could not load staff operations.');
+      setError(operationErrorMessage(loadError, 'Could not load staff operations.'));
     } finally {
       setLoading(false);
     }
@@ -180,7 +189,7 @@ export function StaffOperationsPanel({ schoolId, section, canManage }: Props) {
       setSuccess(`Attendance saved for ${staff.find((person) => person.id === staffId)?.first_name ?? 'staff member'}.`);
       await load();
     } catch (saveError) {
-      setError(saveError instanceof Error ? saveError.message : 'Could not save staff attendance.');
+      setError(operationErrorMessage(saveError, 'Could not save staff attendance.'));
     } finally {
       setSaving(false);
     }
@@ -207,7 +216,7 @@ export function StaffOperationsPanel({ schoolId, section, canManage }: Props) {
       setSuccess('Staff leave request recorded.');
       await load();
     } catch (leaveError) {
-      setError(leaveError instanceof Error ? leaveError.message : 'Could not record staff leave.');
+      setError(operationErrorMessage(leaveError, 'Could not record staff leave.'));
     } finally {
       setSaving(false);
     }
@@ -227,7 +236,7 @@ export function StaffOperationsPanel({ schoolId, section, canManage }: Props) {
       setSuccess(`Leave ${status}.`);
       await load();
     } catch (reviewError) {
-      setError(reviewError instanceof Error ? reviewError.message : 'Could not update the leave request.');
+      setError(operationErrorMessage(reviewError, 'Could not update the leave request.'));
     } finally {
       setSaving(false);
     }
@@ -249,7 +258,7 @@ export function StaffOperationsPanel({ schoolId, section, canManage }: Props) {
       setSuccess('Substitute coverage planned.');
       await load();
     } catch (assignError) {
-      setError(assignError instanceof Error ? assignError.message : 'Could not assign substitute coverage.');
+      setError(operationErrorMessage(assignError, 'Could not assign substitute coverage.'));
     } finally {
       setSaving(false);
     }
@@ -301,7 +310,7 @@ export function StaffOperationsPanel({ schoolId, section, canManage }: Props) {
       setSuccess('Offboarding checklist created.');
       await load();
     } catch (saveError) {
-      setError(saveError instanceof Error ? saveError.message : 'Could not create the offboarding plan.');
+      setError(operationErrorMessage(saveError, 'Could not create the offboarding plan.'));
     } finally {
       setSaving(false);
     }
@@ -325,7 +334,7 @@ export function StaffOperationsPanel({ schoolId, section, canManage }: Props) {
       setSuccess(`Offboarding status updated to ${nextStatus.replace(/_/g, ' ')}.`);
       await load();
     } catch (updateError) {
-      setError(updateError instanceof Error ? updateError.message : 'Could not update offboarding status.');
+      setError(operationErrorMessage(updateError, 'Could not update offboarding status.'));
     } finally {
       setSaving(false);
     }
@@ -356,7 +365,7 @@ export function StaffOperationsPanel({ schoolId, section, canManage }: Props) {
       setSuccess('Qualification or certification added.');
       await load();
     } catch (saveError) {
-      setError(saveError instanceof Error ? saveError.message : 'Could not save the qualification.');
+      setError(operationErrorMessage(saveError, 'Could not save the qualification.'));
     } finally {
       setSaving(false);
     }
@@ -385,7 +394,7 @@ export function StaffOperationsPanel({ schoolId, section, canManage }: Props) {
       setSuccess(`Payroll mapping saved for ${person.first_name} ${person.last_name}.`);
       await load();
     } catch (payrollError) {
-      setError(payrollError instanceof Error ? payrollError.message : 'Could not save payroll mapping.');
+      setError(operationErrorMessage(payrollError, 'Could not save payroll mapping.'));
     } finally {
       setSaving(false);
     }
@@ -415,7 +424,7 @@ export function StaffOperationsPanel({ schoolId, section, canManage }: Props) {
       URL.revokeObjectURL(url);
       setSuccess(`Payroll-ready CSV exported for ${rows.length} employees. Map payroll identifiers before sending to your payroll provider.`);
     } catch (exportError) {
-      setError(exportError instanceof Error ? exportError.message : 'Could not export payroll data.');
+      setError(operationErrorMessage(exportError, 'Could not export payroll data.'));
     } finally {
       setSaving(false);
     }
