@@ -9,8 +9,18 @@ type LeaveRequest = { id: string; staff_id: string; leave_type: string; start_da
 type Credential = { id: string; staff_id: string; qualification_name: string; issuer: string; credential_number: string; issued_on: string | null; expires_on: string | null; status: 'active' | 'expired' | 'revoked'; notes: string };
 type StaffDocument = { id: string; staff_id: string; file_name: string; expires_on: string | null; document_type: string };
 type PayrollProfile = { staff_id: string; payroll_identifier: string; pay_frequency: 'weekly' | 'biweekly' | 'monthly' | 'four_weekly'; contracted_weekly_hours: number };
-type Props = { schoolId: string; section: 'credentials' | 'attendance' | 'leave' | 'payroll'; canManage: boolean };
+type Props = { schoolId: string; section: 'credentials' | 'attendance' | 'leave' | 'offboarding' | 'payroll'; canManage: boolean };
 type AttendanceEdit = { status: AttendanceRecord['status']; check_in: string; check_out: string; note: string };
+type OffboardingPlan = {
+  id: string;
+  staff_id: string;
+  exit_date: string;
+  reason: string;
+  status: 'planned' | 'in_progress' | 'completed' | 'cancelled';
+  handover_notes: string;
+  access_removed_at: string | null;
+  staff?: { first_name: string; last_name: string; employee_number: string } | { first_name: string; last_name: string; employee_number: string }[] | null;
+};
 
 function localDateValue(date: Date) {
   const local = new Date(date.getTime() - date.getTimezoneOffset() * 60000);
@@ -39,6 +49,7 @@ export function StaffOperationsPanel({ schoolId, section, canManage }: Props) {
   const [attendance, setAttendance] = useState<AttendanceRecord[]>([]);
   const [attendanceEdits, setAttendanceEdits] = useState<Record<string, AttendanceEdit>>({});
   const [leaveRequests, setLeaveRequests] = useState<LeaveRequest[]>([]);
+  const [offboardingPlans, setOffboardingPlans] = useState<OffboardingPlan[]>([]);
   const [credentials, setCredentials] = useState<Credential[]>([]);
   const [documents, setDocuments] = useState<StaffDocument[]>([]);
   const [teachers, setTeachers] = useState<StaffRecord[]>([]);
@@ -55,6 +66,10 @@ export function StaffOperationsPanel({ schoolId, section, canManage }: Props) {
   const [leaveReason, setLeaveReason] = useState('');
   const [leaveFilter, setLeaveFilter] = useState<'all' | 'pending' | 'approved' | 'needs_coverage' | 'rejected'>('all');
   const [substituteByLeave, setSubstituteByLeave] = useState<Record<string, string>>({});
+  const [offboardingStaff, setOffboardingStaff] = useState('');
+  const [offboardingDate, setOffboardingDate] = useState(localDateValue(new Date(new Date().getFullYear(), new Date().getMonth() + 1, 1)));
+  const [offboardingReason, setOffboardingReason] = useState('');
+  const [offboardingNotes, setOffboardingNotes] = useState('');
   const [credentialStaff, setCredentialStaff] = useState('');
   const [credentialDocument, setCredentialDocument] = useState('');
   const [payrollStart, setPayrollStart] = useState(localDateValue(new Date(new Date().getFullYear(), new Date().getMonth(), 1)));
@@ -102,6 +117,14 @@ export function StaffOperationsPanel({ schoolId, section, canManage }: Props) {
         if (teacherResult.error) throw teacherResult.error;
         setLeaveRequests((requestResult.data ?? []) as unknown as LeaveRequest[]);
         setTeachers((teacherResult.data ?? []).map((teacher) => relation(teacher.staff)).filter((person): person is StaffRecord => Boolean(person)));
+      } else if (section === 'offboarding') {
+        const { data, error: offboardingError } = await client.from('staff_offboarding_plans')
+          .select('id,staff_id,exit_date,reason,status,handover_notes,access_removed_at,staff:staff_profiles(first_name,last_name,employee_number)')
+          .eq('school_id', schoolId)
+          .order('exit_date', { ascending: false })
+          .limit(200);
+        if (offboardingError) throw offboardingError;
+        setOffboardingPlans((data ?? []) as unknown as OffboardingPlan[]);
       } else if (section === 'credentials') {
         const [credentialResult, documentResult] = await Promise.all([
           client.from('staff_qualifications').select('id,staff_id,qualification_name,issuer,credential_number,issued_on,expires_on,status,notes').eq('school_id', schoolId).order('expires_on'),
@@ -257,6 +280,57 @@ export function StaffOperationsPanel({ schoolId, section, canManage }: Props) {
       && !getCoverConflict(candidate, request));
   }
 
+  async function saveOffboarding(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    if (!canManage || !offboardingStaff) return;
+    setSaving(true);
+    setError('');
+    setSuccess('');
+    try {
+      const { error: saveError } = await requireSupabase().from('staff_offboarding_plans').insert({
+        school_id: schoolId,
+        staff_id: offboardingStaff,
+        exit_date: offboardingDate,
+        reason: offboardingReason.trim(),
+        handover_notes: offboardingNotes.trim(),
+        status: 'planned',
+      });
+      if (saveError) throw saveError;
+      setOffboardingReason('');
+      setOffboardingNotes('');
+      setSuccess('Offboarding checklist created.');
+      await load();
+    } catch (saveError) {
+      setError(saveError instanceof Error ? saveError.message : 'Could not create the offboarding plan.');
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  async function updateOffboarding(planId: string, nextStatus: 'planned' | 'in_progress' | 'completed' | 'cancelled') {
+    if (!canManage) return;
+    setSaving(true);
+    setError('');
+    setSuccess('');
+    try {
+      const { error: updateError } = await requireSupabase().from('staff_offboarding_plans').update({
+        status: nextStatus,
+        access_removed_at: nextStatus === 'completed' ? new Date().toISOString() : null,
+      }).eq('school_id', schoolId).eq('id', planId);
+      if (updateError) throw updateError;
+      if (nextStatus === 'completed') {
+        await requireSupabase().from('staff_profiles').update({ employment_status: 'inactive', updated_at: new Date().toISOString() })
+          .eq('school_id', schoolId).eq('id', offboardingPlans.find((plan) => plan.id === planId)?.staff_id ?? '');
+      }
+      setSuccess(`Offboarding status updated to ${nextStatus.replace(/_/g, ' ')}.`);
+      await load();
+    } catch (updateError) {
+      setError(updateError instanceof Error ? updateError.message : 'Could not update offboarding status.');
+    } finally {
+      setSaving(false);
+    }
+  }
+
   async function saveCredential(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
     const formElement = event.currentTarget;
@@ -362,6 +436,22 @@ export function StaffOperationsPanel({ schoolId, section, canManage }: Props) {
     {error && <ErrorState message={error} />}
     {success && <SuccessMessage message={success} />}
     {!canManage && <ErrorState message="School or HR administrator access is required for this workspace." />}
+    {section === 'offboarding' && <>
+      <form className="content-card staff-leave-form" onSubmit={(event) => void saveOffboarding(event)}>
+        <div className="section-heading"><div><span className="eyebrow">Exit &amp; access management</span><h2>Schedule offboarding</h2></div></div>
+        <label className="field"><span>Employee</span><select value={offboardingStaff} onChange={(event) => setOffboardingStaff(event.target.value)} required>{staff.map((person) => <option key={person.id} value={person.id}>{person.first_name} {person.last_name} · {person.employee_number}</option>)}</select></label>
+        <label className="field"><span>Exit date</span><input type="date" required value={offboardingDate} onChange={(event) => setOffboardingDate(event.target.value)} /></label>
+        <label className="field"><span>Reason</span><input value={offboardingReason} maxLength={500} onChange={(event) => setOffboardingReason(event.target.value)} required /></label>
+        <label className="field staff-leave-reason"><span>Handover notes</span><textarea rows={2} value={offboardingNotes} maxLength={2000} onChange={(event) => setOffboardingNotes(event.target.value)} /></label>
+        <button className="button button-primary" type="submit" disabled={saving || !canManage}>Create offboarding plan</button>
+      </form>
+      {offboardingPlans.length ? <div className="staff-hr-list">{offboardingPlans.map((plan) => {
+        const person = relation(plan.staff);
+        return <article className="content-card" key={plan.id}><div><strong>{person?.first_name} {person?.last_name} · {plan.exit_date}</strong><small>{person?.employee_number} · {plan.reason}</small><p>{plan.handover_notes || 'No handover notes recorded.'}</p>{plan.access_removed_at && <small>Access removed: {plan.access_removed_at.slice(0, 10)}</small>}</div><span className={`staff-status staff-status-${plan.status === 'completed' ? 'active' : plan.status === 'cancelled' ? 'inactive' : 'on_leave'}`}>{plan.status.replace(/_/g, ' ')}</span>
+          {plan.status !== 'completed' && <div className="staff-operation-actions"><button className="button button-primary" type="button" onClick={() => void updateOffboarding(plan.id, 'in_progress')} disabled={saving || !canManage}>In progress</button><button className="button button-quiet" type="button" onClick={() => void updateOffboarding(plan.id, 'completed')} disabled={saving || !canManage}>Mark complete</button></div>}
+        </article>;
+      })}</div> : <EmptyState title="No offboarding plans" detail="Create an exit schedule to track access removal and handover tasks." />}
+    </>}
     {section === 'credentials' && <>
       {expiringItems.length > 0 && <section className="staff-expiry-alert"><h3><AlertTriangle size={16} />Credentials and documents needing attention</h3>{expiringItems.map((item) => <p key={`${item.id}-${item.staffId}`}><strong>{staff.find((person) => person.id === item.staffId)?.first_name} {staff.find((person) => person.id === item.staffId)?.last_name}</strong> · {item.title} · {expiryLabel(item.expires)}</p>)}</section>}
       <div className="staff-hr-grid">
