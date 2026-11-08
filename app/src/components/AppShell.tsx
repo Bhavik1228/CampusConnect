@@ -5,7 +5,7 @@ import {
   ChevronLeft, ClipboardCheck, GraduationCap, LayoutDashboard, LogOut, Menu,
   Settings, UsersRound, X, CalendarClock, CircleDollarSign, UserRoundPlus,
   Award, BriefcaseBusiness, FileStack, HeartPulse, ClipboardPlus, Search, Library,
-  MessageCircle, ShieldCheck, LifeBuoy, RotateCcw,
+  MessageCircle, Megaphone, ShieldCheck, LifeBuoy, RotateCcw,
   type LucideIcon,
 } from 'lucide-react';
 import { useAuth } from '../contexts/AuthContext';
@@ -36,6 +36,7 @@ const navigation: NavigationGroup[] = [
     { to: '/students', label: 'Students', icon: GraduationCap },
     { to: '/guardian-contact-verification', label: 'Guardian contact verification', icon: ShieldCheck, roles: ['school_admin'] },
     { to: '/admissions', label: 'Admissions & enrolment', icon: UserRoundPlus, roles: ['school_admin', 'admissions_officer'], module: 'module_admissions' },
+    { to: '/admissions/scheduling', label: 'Interview scheduling', icon: CalendarClock, roles: ['school_admin', 'admissions_officer'], module: 'module_admissions' },
     { to: '/staff', label: 'Staff & teachers', icon: BriefcaseBusiness, roles: ['school_admin', 'academic_coordinator', 'teacher', 'hr_staff_administrator'] },
   ] },
   { id: 'finance', title: 'Finance', icon: CircleDollarSign, items: [
@@ -59,9 +60,11 @@ const navigation: NavigationGroup[] = [
   ] },
   { id: 'website-communication', title: 'Website & Communication', icon: Globe, items: [
     { to: '/website-management', label: 'Website content', icon: Globe, roles: ['school_admin', 'website_editor', 'website_publisher'] },
+    { to: '/family-communications', label: 'Family communications', icon: Megaphone, roles: ['school_admin', 'academic_coordinator', 'parent'], module: 'module_messaging' },
     { to: '/messaging', label: 'Messages', icon: MessageCircle, module: 'module_messaging' },
   ] },
   { id: 'administration', title: 'Administration', icon: Settings, items: [
+    { to: '/school-data', label: 'School data dashboard', icon: Activity, roles: ['school_admin', 'academic_coordinator', 'auditor'] },
     { to: '/setup-health', label: 'Setup & data health', icon: Activity, roles: ['school_admin', 'academic_coordinator'] },
     { to: '/automations', label: 'Automations', icon: Workflow, roles: ['school_admin', 'academic_coordinator'], module: 'module_automations' },
     { to: '/permissions', label: 'Roles & permissions', icon: ShieldCheck, roles: ['school_admin'] },
@@ -93,6 +96,9 @@ const pageNames: Record<string, string> = {
   '/past-paper-pipeline': 'Past-paper pipeline',
   '/finance': 'Student fees', '/accounting-staff': 'Accounting & specialist staff',
   '/website-management': 'Website content', '/admin-workflows': 'Administrative workflows',
+  '/admissions/scheduling': 'Interview scheduling',
+  '/family-communications': 'Family communications',
+  '/school-data': 'School data dashboard',
   '/account-security': 'Account security',
   '/permissions': 'Roles & permissions',
   '/setup-health': 'Setup & Data Health',
@@ -128,12 +134,12 @@ export function AppShell() {
   const isSecretaryRole = activeMembership?.role === 'secretary';
   const isRestrictedRole = isHealthcareRole || isSecretaryRole;
   const limitedRolePaths: Partial<Record<AppRole, string[]>> = {
-    auditor: ['/dashboard', '/finance', '/audit-log', '/account-security'],
+    auditor: ['/dashboard', '/school-data', '/finance', '/audit-log', '/account-security'],
     librarian: ['/dashboard', '/library', '/account-security'],
     accounts_payable_officer: ['/dashboard', '/account-security'],
     website_editor: ['/dashboard', '/website-management', '/account-security'],
     website_publisher: ['/dashboard', '/website-management', '/account-security'],
-    admissions_officer: ['/dashboard', '/admissions', '/account-security'],
+    admissions_officer: ['/dashboard', '/admissions', '/admissions/scheduling', '/account-security'],
     hr_staff_administrator: ['/dashboard', '/staff', '/account-security'],
     transport_manager: ['/dashboard', '/admin-workflows', '/account-security'],
     facilities_manager: ['/dashboard', '/admin-workflows', '/account-security'],
@@ -146,7 +152,9 @@ export function AppShell() {
   const isLimitedRole = rolePaths !== undefined;
   const title = pageNames[location.pathname]
     ?? (location.pathname.startsWith('/health/report/') ? 'Health report' : location.pathname.startsWith('/visitors/verify/') ? 'Badge verification' : 'Workspace');
-  const modulePath = location.pathname === '/past-paper-pipeline'
+  const modulePath = location.pathname.startsWith('/admissions/scheduling')
+    ? '/admissions'
+    : location.pathname === '/past-paper-pipeline'
     ? '/learning'
     : location.pathname.startsWith('/health/report/')
     ? '/health'
@@ -173,6 +181,7 @@ export function AppShell() {
     '/accounting-staff': 'module_finance',
     '/automations': 'module_automations',
     '/messaging': 'module_messaging',
+    '/family-communications': 'module_messaging',
     '/library': 'module_library',
     '/health': 'module_health',
     '/visitors': 'module_visitors',
@@ -203,6 +212,7 @@ export function AppShell() {
     '/health': 'health',
     '/visitors': 'visitors',
     '/messaging': 'messaging',
+    '/family-communications': 'messaging',
     '/audit-log': 'audit',
   };
   const permissionModule = permissionModuleForPath[modulePath];
@@ -221,6 +231,7 @@ export function AppShell() {
     '/accounting-staff': 'finance',
     '/automations': 'communication',
     '/messaging': 'messaging',
+    '/family-communications': 'messaging',
     '/library': 'library',
     '/health': 'health',
     '/visitors': 'visitors',

@@ -24,8 +24,11 @@ import { GradesResultsPage } from '../pages/GradesResultsPage';
 import { PublicSchoolWebsitePage } from '../pages/PublicSchoolWebsitePage';
 import { StaffManagementPage } from '../pages/StaffManagementPage';
 import { MessagingPage } from '../pages/MessagingPage';
+import { FamilyCommunicationsPage } from '../pages/FamilyCommunicationsPage';
+import { SchoolDataDashboardPage } from '../pages/SchoolDataDashboardPage';
 import { AuditLogPage } from '../pages/AuditLogPage';
 import { AdmissionsPage } from '../pages/AdmissionsPage';
+import { AdmissionInterviewSchedulingPage } from '../pages/AdmissionInterviewSchedulingPage';
 import { StudentsPage } from '../pages/StudentsPage';
 import { GuardianContactVerificationPage } from '../pages/GuardianContactVerificationPage';
 import { AdministrativeWorkflowsPage } from '../pages/AdministrativeWorkflowsPage';
@@ -194,6 +197,7 @@ export function ProtectedApp() {
           <Route path="/students" element={<StudentsPage />} />
           <Route path="/guardian-contact-verification" element={<GuardianContactVerificationPage />} />
           <Route path="/admissions" element={<AdmissionsPage />} />
+          <Route path="/admissions/scheduling" element={<AdmissionInterviewSchedulingPage />} />
           <Route path="/teachers" element={<DirectoryPage kind="teachers" />} />
           <Route path="/staff" element={<StaffManagementPage />} />
           <Route path="/website-management" element={<WebsiteManagementPage />} />
@@ -224,6 +228,8 @@ export function ProtectedApp() {
           <Route path="/finance" element={<FinancePage />} />
           <Route path="/accounting-staff" element={<AccountingStaffPage />} />
           <Route path="/messaging" element={<MessagingPage />} />
+          <Route path="/family-communications" element={<FamilyCommunicationsPage />} />
+          <Route path="/school-data" element={<SchoolDataDashboardPage />} />
           <Route path="/audit-log" element={<AuditLogPage />} />
           </Route>
           </Route>
