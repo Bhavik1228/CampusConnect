@@ -397,36 +397,67 @@ export function StaffOperationsPanel({ schoolId, section, canManage }: Props) {
       <p className="staff-hr-footnote">Recorded attendance: {attendance.length} of {staff.length} staff for this date.</p>
     </>}
 
-    {section === 'leave' && <>
-      <form className="content-card staff-leave-form" onSubmit={(event) => void createLeave(event)}>
-        <div className="section-heading"><div><span className="eyebrow">HR operations</span><h2>Record staff leave</h2></div></div>
-        <label className="field"><span>Employee</span><select value={selectedStaff} onChange={(event) => setSelectedStaff(event.target.value)} required>{staff.map((person) => <option key={person.id} value={person.id}>{person.first_name} {person.last_name} · {person.employee_number}</option>)}</select></label>
-        <label className="field"><span>Leave type</span><select value={leaveType} onChange={(event) => setLeaveType(event.target.value)}>{['annual', 'sick', 'personal', 'family', 'unpaid', 'other'].map((type) => <option key={type} value={type}>{type.replace(/_/g, ' ')}</option>)}</select></label>
-        <label className="field"><span>Start date</span><input required type="date" value={leaveStart} onChange={(event) => setLeaveStart(event.target.value)} /></label>
-        <label className="field"><span>End date</span><input required type="date" min={leaveStart} value={leaveEnd} onChange={(event) => setLeaveEnd(event.target.value)} /></label>
-        <label className="field staff-leave-reason"><span>Reason / HR note</span><textarea required minLength={3} maxLength={1000} rows={2} value={leaveReason} onChange={(event) => setLeaveReason(event.target.value)} /></label>
-        <button className="button button-primary" type="submit" disabled={saving || !canManage}>Record leave</button>
-      </form>
-      <div className="staff-leave-summary">
-        <div><strong>{pendingLeaveCount}</strong><span>Pending review</span></div>
-        <div><strong>{approvedLeaveCount}</strong><span>Approved requests</span></div>
-        <div className={coverageNeededCount ? 'needs-attention' : ''}><strong>{coverageNeededCount}</strong><span>Need cover</span></div>
-        <label><span>Show</span><select value={leaveFilter} onChange={(event) => setLeaveFilter(event.target.value as typeof leaveFilter)}><option value="all">All requests</option><option value="pending">Pending review</option><option value="approved">Approved</option><option value="needs_coverage">Approved, cover needed</option><option value="rejected">Declined</option></select></label>
-      </div>
-      {filteredLeaveRequests.length ? <div className="staff-hr-list">{filteredLeaveRequests.map((request) => {
-        const person = relation(request.staff);
-        const coverage = relation(request.coverage);
-        const needsCoverage = request.status === 'approved' && !hasCoverage(request);
-        const availableCandidates = needsCoverage ? availableCoverCandidates(request) : [];
-        const selectedCoverAvailable = availableCandidates.some((candidate) => candidate.id === substituteByLeave[request.id]);
-        return <article className="content-card" key={request.id}><div><strong>{person?.first_name} {person?.last_name} · {request.leave_type.replace(/_/g, ' ')}</strong><small>{person?.employee_number} · {request.start_date} to {request.end_date}</small><p>{request.reason}</p>{request.review_note && <small>{request.review_note}</small>}
-          {coverage && <small>Substitute: {staff.find((item) => item.id === coverage.substitute_staff_id)?.first_name} {staff.find((item) => item.id === coverage.substitute_staff_id)?.last_name} · {coverage.status}</small>}
-        </div><span className={`staff-status staff-status-${request.status === 'approved' ? 'active' : request.status === 'pending' ? 'on_leave' : 'inactive'}`}>{request.status}</span>
-          {request.status === 'pending' && <div className="staff-operation-actions"><button className="button button-primary" type="button" onClick={() => void reviewLeave(request, 'approved')} disabled={saving || !canManage}>Approve</button><button className="button button-quiet" type="button" onClick={() => void reviewLeave(request, 'rejected')} disabled={saving || !canManage}>Reject</button></div>}
-          {needsCoverage && <div className="staff-coverage-actions"><select aria-label="Available substitute teacher" value={substituteByLeave[request.id] ?? ''} onChange={(event) => setSubstituteByLeave((current) => ({ ...current, [request.id]: event.target.value }))}><option value="">{availableCandidates.length ? 'Select available teacher' : 'No available teacher for these dates'}</option>{availableCandidates.map((teacher) => <option key={teacher.id} value={teacher.id}>{teacher.first_name} {teacher.last_name} · {teacher.employee_number}</option>)}</select><button className="button button-quiet" type="button" onClick={() => void assignCoverage(request.id)} disabled={!selectedCoverAvailable || saving || !canManage}><UserCheck size={14} />Plan coverage</button></div>}
-        </article>;
-      })}</div> : <EmptyState title={leaveRequests.length ? 'No matching leave requests' : 'No leave requests'} detail={leaveRequests.length ? 'Choose a different leave status filter to see other requests.' : 'Record employee leave to track approvals and plan substitute coverage.' />}
-    </>}
+    {section === 'leave' && (
+      <>
+        <form className="content-card staff-leave-form" onSubmit={(event) => void createLeave(event)}>
+          <div className="section-heading"><div><span className="eyebrow">HR operations</span><h2>Record staff leave</h2></div></div>
+          <label className="field"><span>Employee</span><select value={selectedStaff} onChange={(event) => setSelectedStaff(event.target.value)} required>{staff.map((person) => <option key={person.id} value={person.id}>{person.first_name} {person.last_name} · {person.employee_number}</option>)}</select></label>
+          <label className="field"><span>Leave type</span><select value={leaveType} onChange={(event) => setLeaveType(event.target.value)}>{['annual', 'sick', 'personal', 'family', 'unpaid', 'other'].map((type) => <option key={type} value={type}>{type.replace(/_/g, ' ')}</option>)}</select></label>
+          <label className="field"><span>Start date</span><input required type="date" value={leaveStart} onChange={(event) => setLeaveStart(event.target.value)} /></label>
+          <label className="field"><span>End date</span><input required type="date" min={leaveStart} value={leaveEnd} onChange={(event) => setLeaveEnd(event.target.value)} /></label>
+          <label className="field staff-leave-reason"><span>Reason / HR note</span><textarea required minLength={3} maxLength={1000} rows={2} value={leaveReason} onChange={(event) => setLeaveReason(event.target.value)} /></label>
+          <button className="button button-primary" type="submit" disabled={saving || !canManage}>Record leave</button>
+        </form>
+
+        <div className="staff-leave-summary">
+          <div><strong>{pendingLeaveCount}</strong><span>Pending review</span></div>
+          <div><strong>{approvedLeaveCount}</strong><span>Approved requests</span></div>
+          <div className={coverageNeededCount ? 'needs-attention' : ''}><strong>{coverageNeededCount}</strong><span>Need cover</span></div>
+          <label><span>Show</span><select value={leaveFilter} onChange={(event) => setLeaveFilter(event.target.value as typeof leaveFilter)}><option value="all">All requests</option><option value="pending">Pending review</option><option value="approved">Approved</option><option value="needs_coverage">Approved, cover needed</option><option value="rejected">Declined</option></select></label>
+        </div>
+
+        {filteredLeaveRequests.length ? (
+          <div className="staff-hr-list">
+            {filteredLeaveRequests.map((request) => {
+              const person = relation(request.staff);
+              const coverage = relation(request.coverage);
+              const needsCoverage = request.status === 'approved' && !hasCoverage(request);
+              const availableCandidates = needsCoverage ? availableCoverCandidates(request) : [];
+              const selectedCoverAvailable = availableCandidates.some((candidate) => candidate.id === substituteByLeave[request.id]);
+              return (
+                <article className="content-card" key={request.id}>
+                  <div>
+                    <strong>{person?.first_name} {person?.last_name} · {request.leave_type.replace(/_/g, ' ')}</strong>
+                    <small>{person?.employee_number} · {request.start_date} to {request.end_date}</small>
+                    <p>{request.reason}</p>
+                    {request.review_note && <small>{request.review_note}</small>}
+                    {coverage && <small>Substitute: {staff.find((item) => item.id === coverage.substitute_staff_id)?.first_name} {staff.find((item) => item.id === coverage.substitute_staff_id)?.last_name} · {coverage.status}</small>}
+                  </div>
+                  <span className={`staff-status staff-status-${request.status === 'approved' ? 'active' : request.status === 'pending' ? 'on_leave' : 'inactive'}`}>{request.status}</span>
+                  {request.status === 'pending' && (
+                    <div className="staff-operation-actions">
+                      <button className="button button-primary" type="button" onClick={() => void reviewLeave(request, 'approved')} disabled={saving || !canManage}>Approve</button>
+                      <button className="button button-quiet" type="button" onClick={() => void reviewLeave(request, 'rejected')} disabled={saving || !canManage}>Reject</button>
+                    </div>
+                  )}
+                  {needsCoverage && (
+                    <div className="staff-coverage-actions">
+                      <select aria-label="Available substitute teacher" value={substituteByLeave[request.id] ?? ''} onChange={(event) => setSubstituteByLeave((current) => ({ ...current, [request.id]: event.target.value }))}>
+                        <option value="">{availableCandidates.length ? 'Select available teacher' : 'No available teacher for these dates'}</option>
+                        {availableCandidates.map((teacher) => <option key={teacher.id} value={teacher.id}>{teacher.first_name} {teacher.last_name} · {teacher.employee_number}</option>)}
+                      </select>
+                      <button className="button button-quiet" type="button" onClick={() => void assignCoverage(request.id)} disabled={!selectedCoverAvailable || saving || !canManage}><UserCheck size={14} />Plan coverage</button>
+                    </div>
+                  )}
+                </article>
+              );
+            })}
+          </div>
+        ) : (
+          <EmptyState title={leaveRequests.length ? 'No matching leave requests' : 'No leave requests'} detail={leaveRequests.length ? 'Choose a different leave status filter to see other requests.' : 'Record employee leave to track approvals and plan substitute coverage.'} />
+        )}
+      </>
+    )}
 
     {section === 'payroll' && <>
       <section className="content-card staff-hr-card"><div className="section-heading"><div><span className="eyebrow">Provider-neutral export</span><h2>Payroll integration</h2></div><Download size={17} /></div><p className="staff-hr-footnote">Maintain employee identifiers and pay-period settings, then export a CSV with attendance hours and approved leave. No salary or bank-account information is stored here.</p>
