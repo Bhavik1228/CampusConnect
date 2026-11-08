@@ -119,7 +119,7 @@ function safeVercelUrl(value: unknown, allowedHost: (hostname: string) => boolea
   }
 }
 
-async function getVercelProductionDeployments(cursor: string | null) {
+async function getVercelProductionDeployments(cursor: string | null, includeNonReady = false, limit = 100) {
   const token = Deno.env.get('VERCEL_TOKEN');
   const projectId = Deno.env.get('VERCEL_PROJECT_ID');
   const teamId = Deno.env.get('VERCEL_TEAM_ID');
@@ -130,8 +130,8 @@ async function getVercelProductionDeployments(cursor: string | null) {
   const url = new URL('https://api.vercel.com/v7/deployments');
   url.searchParams.set('projectId', projectId);
   url.searchParams.set('target', 'production');
-  url.searchParams.set('state', 'READY');
-  url.searchParams.set('limit', '100');
+  if (!includeNonReady) url.searchParams.set('state', 'READY');
+  url.searchParams.set('limit', String(limit));
   if (cursor) url.searchParams.set('until', cursor);
   if (teamId) url.searchParams.set('teamId', teamId);
 
@@ -181,7 +181,7 @@ async function getVercelProductionDeployments(cursor: string | null) {
       name: item.name,
       url: deploymentUrl,
       inspectorUrl,
-      state: isNonEmptyString(item.readyState) ? item.readyState : 'READY',
+      state: isNonEmptyString(item.readyState) ? item.readyState : 'UNKNOWN',
       createdAt: item.createdAt,
       readyAt: typeof item.ready === 'number' && Number.isFinite(item.ready) ? item.ready : null,
       commit: {
@@ -447,6 +447,11 @@ Deno.serve(async (request: Request) => {
       if (saveError) throw saveError;
       if (!incident) return respond(404, { error: 'The incident was not found.' });
       return respond(200, { incident });
+    }
+
+    if (payload.action === 'deployment-status') {
+      const { deployments } = await getVercelProductionDeployments(null, true, 1);
+      return respond(200, { deploymentStatus: deployments[0] ?? null });
     }
 
     if (payload.action === 'release-history') {

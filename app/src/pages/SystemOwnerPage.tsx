@@ -1,8 +1,9 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import {
-  Activity, AlertTriangle, Building2, Check, CircleDollarSign, Database, GraduationCap,
-  HardDrive, KeyRound, RefreshCw, Server, ShieldAlert, UserRound, UsersRound, X,
+  Activity, AlertTriangle, Building2, Check, CircleDollarSign, Database, ExternalLink, GraduationCap,
+  HardDrive, History, KeyRound, RefreshCw, Server, ShieldAlert, UserRound, UsersRound, X,
 } from 'lucide-react';
+import { Link } from 'react-router-dom';
 import { ErrorState, LoadingState } from '../components/Feedback';
 import { requireSupabase } from '../lib/supabase';
 import { useAuth } from '../contexts/AuthContext';
@@ -59,12 +60,40 @@ type SystemHealth = {
     }[];
   };
 };
+type DeploymentStatus = {
+  id: string;
+  name: string;
+  url: string;
+  inspectorUrl: string;
+  state: string;
+  createdAt: number;
+  readyAt: number | null;
+  commit: { message: string; sha: string; branch: string };
+};
+
+function isDeploymentStatus(value: unknown): value is DeploymentStatus {
+  if (typeof value !== 'object' || value === null || Array.isArray(value)) return false;
+  const deployment = value as Record<string, unknown>;
+  if (typeof deployment.commit !== 'object' || deployment.commit === null || Array.isArray(deployment.commit)) return false;
+  const commit = deployment.commit as Record<string, unknown>;
+  return typeof deployment.id === 'string'
+    && typeof deployment.name === 'string'
+    && typeof deployment.url === 'string'
+    && typeof deployment.inspectorUrl === 'string'
+    && typeof deployment.state === 'string'
+    && typeof deployment.createdAt === 'number'
+    && Number.isFinite(deployment.createdAt)
+    && (deployment.readyAt === null || (typeof deployment.readyAt === 'number' && Number.isFinite(deployment.readyAt)))
+    && typeof commit.message === 'string'
+    && typeof commit.sha === 'string'
+    && typeof commit.branch === 'string';
+}
 
 function formatLabel(value: string) {
   return value.replace(/_/g, ' ').replace(/\b\w/g, (letter) => letter.toUpperCase());
 }
 
-function formatDate(value: string) {
+function formatDate(value: string | number) {
   return new Date(value).toLocaleString();
 }
 
@@ -86,6 +115,8 @@ export function SystemOwnerPage() {
   const [dashboard, setDashboard] = useState<Dashboard | null>(null);
   const [systemHealth, setSystemHealth] = useState<SystemHealth | null>(null);
   const [systemHealthError, setSystemHealthError] = useState('');
+  const [deploymentStatus, setDeploymentStatus] = useState<DeploymentStatus | null>(null);
+  const [deploymentStatusError, setDeploymentStatusError] = useState('');
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
   const [error, setError] = useState('');
@@ -101,15 +132,18 @@ export function SystemOwnerPage() {
     setError('');
     setSystemHealth(null);
     setSystemHealthError('');
+    setDeploymentStatus(null);
+    setDeploymentStatusError('');
     try {
       const { data: authorization, error: authorizationError } = await requireSupabase().functions.invoke('system-owner-admin', {
         body: { action: 'check' },
       });
       if (authorizationError) throw authorizationError;
       if (authorization?.authorized !== true) throw new Error('This panel is restricted to the Campus Connect system owner.');
-      const [dashboardResult, healthResult] = await Promise.all([
+      const [dashboardResult, healthResult, deploymentResult] = await Promise.all([
         requireSupabase().functions.invoke('system-owner-admin', { body: { action: 'dashboard' } }),
         requireSupabase().functions.invoke('system-owner-admin', { body: { action: 'system-health' } }),
+        requireSupabase().functions.invoke('system-owner-admin', { body: { action: 'deployment-status' } }),
       ]);
       const { data, error: dashboardError } = dashboardResult;
       if (dashboardError) throw dashboardError;
@@ -127,6 +161,15 @@ export function SystemOwnerPage() {
       } else {
         setSystemHealth(null);
         setSystemHealthError('The system health service returned an invalid response.');
+      }
+      if (deploymentResult.error) {
+        setDeploymentStatusError(deploymentResult.error.message);
+      } else if (deploymentResult.data?.deploymentStatus === null) {
+        setDeploymentStatus(null);
+      } else if (isDeploymentStatus(deploymentResult.data?.deploymentStatus)) {
+        setDeploymentStatus(deploymentResult.data.deploymentStatus);
+      } else {
+        setDeploymentStatusError('The deployment status service returned an invalid response.');
       }
     } catch (loadError) {
       setError(loadError instanceof Error ? loadError.message : 'Could not load the system owner dashboard.');
@@ -204,6 +247,24 @@ export function SystemOwnerPage() {
       </header>
       {error && <ErrorState message={error} />}
       {notice && <p className="inline-success" role="status">{notice}</p>}
+      <section className="content-card system-owner-panel">
+        <div className="system-owner-panel-heading"><div><span className="eyebrow">Production deployment</span><h2>Deployment status</h2><p>Latest production deployment reported by Vercel.</p></div><History size={18} /></div>
+        {deploymentStatusError && <ErrorState message={deploymentStatusError} />}
+        {deploymentStatus && <>
+          <div className="system-owner-release-meta">
+            <span className={`health-status ${deploymentStatus.state === 'READY' ? 'health-status-operational' : deploymentStatus.state === 'ERROR' ? 'health-status-failed' : deploymentStatus.state === 'CANCELED' ? 'health-status-unavailable' : 'health-status-degraded'}`}>{formatLabel(deploymentStatus.state)}</span>
+            <span>{deploymentStatus.name}</span>
+            <span>{formatDate(deploymentStatus.readyAt ?? deploymentStatus.createdAt)}</span>
+            {deploymentStatus.commit.sha && <code>{deploymentStatus.commit.sha}</code>}
+          </div>
+          <p>{deploymentStatus.commit.message || 'Vercel did not provide a linked commit message.'}</p>
+          <div className="system-owner-header-actions">
+            <a className="button button-quiet" href={deploymentStatus.inspectorUrl} target="_blank" rel="noreferrer">Vercel details <ExternalLink size={14} /></a>
+            <Link className="button button-secondary" to="/system-owner/releases">Release history</Link>
+          </div>
+        </>}
+        {!deploymentStatus && !deploymentStatusError && <p className="system-owner-muted">No production deployment was returned by Vercel.</p>}
+      </section>
       <section className="content-card system-owner-panel">
         <div className="system-owner-panel-heading"><div><span className="eyebrow">Live service checks</span><h2>System health overview</h2><p>Live connectivity checks for the application, database, authentication, and storage.</p></div><Server size={18} /></div>
         {systemHealthError && <ErrorState message={systemHealthError} />}

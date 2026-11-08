@@ -18,6 +18,10 @@ function jsonResponse(status: number, body: Record<string, string>) {
   });
 }
 
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === 'object' && value !== null && !Array.isArray(value);
+}
+
 async function fingerprint(value: string, secret: string) {
   const encoder = new TextEncoder();
   const key = await crypto.subtle.importKey(
@@ -42,6 +46,46 @@ function getSourceAddress(request: Request) {
 }
 
 async function sendEmail(to: string, subject: string, textBody: string) {
+  const mailjetApiKey = Deno.env.get('MAILJET_API_KEY');
+  const mailjetSecretKey = Deno.env.get('MAILJET_SECRET_KEY');
+  const mailjetFrom = Deno.env.get('MAILJET_FROM_EMAIL');
+  const mailjetConfigured = Boolean(mailjetApiKey || mailjetSecretKey || mailjetFrom);
+  if (mailjetConfigured) {
+    if (!mailjetApiKey || !mailjetSecretKey || !mailjetFrom) {
+      throw new Error('Mailjet sender configuration is incomplete.');
+    }
+
+    const response = await fetch('https://api.mailjet.com/v3.1/send', {
+      method: 'POST',
+      headers: {
+        'Authorization': `Basic ${btoa(`${mailjetApiKey}:${mailjetSecretKey}`)}`,
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify({
+        Messages: [{
+          From: { Email: mailjetFrom, Name: Deno.env.get('MAILJET_FROM_NAME') ?? 'Campus Connect' },
+          To: [{ Email: to }],
+          Subject: subject,
+          TextPart: textBody,
+        }],
+      }),
+    });
+    const result: unknown = await response.json();
+    const messages = isRecord(result) ? result.Messages : null;
+    const firstMessage = Array.isArray(messages) ? messages[0] : null;
+    const messageStatus = isRecord(firstMessage) && typeof firstMessage.Status === 'string'
+      ? firstMessage.Status
+      : null;
+    if (!response.ok || messageStatus !== 'success') {
+      console.error('Mailjet rejected a Campus Connect security email.', {
+        status: response.status,
+        messageStatus,
+      });
+      throw new Error('Mailjet failed to send the security email.');
+    }
+    return;
+  }
+
   const resendApiKey = Deno.env.get('RESEND_API_KEY');
   const resendFrom = Deno.env.get('RESEND_FROM_EMAIL');
   if (resendApiKey && resendFrom) {
