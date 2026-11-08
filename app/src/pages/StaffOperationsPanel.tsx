@@ -53,6 +53,7 @@ export function StaffOperationsPanel({ schoolId, section, canManage }: Props) {
   const [leaveStart, setLeaveStart] = useState(localDateValue(new Date()));
   const [leaveEnd, setLeaveEnd] = useState(localDateValue(new Date()));
   const [leaveReason, setLeaveReason] = useState('');
+  const [leaveFilter, setLeaveFilter] = useState<'all' | 'pending' | 'approved' | 'needs_coverage' | 'rejected'>('all');
   const [substituteByLeave, setSubstituteByLeave] = useState<Record<string, string>>({});
   const [credentialStaff, setCredentialStaff] = useState('');
   const [credentialDocument, setCredentialDocument] = useState('');
@@ -231,6 +232,31 @@ export function StaffOperationsPanel({ schoolId, section, canManage }: Props) {
     }
   }
 
+  function getCoverConflict(candidate: StaffRecord, request: LeaveRequest) {
+    const conflictingRequest = leaveRequests.find((other) => {
+      if (other.id === request.id || other.status !== 'approved'
+          || other.start_date > request.end_date || other.end_date < request.start_date) return false;
+      const coverage = relation(other.coverage);
+      return other.staff_id === candidate.id
+        || (coverage?.status === 'planned' && coverage.substitute_staff_id === candidate.id);
+    });
+    if (!conflictingRequest) return '';
+    return conflictingRequest.staff_id === candidate.id
+      ? 'Has approved leave during this period'
+      : 'Already covering an overlapping leave';
+  }
+
+  function hasCoverage(request: LeaveRequest) {
+    const coverage = relation(request.coverage);
+    return coverage !== null && coverage.status !== 'cancelled';
+  }
+
+  function availableCoverCandidates(request: LeaveRequest) {
+    return teachers.filter((candidate) => candidate.employment_status === 'active'
+      && candidate.id !== request.staff_id
+      && !getCoverConflict(candidate, request));
+  }
+
   async function saveCredential(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
     const formElement = event.currentTarget;
@@ -322,6 +348,15 @@ export function StaffOperationsPanel({ schoolId, section, canManage }: Props) {
   }
 
   if (loading) return <LoadingState label="Loading staff operations..." />;
+  const pendingLeaveCount = leaveRequests.filter((request) => request.status === 'pending').length;
+  const approvedLeaveCount = leaveRequests.filter((request) => request.status === 'approved').length;
+  const coverageNeededCount = leaveRequests.filter((request) =>
+    request.status === 'approved' && !hasCoverage(request)).length;
+  const filteredLeaveRequests = leaveRequests.filter((request) => {
+    if (leaveFilter === 'pending' || leaveFilter === 'approved' || leaveFilter === 'rejected') return request.status === leaveFilter;
+    if (leaveFilter === 'needs_coverage') return request.status === 'approved' && !hasCoverage(request);
+    return true;
+  });
 
   return <section className="staff-operations">
     {error && <ErrorState message={error} />}
@@ -372,17 +407,25 @@ export function StaffOperationsPanel({ schoolId, section, canManage }: Props) {
         <label className="field staff-leave-reason"><span>Reason / HR note</span><textarea required minLength={3} maxLength={1000} rows={2} value={leaveReason} onChange={(event) => setLeaveReason(event.target.value)} /></label>
         <button className="button button-primary" type="submit" disabled={saving || !canManage}>Record leave</button>
       </form>
-      {leaveRequests.length ? <div className="staff-hr-list">{leaveRequests.map((request) => {
+      <div className="staff-leave-summary">
+        <div><strong>{pendingLeaveCount}</strong><span>Pending review</span></div>
+        <div><strong>{approvedLeaveCount}</strong><span>Approved requests</span></div>
+        <div className={coverageNeededCount ? 'needs-attention' : ''}><strong>{coverageNeededCount}</strong><span>Need cover</span></div>
+        <label><span>Show</span><select value={leaveFilter} onChange={(event) => setLeaveFilter(event.target.value as typeof leaveFilter)}><option value="all">All requests</option><option value="pending">Pending review</option><option value="approved">Approved</option><option value="needs_coverage">Approved, cover needed</option><option value="rejected">Declined</option></select></label>
+      </div>
+      {filteredLeaveRequests.length ? <div className="staff-hr-list">{filteredLeaveRequests.map((request) => {
         const person = relation(request.staff);
         const coverage = relation(request.coverage);
-        const needsCoverage = request.status === 'approved' && !coverage;
+        const needsCoverage = request.status === 'approved' && !hasCoverage(request);
+        const availableCandidates = needsCoverage ? availableCoverCandidates(request) : [];
+        const selectedCoverAvailable = availableCandidates.some((candidate) => candidate.id === substituteByLeave[request.id]);
         return <article className="content-card" key={request.id}><div><strong>{person?.first_name} {person?.last_name} · {request.leave_type.replace(/_/g, ' ')}</strong><small>{person?.employee_number} · {request.start_date} to {request.end_date}</small><p>{request.reason}</p>{request.review_note && <small>{request.review_note}</small>}
           {coverage && <small>Substitute: {staff.find((item) => item.id === coverage.substitute_staff_id)?.first_name} {staff.find((item) => item.id === coverage.substitute_staff_id)?.last_name} · {coverage.status}</small>}
         </div><span className={`staff-status staff-status-${request.status === 'approved' ? 'active' : request.status === 'pending' ? 'on_leave' : 'inactive'}`}>{request.status}</span>
           {request.status === 'pending' && <div className="staff-operation-actions"><button className="button button-primary" type="button" onClick={() => void reviewLeave(request, 'approved')} disabled={saving || !canManage}>Approve</button><button className="button button-quiet" type="button" onClick={() => void reviewLeave(request, 'rejected')} disabled={saving || !canManage}>Reject</button></div>}
-          {needsCoverage && <div className="staff-coverage-actions"><select aria-label="Substitute teacher" value={substituteByLeave[request.id] ?? ''} onChange={(event) => setSubstituteByLeave((current) => ({ ...current, [request.id]: event.target.value }))}><option value="">Select substitute teacher</option>{teachers.filter((teacher) => teacher.id !== request.staff_id).map((teacher) => <option key={teacher.id} value={teacher.id}>{teacher.first_name} {teacher.last_name} · {teacher.employee_number}</option>)}</select><button className="button button-quiet" type="button" onClick={() => void assignCoverage(request.id)} disabled={!substituteByLeave[request.id] || saving || !canManage}><UserCheck size={14} />Plan coverage</button></div>}
+          {needsCoverage && <div className="staff-coverage-actions"><select aria-label="Available substitute teacher" value={substituteByLeave[request.id] ?? ''} onChange={(event) => setSubstituteByLeave((current) => ({ ...current, [request.id]: event.target.value }))}><option value="">{availableCandidates.length ? 'Select available teacher' : 'No available teacher for these dates'}</option>{availableCandidates.map((teacher) => <option key={teacher.id} value={teacher.id}>{teacher.first_name} {teacher.last_name} · {teacher.employee_number}</option>)}</select><button className="button button-quiet" type="button" onClick={() => void assignCoverage(request.id)} disabled={!selectedCoverAvailable || saving || !canManage}><UserCheck size={14} />Plan coverage</button></div>}
         </article>;
-      })}</div> : <EmptyState title="No leave requests" detail="Record employee leave to track approvals and plan substitute coverage." />}
+      })}</div> : <EmptyState title={leaveRequests.length ? 'No matching leave requests' : 'No leave requests'} detail={leaveRequests.length ? 'Choose a different leave status filter to see other requests.' : 'Record employee leave to track approvals and plan substitute coverage.' />}
     </>}
 
     {section === 'payroll' && <>

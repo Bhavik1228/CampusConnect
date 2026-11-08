@@ -682,9 +682,15 @@ export function AttendancePage() {
     };
     const saveToOfflineQueue = () => {
       if (!queueStorageKey || queueReadyKey !== queueStorageKey) {
-        throw new Error('The secure attendance sync queue is not ready on this device. Reconnect and try again.');
+        throw new Error('The attendance sync queue is not ready on this device. Reconnect and try again.');
       }
-      setOfflineQueue((current) => [...current.filter((item) => item.key !== queueKey), queuedItem]);
+      const nextQueue = [...offlineQueue.filter((item) => item.key !== queueKey), queuedItem];
+      try {
+        localStorage.setItem(queueStorageKey, JSON.stringify(nextQueue));
+      } catch (storageError) {
+        throw new Error(`Could not store these attendance details on this device: ${explainError(storageError, 'browser storage is unavailable or full')}`);
+      }
+      setOfflineQueue(nextQueue);
       setNotice(`${recordChanges.length} attendance record${recordChanges.length === 1 ? '' : 's'} saved on this device and waiting to sync.`);
     };
     try {
@@ -731,7 +737,8 @@ export function AttendancePage() {
       setNotice(`${updates.length} attendance record${updates.length === 1 ? '' : 's'} saved${students.length - updates.length ? `; ${students.length - updates.length} student(s) remain unmarked` : ''}.`);
       await Promise.all([loadRegister(), loadHistory()]);
     } catch (saveError) {
-      if (!navigator.onLine) {
+      const networkFailure = saveError instanceof TypeError && /fetch|network|connection|offline/i.test(saveError.message);
+      if (!navigator.onLine || networkFailure) {
         try {
           saveToOfflineQueue();
         } catch (queueError) {
@@ -1043,7 +1050,7 @@ export function AttendancePage() {
         <div className="attendance-sync-queue-heading">
           <div><span className={`attendance-connection-indicator${isOnline ? ' is-online' : ''}`} />
             <div><strong>{isOnline ? `${pendingAttendanceQueue.length} register${pendingAttendanceQueue.length === 1 ? '' : 's'} waiting to sync` : 'You are offline'}</strong>
-              <p>{isOnline ? 'Queued marks are kept on this device until successfully saved to the school register.' : 'Saved marks will remain on this device and sync when the connection returns.'}</p>
+              <p>{isOnline ? 'Queued attendance details are kept in this browser until saved to the school register.' : 'Mark a register already loaded on this device; queued details sync when the connection returns. Avoid shared devices.'}</p>
             </div>
           </div>
           <button type="button" className="button button-quiet" onClick={() => void syncAttendanceQueue()} disabled={!isOnline || syncingQueue || !pendingAttendanceQueue.length}>

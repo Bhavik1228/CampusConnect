@@ -16,8 +16,8 @@ import { useEffect, useState } from 'react';
 export const colors = {
   navy: '#10152B',
   navyLight: '#202847',
-  violet: '#326B57',
-  violetLight: '#E8F1EB',
+  violet: '#7357F5',
+  violetLight: '#F0EDFF',
   accent: '#A9D1B6',
   onDarkMuted: '#D3D8E8',
   white: '#FFFFFF',

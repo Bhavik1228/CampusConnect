@@ -1,10 +1,11 @@
 import { useCallback, useEffect, useMemo, useState, type FormEvent } from 'react';
-import { BriefcaseBusiness, Building2, CalendarCheck, CalendarDays, Clock3, Download, FileBadge2, FilePlus2, FileText, GraduationCap, MailPlus, Plus, Save, Search, Trash2, UserRound, X } from 'lucide-react';
+import { BriefcaseBusiness, Building2, CalendarCheck, CalendarDays, Clock3, Download, FileBadge2, FilePlus2, FileText, GraduationCap, MailPlus, Plus, Save, Search, ShieldCheck, Trash2, UserRound, X } from 'lucide-react';
 import { useAuth } from '../contexts/AuthContext';
 import { ErrorState, LoadingState, SuccessMessage } from '../components/Feedback';
 import { requireSupabase } from '../lib/supabase';
 import type { AppRole } from '../types/database';
 import { StaffOperationsPanel } from './StaffOperationsPanel';
+import { StaffDutyRosterPanel } from './StaffDutyRosterPanel';
 
 type EmploymentStatus = 'active' | 'on_leave' | 'inactive' | 'terminated';
 type InvitableRole = Exclude<AppRole, 'system_admin' | 'school_admin' | 'academic_coordinator' | 'student' | 'parent'>;
@@ -142,6 +143,7 @@ export function StaffManagementPage() {
   const [form, setForm] = useState<StaffForm>(emptyForm);
   const [editingId, setEditingId] = useState('');
   const [query, setQuery] = useState('');
+  const [readinessFilter, setReadinessFilter] = useState<'all' | 'ready' | 'attention'>('all');
   const [departmentName, setDepartmentName] = useState('');
   const [showCreateForm, setShowCreateForm] = useState(false);
   const [showTeacherInvite, setShowTeacherInvite] = useState(false);
@@ -154,7 +156,7 @@ export function StaffManagementPage() {
   const [inviteError, setInviteError] = useState('');
   const [success, setSuccess] = useState('');
   const [refreshKey, setRefreshKey] = useState(0);
-  const [staffSection, setStaffSection] = useState<'directory' | 'credentials' | 'attendance' | 'leave' | 'payroll'>('directory');
+  const [staffSection, setStaffSection] = useState<'directory' | 'credentials' | 'attendance' | 'leave' | 'payroll' | 'duties'>('directory');
 
   const load = useCallback(async () => {
     if (!schoolId) return;
@@ -212,11 +214,34 @@ export function StaffManagementPage() {
   const isHod = hodDepartmentIds.size > 0;
   const visibleSubjects = isAdmin ? subjects : subjects.filter((subject) => subject.department_id && hodDepartmentIds.has(subject.department_id));
   const visibleDepartments = canManageDirectory ? departments : departments.filter((department) => hodDepartmentIds.has(department.id));
+  function readinessIssues(person: StaffProfile) {
+    const teacher = teacherByStaffId.get(person.id);
+    const accountProfile = person.profile_id ?? teacher?.profile_id;
+    const linkedRole = accountProfile
+      ? staffAccounts.find((account) => account.profile_id === accountProfile)?.role
+      : null;
+    const issues: string[] = [];
+    if (!isHrStaffAdmin && !linkedRole) issues.push('School account or role not linked');
+    if (person.employment_status !== 'active') issues.push(`Employment is ${STATUS_LABELS[person.employment_status].toLowerCase()}`);
+    if (teacher) {
+      if (!teacher.qualifications.trim()) issues.push('Qualifications missing');
+      if (!classAssignments.some((assignment) => assignment.teacher_id === teacher.id)) issues.push('No class allocation');
+      if (!subjectAssignments.some((assignment) => assignment.teacher_id === teacher.id)) issues.push('No subject allocation');
+    }
+    return issues;
+  }
+  const directoryScope = staff.filter((person) =>
+    canManageDirectory || (person.department_id !== null && hodDepartmentIds.has(person.department_id)));
+  const readinessAttentionCount = directoryScope.filter((person) => readinessIssues(person).length > 0).length;
   const visibleStaff = staff.filter((person) => {
     const department = departments.find((item) => item.id === person.department_id)?.name ?? '';
     const needle = query.trim().toLowerCase();
     const withinDepartment = canManageDirectory || (person.department_id !== null && hodDepartmentIds.has(person.department_id));
-    return withinDepartment && (!needle || `${person.first_name} ${person.last_name} ${person.employee_number} ${person.email ?? ''} ${person.job_title} ${department}`.toLowerCase().includes(needle));
+    const issues = readinessIssues(person);
+    const matchesReadiness = readinessFilter === 'all'
+      || (readinessFilter === 'ready' ? issues.length === 0 : issues.length > 0);
+    return withinDepartment && matchesReadiness
+      && (!needle || `${person.first_name} ${person.last_name} ${person.employee_number} ${person.email ?? ''} ${person.job_title} ${department}`.toLowerCase().includes(needle));
   });
   const selectedStaff = staff.find((person) => person.id === selectedId) ?? null;
   const selectedTeacher = selectedStaff ? teacherByStaffId.get(selectedStaff.id) ?? null : null;
@@ -641,14 +666,15 @@ export function StaffManagementPage() {
         <button type="button" className={staffSection === 'credentials' ? 'active' : ''} onClick={() => setStaffSection('credentials')}><FileBadge2 size={15} />Credentials &amp; expiry</button>
         <button type="button" className={staffSection === 'attendance' ? 'active' : ''} onClick={() => setStaffSection('attendance')}><CalendarCheck size={15} />Attendance</button>
         <button type="button" className={staffSection === 'leave' ? 'active' : ''} onClick={() => setStaffSection('leave')}><CalendarDays size={15} />Leave &amp; coverage</button>
+        <button type="button" className={staffSection === 'duties' ? 'active' : ''} onClick={() => setStaffSection('duties')}><ShieldCheck size={15} />Duty roster</button>
         <button type="button" className={staffSection === 'payroll' ? 'active' : ''} onClick={() => setStaffSection('payroll')}><Clock3 size={15} />Payroll export</button>
       </nav>}
 
-      {staffSection !== 'directory' && canManageDirectory ? <StaffOperationsPanel
-        schoolId={schoolId ?? ''}
-        section={staffSection}
-        canManage={canManageDirectory}
-      /> : <>
+      {staffSection !== 'directory' && canManageDirectory
+        ? staffSection === 'duties'
+          ? <StaffDutyRosterPanel schoolId={schoolId ?? ''} />
+          : <StaffOperationsPanel schoolId={schoolId ?? ''} section={staffSection} canManage={canManageDirectory} />
+        : <>
       {showTeacherInvite && isAdmin && <section className="content-card staff-profile-card teacher-invite-card">
         <div className="section-heading"><div><span className="eyebrow">School account</span><h2>Invite a staff member</h2></div><button className="icon-button" aria-label="Close staff invitation form" onClick={() => setShowTeacherInvite(false)}><X size={17} /></button></div>
         <p className="accounting-help">We’ll send a secure account setup link, assign the selected school role, and create a staff directory profile.</p>
@@ -670,14 +696,23 @@ export function StaffManagementPage() {
       <div className="staff-management-layout">
         <section className="content-card staff-directory-card">
           <div className="section-heading"><div><span className="eyebrow">School directory</span><h2>Staff directory</h2></div><span className="table-count">{visibleStaff.length} staff</span></div>
-          <label className="table-search staff-search"><Search size={15} /><input value={query} onChange={(event) => setQuery(event.target.value)} placeholder="Search name, department, or employee ID" /></label>
+          <div className="staff-readiness-summary">
+            <div><strong>{directoryScope.length}</strong><span>Staff in scope</span></div>
+            <div><strong>{directoryScope.length - readinessAttentionCount}</strong><span>Ready</span></div>
+            <div className={readinessAttentionCount ? 'needs-attention' : ''}><strong>{readinessAttentionCount}</strong><span>Needs attention</span></div>
+          </div>
+          <div className="staff-directory-filters">
+            <label className="table-search staff-search"><Search size={15} /><input value={query} onChange={(event) => setQuery(event.target.value)} placeholder="Search name, department, or employee ID" /></label>
+            <label><span>Readiness</span><select value={readinessFilter} onChange={(event) => setReadinessFilter(event.target.value as typeof readinessFilter)}><option value="all">All staff</option><option value="attention">Needs attention</option><option value="ready">Ready</option></select></label>
+          </div>
           {loading ? <LoadingState label="Loading staff directory..." /> : visibleStaff.length ? <div className="staff-directory-list">
             {visibleStaff.map((person) => {
               const teacher = teacherByStaffId.get(person.id);
               const department = departments.find((item) => item.id === person.department_id);
+              const issues = readinessIssues(person);
               return <button key={person.id} className={`staff-directory-item${selectedId === person.id ? ' selected' : ''}`} onClick={() => { setSelectedId(person.id); setShowCreateForm(false); setError(''); setSuccess(''); }}>
                 <span className="staff-avatar">{person.first_name.slice(0, 1)}{person.last_name.slice(0, 1)}</span>
-                <span className="staff-directory-copy"><strong>{person.first_name} {person.last_name}</strong><small>{person.job_title || (teacher ? 'Teacher' : 'Staff member')}{department ? ` · ${department.name}` : ''}</small><small>{person.employee_number}</small></span>
+                <span className="staff-directory-copy"><strong>{person.first_name} {person.last_name}</strong><small>{person.job_title || (teacher ? 'Teacher' : 'Staff member')}{department ? ` · ${department.name}` : ''}</small><small>{person.employee_number}</small><small className={`staff-readiness-inline${issues.length ? ' needs-attention' : ''}`}>{issues.length ? `${issues.length} readiness item${issues.length === 1 ? '' : 's'} to review` : 'Role ready'}</small></span>
                 <span className={`staff-status staff-status-${person.employment_status}`}>{STATUS_LABELS[person.employment_status]}</span>
               </button>;
             })}
@@ -726,8 +761,14 @@ export function StaffManagementPage() {
             <div><span>Hire date</span><strong>{selectedStaff.hire_date ? new Date(`${selectedStaff.hire_date}T00:00:00`).toLocaleDateString() : 'Not recorded'}</strong></div>
             <div><span>Email</span><strong>{selectedStaff.email || 'Not recorded'}</strong></div>
             <div><span>Phone</span><strong>{selectedStaff.phone || 'Not recorded'}</strong></div>
-            <div><span>School account</span><strong>{(selectedStaff.profile_id ?? selectedTeacher?.profile_id) ? staffAccounts.find((account) => account.profile_id === (selectedStaff.profile_id ?? selectedTeacher?.profile_id))?.role.replace(/_/g, ' ') ?? 'Linked' : 'Not linked'}</strong></div>
+            <div><span>School account</span><strong>{isHrStaffAdmin ? 'Role verification unavailable' : (selectedStaff.profile_id ?? selectedTeacher?.profile_id) ? staffAccounts.find((account) => account.profile_id === (selectedStaff.profile_id ?? selectedTeacher?.profile_id))?.role.replace(/_/g, ' ') ?? 'Linked' : 'Not linked'}</strong></div>
           </div>
+          <section className={`staff-readiness-checklist${readinessIssues(selectedStaff).length ? ' needs-attention' : ''}`}>
+            <h3>Role readiness</h3>
+            {readinessIssues(selectedStaff).length
+              ? <ul>{readinessIssues(selectedStaff).map((issue) => <li key={issue}>{issue}</li>)}</ul>
+              : <p>{isHrStaffAdmin ? 'No visible readiness gaps. Account role verification is restricted for this HR view.' : 'Account, employment status, and teaching allocations are ready for this staff profile.'}</p>}
+          </section>
           {selectedTeacher && <div className="staff-teacher-detail"><h3><GraduationCap size={16} />Teacher details</h3><p>{selectedTeacher.qualifications || 'No qualifications recorded.'}</p><div><span><strong>Classes</strong>{classAssignments.filter((assignment) => assignment.teacher_id === selectedTeacher.id).map((assignment) => classes.find((item) => item.id === assignment.class_id)?.name).filter(Boolean).join(', ') || 'Not allocated'}</span><span><strong>Subjects</strong>{subjectAssignments.filter((assignment) => assignment.teacher_id === selectedTeacher.id).map((assignment) => subjects.find((item) => item.id === assignment.subject_id)?.name).filter(Boolean).join(', ') || 'Not allocated'}</span></div>{isAdmin && selectedResponsibilities.length > 0 && <p><strong>Additional responsibilities:</strong> {selectedResponsibilities.map((item) => item.responsibility_type === 'class_teacher' ? `Class Teacher — ${classes.find((schoolClass) => schoolClass.id === item.class_id)?.name ?? 'class'}` : `HOD — ${departments.find((department) => department.id === item.department_id)?.name ?? 'department'}`).join('; ')}</p>}</div>}
           {canManageDirectory && <div className="staff-document-section">
             <div className="staff-document-heading"><div><FileText size={16} /><strong>Private staff documents</strong></div><span>{documents.length} files · visible to authorized HR administrators</span></div>
