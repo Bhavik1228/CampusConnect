@@ -156,7 +156,7 @@ export function StaffManagementPage() {
   const [inviteError, setInviteError] = useState('');
   const [success, setSuccess] = useState('');
   const [refreshKey, setRefreshKey] = useState(0);
-  const [staffSection, setStaffSection] = useState<'directory' | 'credentials' | 'attendance' | 'leave' | 'payroll' | 'duties'>('directory');
+  const [staffSection, setStaffSection] = useState<'directory' | 'credentials' | 'attendance' | 'leave' | 'offboarding' | 'payroll' | 'duties'>('directory');
 
   const load = useCallback(async () => {
     if (!schoolId) return;
@@ -666,6 +666,7 @@ export function StaffManagementPage() {
         <button type="button" className={staffSection === 'credentials' ? 'active' : ''} onClick={() => setStaffSection('credentials')}><FileBadge2 size={15} />Credentials &amp; expiry</button>
         <button type="button" className={staffSection === 'attendance' ? 'active' : ''} onClick={() => setStaffSection('attendance')}><CalendarCheck size={15} />Attendance</button>
         <button type="button" className={staffSection === 'leave' ? 'active' : ''} onClick={() => setStaffSection('leave')}><CalendarDays size={15} />Leave &amp; coverage</button>
+        <button type="button" className={staffSection === 'offboarding' ? 'active' : ''} onClick={() => setStaffSection('offboarding')}><ShieldCheck size={15} />Offboarding</button>
         <button type="button" className={staffSection === 'duties' ? 'active' : ''} onClick={() => setStaffSection('duties')}><ShieldCheck size={15} />Duty roster</button>
         <button type="button" className={staffSection === 'payroll' ? 'active' : ''} onClick={() => setStaffSection('payroll')}><Clock3 size={15} />Payroll export</button>
       </nav>}
