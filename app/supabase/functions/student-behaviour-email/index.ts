@@ -1,4 +1,6 @@
 import { createClient, type SupabaseClient } from 'npm:@supabase/supabase-js@2';
+import { PDFDocument, StandardFonts, rgb } from 'npm:pdf-lib@1.17.1';
+import QRCode from 'npm:qrcode@1.5.4';
 
 const corsHeaders = {
   'Access-Control-Allow-Origin': '*',
@@ -73,6 +75,213 @@ function safeTargetPath(path: string) {
 
 function renderTemplate(template: string, values: Record<string, string>) {
   return template.replace(/\{([a-z_]+)\}/gi, (_token, key: string) => values[key.toLowerCase()] ?? '');
+}
+
+function escapeHtml(value: string) {
+  return value.replace(/[&<>"']/g, (character) => ({
+    '&': '&amp;',
+    '<': '&lt;',
+    '>': '&gt;',
+    '"': '&quot;',
+    "'": '&#39;',
+  })[character] ?? character);
+}
+
+function renderBrandedEmail(schoolName: string, subject: string, body: string, secureLink: string) {
+  const paragraphs = escapeHtml(body)
+    .split(/\r?\n/)
+    .map((line) => line.trim())
+    .filter(Boolean)
+    .map((line) => `<p style="margin:0 0 14px;color:#33413c;font:15px/1.65 Arial,sans-serif">${line}</p>`)
+    .join('');
+  const safeSchool = escapeHtml(schoolName);
+  const safeSubject = escapeHtml(subject);
+  const safeLink = escapeHtml(secureLink);
+  return `<!doctype html><html><body style="margin:0;padding:24px 12px;background:#f3f5f2">
+    <table role="presentation" width="100%" cellspacing="0" cellpadding="0" style="max-width:600px;margin:0 auto;background:#fff;border:1px solid #e1e8e3;border-radius:12px;overflow:hidden">
+      <tr><td style="padding:22px 28px;background:#183c32;color:#fff">
+        <div style="font:700 12px/1.2 Arial,sans-serif;letter-spacing:1.6px;color:#d9ebdf">CAMPUS CONNECT</div>
+        <div style="margin-top:9px;font:14px/1.4 Arial,sans-serif;color:#fff">${safeSchool}</div>
+      </td></tr>
+      <tr><td style="padding:30px 28px 12px">
+        <div style="margin-bottom:10px;color:#b66b32;font:700 11px/1.2 Arial,sans-serif;letter-spacing:1.2px;text-transform:uppercase">STUDENT WELLBEING</div>
+        <h1 style="margin:0 0 20px;color:#183c32;font:700 23px/1.25 Arial,sans-serif">${safeSubject}</h1>
+        ${paragraphs}
+        <table role="presentation" cellspacing="0" cellpadding="0" style="margin:24px 0 12px"><tr>
+          <td style="border-radius:7px;background:#20745b">
+            <a href="${safeLink}" style="display:inline-block;padding:13px 20px;color:#fff;text-decoration:none;font:700 14px/1 Arial,sans-serif">Open secure update</a>
+          </td>
+        </tr></table>
+        <p style="margin:20px 0 8px;color:#66736d;font:12px/1.6 Arial,sans-serif">Sign in to Campus Connect to view this private school update. Please do not forward this email.</p>
+      </td></tr>
+      <tr><td style="padding:16px 28px;border-top:1px solid #e8ede9;background:#fafbf9;color:#758078;font:11px/1.6 Arial,sans-serif">
+        A secure message from ${safeSchool} via Campus Connect.<br>Student information is confidential and intended only for the linked family.
+      </td></tr>
+    </table>
+  </body></html>`;
+}
+
+function pdfSafe(value: string) {
+  return value.normalize('NFKD').replace(/[\u0300-\u036f]/g, '').replace(/[^\x20-\x7E]/g, ' ');
+}
+
+function base64(bytes: Uint8Array) {
+  let binary = '';
+  const chunkSize = 0x8000;
+  for (let offset = 0; offset < bytes.length; offset += chunkSize) {
+    binary += String.fromCharCode(...bytes.subarray(offset, Math.min(offset + chunkSize, bytes.length)));
+  }
+  return btoa(binary);
+}
+
+async function createBehaviourReportPdf(report: Record<string, unknown>, reportUrl: string) {
+  const pdf = await PDFDocument.create();
+  const regular = await pdf.embedFont(StandardFonts.Helvetica);
+  const bold = await pdf.embedFont(StandardFonts.HelveticaBold);
+  const pageWidth = 595.28;
+  const pageHeight = 841.89;
+  const margin = 44;
+  const ink = rgb(0.09, 0.22, 0.19);
+  const muted = rgb(0.35, 0.41, 0.38);
+  const green = rgb(0.13, 0.45, 0.35);
+  const pale = rgb(0.95, 0.97, 0.95);
+  let page = pdf.addPage([pageWidth, pageHeight]);
+  let y = pageHeight - margin;
+
+  const addPage = () => {
+    page = pdf.addPage([pageWidth, pageHeight]);
+    y = pageHeight - 62;
+    page.drawText('CAMPUS CONNECT  /  STUDENT WELLBEING', {
+      x: margin, y: pageHeight - 34, size: 8, font: bold, color: green,
+    });
+    page.drawLine({
+      start: { x: margin, y: pageHeight - 43 },
+      end: { x: pageWidth - margin, y: pageHeight - 43 },
+      thickness: 0.7,
+      color: pale,
+    });
+  };
+  const ensureSpace = (height: number) => {
+    if (y - height < 68) addPage();
+  };
+  const drawSection = (title: string) => {
+    ensureSpace(32);
+    y -= 8;
+    page.drawRectangle({ x: margin, y: y - 18, width: pageWidth - margin * 2, height: 24, color: pale });
+    page.drawText(pdfSafe(title.toUpperCase()), { x: margin + 10, y: y - 10, size: 9, font: bold, color: ink });
+    y -= 32;
+  };
+  const drawField = (label: string, value: string) => {
+    const text = pdfSafe(value.trim());
+    if (!text) return;
+    const size = 9;
+    const maxWidth = pageWidth - margin * 2 - 112;
+    const lines: string[] = [];
+    let line = '';
+    for (const word of text.split(/\s+/)) {
+      const next = line ? `${line} ${word}` : word;
+      if (regular.widthOfTextAtSize(next, size) > maxWidth && line) {
+        lines.push(line);
+        line = word;
+      } else {
+        line = next;
+      }
+    }
+    if (line) lines.push(line);
+    for (let index = 0; index < lines.length; index += 1) {
+      ensureSpace(15);
+      page.drawText(index === 0 ? pdfSafe(label) : '', {
+        x: margin, y: y - size, size: 8, font: bold, color: muted,
+      });
+      page.drawText(lines[index], {
+        x: margin + 112, y: y - size, size, font: regular, color: ink,
+      });
+      y -= 14;
+    }
+    y -= 3;
+  };
+
+  page.drawRectangle({
+    x: 0, y: pageHeight - 126, width: pageWidth, height: 126, color: ink,
+  });
+  page.drawRectangle({
+    x: 0, y: pageHeight - 130, width: pageWidth, height: 4, color: green,
+  });
+  page.drawText('CAMPUS CONNECT  /  STUDENT WELLBEING', {
+    x: margin, y: pageHeight - 45, size: 9, font: bold, color: rgb(0.82, 0.91, 0.85),
+  });
+  page.drawText('Student behaviour report', {
+    x: margin, y: pageHeight - 82, size: 22, font: bold, color: rgb(1, 1, 1),
+  });
+  page.drawText(pdfSafe(String(report.school_name || 'School')), {
+    x: margin, y: pageHeight - 105, size: 10, font: regular, color: rgb(0.91, 0.95, 0.92),
+  });
+  y = pageHeight - 154;
+
+  drawSection('Student details');
+  drawField('Student', String(report.student_name || ''));
+  drawField('Student ID', String(report.student_number || ''));
+  drawField('Class', String(report.class_name || 'Not assigned'));
+  drawSection('Behaviour record');
+  drawField('Record type', `${report.behaviour_type_name || ''} (${report.category === 'positive' ? 'Positive' : 'Behaviour concern'})`);
+  drawField('Occurred', new Date(String(report.occurred_at)).toLocaleString('en-GB', { dateStyle: 'medium', timeStyle: 'short', timeZone: 'UTC' }) + ' UTC');
+  drawField('Reported by', String(report.reported_by_name || 'School staff'));
+  drawField('Report reference', String(report.id || ''));
+  drawField('Recorded', report.created_at
+    ? new Date(String(report.created_at)).toLocaleString('en-GB', { dateStyle: 'medium', timeStyle: 'short', timeZone: 'UTC' }) + ' UTC'
+    : '');
+  drawField('Location', String(report.location || 'Not recorded'));
+  drawField('Context', String(report.context || ''));
+  drawField('Severity', String(report.severity || ''));
+  drawField('What happened', String(report.description || ''));
+  drawField('Student perspective', String(report.student_perspective || ''));
+  drawField('Actions taken', String(report.actions_taken || 'No immediate action recorded.'));
+  drawField('Follow-up / consequence', String(report.action_name || 'No follow-up action selected.'));
+  if (typeof report.points_awarded === 'number') drawField('Points', String(report.points_awarded));
+  ensureSpace(150);
+  drawSection('Secure report access');
+  drawField('Privacy', String(report.privacy_note || 'This copy is prepared for the linked family of the named student.'));
+  const qr = QRCode.create(reportUrl, { errorCorrectionLevel: 'Q' });
+  const qrSize = Math.min(104, qr.modules.size * 1.65);
+  const moduleSize = qrSize / qr.modules.size;
+  const qrX = margin;
+  const qrY = y - qrSize;
+  page.drawRectangle({ x: qrX - 5, y: qrY - 5, width: qrSize + 10, height: qrSize + 10, color: rgb(1, 1, 1), borderColor: pale, borderWidth: 1 });
+  for (let row = 0; row < qr.modules.size; row += 1) {
+    for (let column = 0; column < qr.modules.size; column += 1) {
+      if (qr.modules.get(row, column)) {
+        page.drawRectangle({
+          x: qrX + column * moduleSize,
+          y: qrY + (qr.modules.size - row - 1) * moduleSize,
+          width: moduleSize,
+          height: moduleSize,
+          color: ink,
+        });
+      }
+    }
+  }
+  page.drawText('Scan to sign in and open this protected report.', {
+    x: qrX + qrSize + 22, y: qrY + qrSize - 12, size: 9, font: bold, color: ink, maxWidth: 170,
+  });
+  page.drawText('The QR code contains a secure link only; report details are shown after sign-in.', {
+    x: qrX + qrSize + 22, y: qrY + qrSize - 32, size: 8, font: regular, color: muted, maxWidth: 170, lineHeight: 12,
+  });
+  const pageCount = pdf.getPageCount();
+  pdf.getPages().forEach((pdfPage, index) => {
+    pdfPage.drawText(`Confidential student information - ${index + 1} of ${pageCount}`, {
+      x: margin, y: 34, size: 7, font: regular, color: muted,
+    });
+  });
+  return pdf.save();
+}
+
+function redactOtherStudentIdentities(value: string, identities: string[]) {
+  return identities.reduce((text, identity) => {
+    const escaped = identity.trim().replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+    return escaped.length >= 2
+      ? text.replace(new RegExp(`(?<![\\p{L}\\p{N}])${escaped}(?![\\p{L}\\p{N}])`, 'giu'), '[withheld]')
+      : text;
+  }, value);
 }
 
 async function getMembershipRole(admin: SupabaseClient, schoolId: string, profileId: string) {
@@ -244,6 +453,109 @@ async function sendDelivery(admin: SupabaseClient, deliveryId: string) {
   };
   const subject = renderTemplate(template.subject_template, templateValues).trim().slice(0, 120);
   const text = renderTemplate(template.body_template, templateValues).trim().slice(0, 1200);
+  const htmlText = renderTemplate(template.body_template, {
+    ...templateValues,
+    secure_link: 'the secure button below',
+  }).trim().slice(0, 1200);
+  const attachments: { ContentType: string; Filename: string; Base64Content: string }[] = [];
+  if (delivery.event_type === 'manual_report') {
+    const failPdfPreparation = async (reason: string) => {
+      const { error: updateError } = await admin.from('student_behaviour_email_deliveries')
+        .update({ status: 'failed', last_error: 'The report PDF could not be prepared safely.' })
+        .eq('id', delivery.id);
+      if (updateError) throw updateError;
+      console.error('Could not prepare a behaviour report PDF.', { deliveryId: delivery.id, reason });
+    };
+    const { data: report, error: reportError } = await admin.from('student_behaviour_records')
+      .select('id,school_id,student_id,student_name,student_number,class_name,school_name,behaviour_type_name,category,points_awarded,action_name,reported_by_name,occurred_at,location,context,description,student_perspective,severity,actions_taken,status,guardian_visible,confidential,created_at')
+      .eq('id', delivery.record_id ?? '')
+      .eq('school_id', delivery.school_id)
+      .maybeSingle();
+    if (reportError) {
+      await failPdfPreparation('Report lookup failed.');
+      return 'failed';
+    }
+    if (!report || report.guardian_visible !== true || report.confidential
+      || !['published', 'resolved', 'closed'].includes(report.status)) {
+      const { error: suppressError } = await admin.from('student_behaviour_email_deliveries')
+        .update({ status: 'suppressed', last_error: 'Report access was withdrawn before delivery.' })
+        .eq('id', delivery.id);
+      if (suppressError) throw suppressError;
+      return 'suppressed';
+    }
+    try {
+      if (delivery.target_path !== `/behaviour/report/${report.id}`) {
+        throw new Error('Report destination does not match the queued report.');
+      }
+      const { data: parent, error: parentError } = await admin.from('parent_profiles')
+        .select('id')
+        .eq('school_id', report.school_id)
+        .eq('profile_id', delivery.recipient_profile_id)
+        .maybeSingle();
+      if (parentError) throw parentError;
+      const [{ data: parentLink, error: linkError }, { data: parentMembership, error: membershipError }, { data: preference, error: preferenceError }] = await Promise.all([
+        parent
+          ? admin.from('parent_students').select('parent_id').eq('school_id', report.school_id)
+            .eq('student_id', report.student_id).eq('parent_id', parent.id).maybeSingle()
+          : Promise.resolve({ data: null, error: null }),
+        admin.from('school_memberships').select('profile_id').eq('school_id', report.school_id)
+          .eq('profile_id', delivery.recipient_profile_id).eq('role', 'parent').maybeSingle(),
+        admin.from('student_behaviour_email_preferences').select('email_enabled')
+          .eq('school_id', report.school_id).eq('profile_id', delivery.recipient_profile_id)
+          .eq('event_type', 'manual_report').maybeSingle(),
+      ]);
+      if (linkError) throw linkError;
+      if (membershipError) throw membershipError;
+      if (preferenceError) throw preferenceError;
+      if (!parent || !parentLink || !parentMembership || preference?.email_enabled === false) {
+        const { error: suppressError } = await admin.from('student_behaviour_email_deliveries')
+          .update({ status: 'suppressed', last_error: 'The recipient is no longer eligible for this report email.' })
+          .eq('id', delivery.id);
+        if (suppressError) throw suppressError;
+        return 'suppressed';
+      }
+      const { data: participants, error: participantsError } = await admin.from('student_behaviour_record_participants')
+        .select('student_id')
+        .eq('school_id', report.school_id)
+        .eq('record_id', report.id)
+        .neq('student_id', report.student_id);
+      if (participantsError) throw participantsError;
+      const participantIds = [...new Set((participants ?? []).map((item) => item.student_id))];
+      let identities: string[] = [];
+      if (participantIds.length) {
+        const { data: students, error: studentsError } = await admin.from('students')
+          .select('first_name,last_name,student_number')
+          .eq('school_id', report.school_id)
+          .in('id', participantIds);
+        if (studentsError) throw studentsError;
+        identities = (students ?? []).flatMap((student) => [
+          `${student.first_name} ${student.last_name}`,
+          student.first_name,
+          student.last_name,
+          student.student_number,
+        ]).filter((identity) => typeof identity === 'string' && identity.trim().length >= 1);
+      }
+      const privateFields = ['context', 'description', 'student_perspective', 'actions_taken'] as const;
+      const parentSafeReport: Record<string, unknown> = {
+        ...report,
+        privacy_note: participantIds.length
+          ? 'Names and student IDs of other students involved have been withheld.'
+          : 'This copy is prepared for the linked family of the named student.',
+      };
+      for (const field of privateFields) {
+        parentSafeReport[field] = redactOtherStudentIdentities(String(report[field] ?? ''), identities);
+      }
+      const pdfBytes = await createBehaviourReportPdf(parentSafeReport, link);
+      attachments.push({
+        ContentType: 'application/pdf',
+        Filename: 'student-behaviour-report.pdf',
+        Base64Content: base64(pdfBytes),
+      });
+    } catch (pdfError) {
+      await failPdfPreparation(pdfError instanceof Error ? pdfError.message : 'PDF generation failed.');
+      return 'failed';
+    }
+  }
   let response: Response;
   try {
     response = await fetch(mailjetApi, {
@@ -258,6 +570,8 @@ async function sendDelivery(admin: SupabaseClient, deliveryId: string) {
           To: [{ Email: recipientEmail }],
           Subject: subject || 'A secure school update is available',
           TextPart: text,
+          HTMLPart: renderBrandedEmail(templateValues.school_name, subject || 'A secure school update is available', htmlText, link),
+          ...(attachments.length ? { Attachments: attachments } : {}),
           CustomID: delivery.id,
         }],
       }),

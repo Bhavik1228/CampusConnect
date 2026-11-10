@@ -66,9 +66,46 @@ function messageOf(error: unknown, fallback: string) {
 
 function preview(value: string) {
   return value
-    .replaceAll('{secure_link}', 'https://campus-connect.work.gd/behaviour/my')
+    .replaceAll('{secure_link}', 'the secure button below')
     .replaceAll('{school_name}', 'Example School')
     .replaceAll('{school_contact}', 'school@example.org');
+}
+
+function escapeHtml(value: string) {
+  return value.replace(/[&<>"']/g, (character) => ({
+    '&': '&amp;',
+    '<': '&lt;',
+    '>': '&gt;',
+    '"': '&quot;',
+    "'": '&#39;',
+  })[character] ?? character);
+}
+
+function emailPreview(subject: string, body: string) {
+  const paragraphs = escapeHtml(preview(body))
+    .split(/\r?\n/)
+    .map((line) => line.trim())
+    .filter(Boolean)
+    .map((line) => `<p style="margin:0 0 14px;color:#33413c;font:15px/1.65 Arial,sans-serif">${line}</p>`)
+    .join('');
+  return `<!doctype html><html><body style="margin:0;padding:16px;background:#f3f5f2">
+    <table role="presentation" width="100%" cellspacing="0" cellpadding="0" style="max-width:560px;margin:0 auto;background:#fff;border:1px solid #e1e8e3;border-radius:12px;overflow:hidden">
+      <tr><td style="padding:20px 24px;background:#183c32;color:#fff">
+        <div style="font:700 12px Arial,sans-serif;letter-spacing:1.6px;color:#d9ebdf">CAMPUS CONNECT</div>
+        <div style="margin-top:8px;font:14px Arial,sans-serif">Example School</div>
+      </td></tr>
+      <tr><td style="padding:26px 24px 12px">
+        <div style="margin-bottom:10px;color:#b66b32;font:700 11px Arial,sans-serif;letter-spacing:1.2px">STUDENT WELLBEING</div>
+        <h1 style="margin:0 0 18px;color:#183c32;font:700 22px/1.25 Arial,sans-serif">${escapeHtml(preview(subject))}</h1>
+        ${paragraphs}
+        <div style="margin:22px 0 18px"><span style="display:inline-block;padding:13px 20px;border-radius:7px;background:#20745b;color:#fff;font:700 14px Arial,sans-serif">Open secure update</span></div>
+        <p style="margin:0;color:#66736d;font:12px/1.6 Arial,sans-serif">Sign in to Campus Connect to view this private school update. Please do not forward this email.</p>
+      </td></tr>
+      <tr><td style="padding:15px 24px;border-top:1px solid #e8ede9;background:#fafbf9;color:#758078;font:11px/1.6 Arial,sans-serif">
+        A secure message from Example School via Campus Connect.<br>Student information is confidential and intended only for the linked family.
+      </td></tr>
+    </table>
+  </body></html>`;
 }
 
 export function StudentBehaviourEmailSettings({ schoolId, userId, canConfigure }: { schoolId: string; userId: string; canConfigure: boolean }) {
@@ -231,7 +268,7 @@ export function StudentBehaviourEmailSettings({ schoolId, userId, canConfigure }
           onChange={(event) => setSettings({ ...settings, quiet_hours_end: event.target.value })} /></label>
         <button className="button button-primary" type="submit" disabled={saving}>Save mail settings</button>
       </form>
-      <p className="behaviour-email-hint">Only a generic notice and a sign-in-required link are sent. Incident descriptions, student names and PDFs are not included. Meeting details are shown after sign-in.</p>
+      <p className="behaviour-email-hint">Automated notices contain no incident details or attachments. A staff-initiated report email includes a family-safe PDF with a QR code to the protected report; confidential or non-visible reports cannot be attached.</p>
       <div className="behaviour-schedule-setup">
         <div><h3>Automatic delivery</h3><p>Set up the secure 15-minute schedule. This saves the existing Edge Function secret into Supabase Vault without showing or copying it.</p></div>
         <button className="button button-primary" type="button" disabled={configuringSchedule} onClick={() => void configureSchedule()}>
@@ -255,7 +292,12 @@ export function StudentBehaviourEmailSettings({ schoolId, userId, canConfigure }
         <label className="field"><span>Message</span><textarea required minLength={10} maxLength={1200} rows={3} value={template.body_template}
           onChange={(event) => updateTemplate(template.id, { body_template: event.target.value })} /></label>
         <small>Available placeholders: {'{secure_link}'}, {'{school_name}'}, {'{school_contact}'}</small>
-        <div className="behaviour-email-preview"><strong>Preview</strong><span>{preview(template.subject_template)}</span><p>{preview(template.body_template)}</p></div>
+        <div className="behaviour-email-preview">
+          <strong>Email appearance</strong>
+          <iframe title={`${eventLabels[template.event_type]} email preview`} sandbox=""
+            srcDoc={emailPreview(template.subject_template, template.body_template)} />
+          {template.event_type === 'manual_report' && <small className="behaviour-email-attachment-note">A family-safe PDF report will be attached to staff-initiated report emails.</small>}
+        </div>
         <button className="button button-quiet" type="submit" disabled={saving}>Save template</button>
       </form>)}
     </div>}
