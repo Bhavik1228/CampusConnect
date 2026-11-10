@@ -306,8 +306,9 @@ async function queueReportEvents(
     .eq('id', recordId)
     .maybeSingle();
   if (reportError) throw reportError;
-  if (!report || report.status !== 'published' || report.guardian_visible !== true || report.confidential) {
-    return { error: 'Only a published report approved for guardian access can be emailed.' };
+  if (!report || !['published', 'resolved', 'closed'].includes(report.status)
+    || report.guardian_visible !== true || report.confidential) {
+    return { error: 'Only a published, resolved, or closed report approved for guardian access can be emailed.' };
   }
   if (eventType === 'improvement_update' && report.category !== 'positive') {
     return { error: 'Improvement updates can only be sent for positive recognition.' };

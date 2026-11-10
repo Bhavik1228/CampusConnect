@@ -511,8 +511,8 @@ export function StudentBehaviourPage() {
       });
       if (invokeError) throw invokeError;
       setNotice(data?.sent > 0
-        ? `Secure report link sent to linked parent account(s).`
-        : 'Secure report link queued. It may require staff approval or wait for the next delivery run.');
+        ? 'Behaviour report PDF emailed to linked parent account(s).'
+        : 'Behaviour report email queued. It may require staff approval or wait for the next delivery run.');
       setSelectedRecord(null);
     } catch (emailError) {
       setError(messageOf(emailError, 'Could not email the secure report link to the student’s parent.'));
