@@ -31,6 +31,7 @@ import { AdmissionsPage } from '../pages/AdmissionsPage';
 import { AdmissionInterviewSchedulingPage } from '../pages/AdmissionInterviewSchedulingPage';
 import { StudentsPage } from '../pages/StudentsPage';
 import { GuardianContactVerificationPage } from '../pages/GuardianContactVerificationPage';
+import { ParentAccessPage } from '../pages/ParentAccessPage';
 import { AdministrativeWorkflowsPage } from '../pages/AdministrativeWorkflowsPage';
 import { WebsiteManagementPage } from '../pages/WebsiteManagementPage';
 import { CoursesLessonsPage } from '../pages/CoursesLessonsPage';
@@ -204,6 +205,7 @@ export function ProtectedApp() {
           <Route path="/behaviour/my" element={<StudentBehaviourFamilyPage />} />
           <Route path="/students" element={<StudentsPage />} />
           <Route path="/guardian-contact-verification" element={<GuardianContactVerificationPage />} />
+          <Route path="/parent-access" element={<ParentAccessPage />} />
           <Route path="/admissions" element={<AdmissionsPage />} />
           <Route path="/admissions/scheduling" element={<AdmissionInterviewSchedulingPage />} />
           <Route path="/teachers" element={<DirectoryPage kind="teachers" />} />

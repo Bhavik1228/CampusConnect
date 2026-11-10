@@ -3505,6 +3505,41 @@ td strong { color: var(--cc-color-3e435a); font-weight: 600; }
 .command-palette-search > kbd { padding: 4px 7px; border: 1px solid var(--cc-color-e7e8ef); border-radius: 6px; color: var(--cc-color-858b9d); font-size: 0.875rem; }
 
 .student-behaviour-page { min-width: 0; }
+.parent-access-layout { display: grid; grid-template-columns: minmax(0, .9fr) minmax(0, 1.1fr); align-items: start; gap: 14px; }
+.parent-access-form-card, .parent-access-directory { display: grid; align-content: start; gap: 12px; min-width: 0; padding: 18px; }
+.parent-access-help { margin: -4px 0 0; color: var(--cc-color-777d91); font-size: 0.875rem; line-height: 1.6; }
+.parent-access-form { display: grid; gap: 11px; }
+.parent-access-form .field { min-width: 0; margin: 0; }
+.parent-access-name-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 10px; }
+.parent-access-student-picker { display: grid; gap: 9px; min-width: 0; margin: 0; padding: 12px; border: 1px solid var(--cc-color-e8e9f1); border-radius: 9px; }
+.parent-access-student-picker legend { padding: 0 5px; color: var(--cc-color-43485c); font-size: 0.875rem; font-weight: 700; }
+.parent-access-student-picker legend span { margin-left: 6px; color: var(--cc-color-82879a); font-weight: 500; }
+.parent-access-student-picker > input[type="search"] { width: 100%; min-height: 38px; padding: 0 10px; border: 1px solid var(--cc-color-e7e8ef); border-radius: 8px; background: var(--cc-color-white); color: var(--cc-color-454a60); font: inherit; }
+.parent-access-student-list { display: grid; max-height: 280px; overflow-y: auto; }
+.parent-access-student-option { display: flex; align-items: center; gap: 9px; padding: 9px 2px; border-bottom: 1px solid var(--cc-color-f0f1f5); cursor: pointer; }
+.parent-access-student-option input { width: 16px; height: 16px; flex: none; accent-color: var(--cc-color-6258c8); }
+.parent-access-student-option > span { display: grid; gap: 3px; min-width: 0; }
+.parent-access-student-option strong { color: var(--cc-color-454a60); font-size: 0.875rem; }
+.parent-access-student-option small, .parent-access-empty-hint { color: var(--cc-color-858a9b); font-size: 0.875rem; }
+.parent-access-empty-hint { margin: 0; }
+.parent-access-list { display: grid; }
+.parent-access-list > article { display: grid; gap: 10px; padding: 13px 0; border-top: 1px solid var(--cc-color-eff0f4); }
+.parent-access-list-heading { display: flex; align-items: center; gap: 10px; min-width: 0; }
+.parent-access-avatar { display: grid; width: 34px; height: 34px; flex: none; place-items: center; border-radius: 9px; background: var(--cc-color-f2f0ff); color: var(--cc-color-6258c8); }
+.parent-access-list-heading > div { display: grid; gap: 3px; min-width: 0; }
+.parent-access-list-heading strong { color: var(--cc-color-42475c); font-size: 0.875rem; }
+.parent-access-list-heading small { color: var(--cc-color-858a9b); font-size: 0.875rem; overflow-wrap: anywhere; }
+.parent-access-child-list { display: grid; gap: 5px; margin-left: 44px; }
+.parent-access-child-list > strong { display: inline-flex; align-items: center; gap: 5px; color: var(--cc-color-656b80); font-size: 0.875rem; }
+.parent-access-child-list ul { display: grid; gap: 4px; margin: 0; padding-left: 19px; color: var(--cc-color-777d91); font-size: 0.875rem; }
+.parent-access-child-list p { margin: 0; color: var(--cc-color-858a9b); font-size: 0.875rem; }
+@media (max-width: 900px) {
+  .parent-access-layout { grid-template-columns: 1fr; }
+}
+@media (max-width: 540px) {
+  .parent-access-form-card, .parent-access-directory { padding: 14px; }
+  .parent-access-name-grid { grid-template-columns: 1fr; }
+}
 .student-behaviour-form, .behaviour-records-card, .student-behaviour-settings > .content-card,
 .behaviour-settings-grid > .content-card { min-width: 0; padding: 20px; }
 .behaviour-card-heading { display: flex; align-items: flex-start; gap: 12px; margin-bottom: 18px; }

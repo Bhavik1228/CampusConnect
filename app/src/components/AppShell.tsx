@@ -34,6 +34,7 @@ const navigation: NavigationGroup[] = [
   ] },
   { id: 'people', title: 'People', icon: UsersRound, items: [
     { to: '/students', label: 'Students', icon: GraduationCap },
+    { to: '/parent-access', label: 'Parent access', icon: UserRoundPlus, roles: ['school_admin'] },
     { to: '/guardian-contact-verification', label: 'Guardian contact verification', icon: ShieldCheck, roles: ['school_admin'] },
     { to: '/admissions', label: 'Admissions & enrolment', icon: UserRoundPlus, roles: ['school_admin', 'admissions_officer'], module: 'module_admissions' },
     { to: '/admissions/scheduling', label: 'Interview scheduling', icon: CalendarClock, roles: ['school_admin', 'admissions_officer'], module: 'module_admissions' },
@@ -93,6 +94,7 @@ const teacherNavigationGroupTitles: Record<string, string> = {
 const pageNames: Record<string, string> = {
   '/dashboard': 'Overview', '/students': 'Students', '/admissions': 'Admissions & enrolment', '/teachers': 'Teachers', '/staff': 'Staff & teachers',
   '/guardian-contact-verification': 'Guardian contact verification',
+  '/parent-access': 'Parent access',
   '/classes': 'Classes', '/subjects': 'Subjects', '/timetable': 'Timetable', '/attendance': 'Attendance',
   '/learning': 'Learning', '/courses-lessons': 'Courses & lessons', '/learning-materials': 'Learning materials', '/assignments': 'Assignments & homework', '/grades-results': 'Grades & results', '/calendar': 'Calendar', '/academic-calendar': 'Academic calendar', '/settings': 'Settings',
   '/past-paper-pipeline': 'Past-paper pipeline',
