@@ -66,6 +66,22 @@ function messageOf(error: unknown, fallback: string) {
   return error instanceof Error ? error.message : fallback;
 }
 
+async function functionErrorMessage(error: unknown, fallback: string) {
+  if (typeof error === 'object' && error !== null && 'context' in error
+    && error.context instanceof Response) {
+    try {
+      const body: unknown = await error.context.clone().json();
+      if (typeof body === 'object' && body !== null && !Array.isArray(body)
+        && 'error' in body && typeof body.error === 'string') {
+        return body.error;
+      }
+    } catch {
+      return messageOf(error, fallback);
+    }
+  }
+  return messageOf(error, fallback);
+}
+
 function displayDate(value: string) {
   return new Intl.DateTimeFormat(undefined, { dateStyle: 'medium', timeStyle: 'short' }).format(new Date(value));
 }
@@ -515,7 +531,7 @@ export function StudentBehaviourPage() {
         : 'Behaviour report email queued. It may require staff approval or wait for the next delivery run.');
       setSelectedRecord(null);
     } catch (emailError) {
-      setError(messageOf(emailError, 'Could not email the secure report link to the student’s parent.'));
+      setError(await functionErrorMessage(emailError, 'Could not email the behaviour report to the student’s parent.'));
     } finally {
       setEmailingReportId('');
     }
