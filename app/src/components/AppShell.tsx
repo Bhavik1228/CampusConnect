@@ -52,6 +52,7 @@ const navigation: NavigationGroup[] = [
     { to: '/library', label: 'Library', icon: BookCopy, module: 'module_library' },
   ] },
   { id: 'student-life', title: 'Student Life', icon: HeartPulse, items: [
+    { to: '/behaviour', label: 'Behaviour management', icon: ShieldCheck, roles: ['school_admin', 'academic_coordinator', 'teacher', 'librarian', 'secretary', 'hr_staff_administrator', 'safeguarding_officer'] },
     { to: '/health', label: 'Health', icon: HeartPulse, roles: ['school_admin', 'nurse', 'doctor'], module: 'module_health' },
   ] },
   { id: 'school-operations', title: 'School Operations', icon: BriefcaseBusiness, items: [
@@ -74,7 +75,7 @@ const navigation: NavigationGroup[] = [
 
 const teacherNavigationPaths = new Set([
   '/timetable', '/classes', '/subjects', '/attendance', '/grades-results', '/calendar',
-  '/learning', '/assignments', '/courses-lessons', '/learning-materials', '/messaging',
+  '/learning', '/assignments', '/courses-lessons', '/learning-materials', '/messaging', '/behaviour',
 ]);
 const teacherNavigationLabels: Record<string, string> = {
   '/timetable': 'My timetable',
@@ -104,10 +105,11 @@ const pageNames: Record<string, string> = {
   '/setup-health': 'Setup & Data Health',
   '/academic-planning': 'Academic planning',
   '/automations': 'Automations',
-  '/messaging': 'Messages', '/audit-log': 'Audit log',
+  '/messaging': 'Messages', '/audit-log': 'Audit log', '/behaviour': 'Behaviour management',
   '/support': 'Support Bot',
   '/draft-recovery-demo': 'Draft recovery demo',
   '/library': 'Library', '/health': 'Student health', '/health/report': 'Health report', '/visitors': 'Visitor management',
+  '/behaviour/report': 'Behaviour report',
 };
 
 export function AppShell() {
@@ -135,29 +137,33 @@ export function AppShell() {
   const isRestrictedRole = isHealthcareRole || isSecretaryRole;
   const limitedRolePaths: Partial<Record<AppRole, string[]>> = {
     auditor: ['/dashboard', '/school-data', '/finance', '/audit-log', '/account-security'],
-    librarian: ['/dashboard', '/library', '/account-security'],
+    librarian: ['/dashboard', '/library', '/behaviour', '/account-security'],
     accounts_payable_officer: ['/dashboard', '/account-security'],
     website_editor: ['/dashboard', '/website-management', '/account-security'],
     website_publisher: ['/dashboard', '/website-management', '/account-security'],
     admissions_officer: ['/dashboard', '/admissions', '/admissions/scheduling', '/account-security'],
-    hr_staff_administrator: ['/dashboard', '/staff', '/account-security'],
+    hr_staff_administrator: ['/dashboard', '/staff', '/behaviour', '/account-security'],
     transport_manager: ['/dashboard', '/admin-workflows', '/account-security'],
     facilities_manager: ['/dashboard', '/admin-workflows', '/account-security'],
     it_support_technician: ['/dashboard', '/admin-workflows', '/account-security'],
-    safeguarding_officer: ['/dashboard', '/admin-workflows', '/account-security'],
+    safeguarding_officer: ['/dashboard', '/admin-workflows', '/behaviour', '/account-security'],
     procurement_officer: ['/dashboard', '/admin-workflows', '/account-security'],
     compliance_audit_officer: ['/dashboard', '/admin-workflows', '/audit-log', '/account-security'],
   };
   const rolePaths = limitedRolePaths[activeMembership?.role ?? 'student'];
   const isLimitedRole = rolePaths !== undefined;
   const title = pageNames[location.pathname]
-    ?? (location.pathname.startsWith('/health/report/') ? 'Health report' : location.pathname.startsWith('/visitors/verify/') ? 'Badge verification' : 'Workspace');
+    ?? (location.pathname.startsWith('/health/report/') ? 'Health report'
+      : location.pathname.startsWith('/behaviour/report/') ? 'Behaviour report'
+        : location.pathname.startsWith('/visitors/verify/') ? 'Badge verification' : 'Workspace');
   const modulePath = location.pathname.startsWith('/admissions/scheduling')
     ? '/admissions'
     : location.pathname === '/past-paper-pipeline'
     ? '/learning'
     : location.pathname.startsWith('/health/report/')
     ? '/health'
+    : location.pathname.startsWith('/behaviour/report/')
+    ? '/behaviour'
     : location.pathname.startsWith('/visitors/verify/') ? '/visitors' : location.pathname;
   const isHealthRoute = modulePath === '/health';
   const setupHealthReturn = location.state && typeof location.state === 'object'
@@ -211,6 +217,7 @@ export function AppShell() {
     '/library': 'library',
     '/health': 'health',
     '/visitors': 'visitors',
+    '/behaviour': 'students',
     '/messaging': 'messaging',
     '/family-communications': 'messaging',
     '/audit-log': 'audit',
@@ -262,7 +269,8 @@ export function AppShell() {
   const visibleNavigation = isRestrictedRole
     ? roleNavigationWithHod.map((group) => ({
       ...group,
-      items: group.items.filter((item) => item.to === (isHealthcareRole ? '/health' : '/visitors')),
+      items: group.items.filter((item) => item.to === (isHealthcareRole ? '/health' : '/visitors')
+        || (isSecretaryRole && item.to === '/behaviour')),
     })).filter((group) => group.items.length > 0)
     : roleNavigationWithHod;
   const accessibleNavigationGroups = visibleNavigation.map((group) => ({
@@ -762,7 +770,7 @@ export function AppShell() {
   }
 
   if (isHealthcareRole && !isHealthRoute && !isSupportRoute) return <Navigate to="/health" replace />;
-  if (isSecretaryRole && !isVisitorRoute && !isSupportRoute) return <Navigate to="/visitors" replace />;
+  if (isSecretaryRole && !isVisitorRoute && modulePath !== '/behaviour' && !isSupportRoute) return <Navigate to="/visitors" replace />;
   if (rolePaths && !rolePaths.includes(modulePath) && !isSupportRoute) return <Navigate to="/dashboard" replace />;
   if (location.pathname === '/permissions' && activeMembership?.role !== 'school_admin') return <Navigate to="/dashboard" replace />;
   if (location.pathname === '/setup-health' && !['school_admin', 'academic_coordinator'].includes(activeMembership?.role ?? '')) return <Navigate to="/dashboard" replace />;

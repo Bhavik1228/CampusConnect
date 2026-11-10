@@ -64,6 +64,7 @@ import { PrerequisiteDemoPage } from '../pages/PrerequisiteDemoPage';
 import { DraftRecoveryDemoPage } from '../pages/DraftRecoveryDemoPage';
 import { PastPaperPipelinePage } from '../pages/PastPaperPipelinePage';
 import { NotFoundPage } from '../pages/NotFoundPage';
+import { StudentBehaviourPage } from '../pages/StudentBehaviourPage';
 
 function RouteGate({ authOnly = true, requireMembership = true }: { authOnly?: boolean; requireMembership?: boolean }) {
   const { user, loading, memberships } = useAuth();
@@ -198,6 +199,7 @@ export function ProtectedApp() {
           <Route path="/academic-planning" element={<AcademicPlanningPage />} />
           <Route path="/support" element={<SupportPage />} />
           <Route path="/dashboard" element={<DashboardPage />} />
+          <Route path="/behaviour/report/:recordId" element={<StudentBehaviourPage />} />
           <Route path="/students" element={<StudentsPage />} />
           <Route path="/guardian-contact-verification" element={<GuardianContactVerificationPage />} />
           <Route path="/admissions" element={<AdmissionsPage />} />
@@ -221,6 +223,7 @@ export function ProtectedApp() {
           <Route path="/library" element={<LibraryPage />} />
           <Route path="/health" element={<HealthPage />} />
           <Route path="/health/report/:visitId" element={<HealthPage />} />
+          <Route path="/behaviour" element={<StudentBehaviourPage />} />
           <Route path="/visitors" element={<VisitorsPage />} />
           <Route path="/visitors/verify/:visitId" element={<VisitorsPage />} />
           <Route path="/assignments" element={<AssignmentsPage />} />
@@ -267,6 +270,10 @@ function LoginRoute() {
     && /^\/verify\/document\/[0-9a-f]{64}$/.test(requestedDestination)
     ? requestedDestination
     : null;
+  const behaviourReportPath = requestedDestination
+    && /^\/behaviour\/report\/[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(requestedDestination)
+    ? requestedDestination
+    : null;
 
   useEffect(() => {
     let active = true;
@@ -294,6 +301,7 @@ function LoginRoute() {
   if (user && healthReportPath) return <Navigate to={healthReportPath} replace />;
   if (user && visitorBadgePath) return <Navigate to={visitorBadgePath} replace />;
   if (user && documentVerificationPath) return <Navigate to={documentVerificationPath} replace />;
+  if (user && behaviourReportPath) return <Navigate to={behaviourReportPath} replace />;
   if (user && memberships.length === 0) return <SchoolSetup />;
   if (user) return <Navigate to="/dashboard" replace />;
   return <AuthScreen />;

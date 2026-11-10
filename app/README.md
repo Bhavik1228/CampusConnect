@@ -27,8 +27,13 @@ Campus Connect is the Vite + React application for the school information and le
 - Teacher workspaces with daily/weekly timetables, assigned teaching, pending work, and additional Class Teacher/Form Tutor and Head of Department responsibilities
 - Student information management with configurable student-number generation, contact and emergency-contact profiles, class-enrolment and status history, transfer/withdrawal records, and private student documents
 - School health clinic for nurse/doctor student selection, timestamped visits, symptoms, observations, optional vitals, allergy information, prescriptions, doctor-only diagnosis, emergency contacts, visit history, and detailed student/current-visit PDFs with authenticated QR report links
+- Student behaviour management (Phase 1) for positive behaviour and concerns, with admin-managed record types and optional points/follow-up actions, staff-only participant details, and protected parent PDF report links
 - School reception visitor management with expected-visit registration, active check-in/out, duplicate active-phone protection, private visitor photos, audit-logged record corrections, print-ready QR badges, and authenticated badge verification
 - Authorized past-paper ingestion to private Firebase Storage, with school metadata catalogued in Supabase
+
+### Student behaviour management
+
+Apply `app/supabase/migrations/202611150001_student_behaviour_management.sql` and deploy the updated frontend. School administrators configure the positive/concern record types, optional points, and school-defined follow-up actions. School administrators, academic coordinators, teachers, librarians, secretaries, HR staff administrators, and safeguarding officers can record behaviour for active students and review school reports. Reports include the incident date/time, location, factual description, actions taken, and involved students. Only the linked parent and authorized school staff can open a report QR link; parent PDFs omit the identities of other involved students. Points are optional and snapshotted for each report when enabled. Phase 1 does not send the report by email or SMS.
 
 The academic modules whose backend schema exists but which do not yet have complete interaction screens are intentionally not presented as finished workflows. The authorized-paper ingestion pipeline stores files privately; a signed download/viewer endpoint is not included yet.
 
