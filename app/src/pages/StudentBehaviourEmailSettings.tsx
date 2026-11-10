@@ -78,6 +78,7 @@ export function StudentBehaviourEmailSettings({ schoolId, userId, canConfigure }
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [activeDelivery, setActiveDelivery] = useState('');
+  const [configuringSchedule, setConfiguringSchedule] = useState(false);
   const [error, setError] = useState('');
   const [notice, setNotice] = useState('');
 
@@ -173,6 +174,24 @@ export function StudentBehaviourEmailSettings({ schoolId, userId, canConfigure }
     }
   }
 
+  async function configureSchedule() {
+    if (configuringSchedule) return;
+    setConfiguringSchedule(true);
+    setError('');
+    setNotice('');
+    try {
+      const { error: invokeError } = await requireSupabase().functions.invoke('student-behaviour-email', {
+        body: { action: 'configure_schedule', schoolId },
+      });
+      if (invokeError) throw invokeError;
+      setNotice('Automatic email delivery is set up. The queue will be checked every 15 minutes.');
+    } catch (configureError) {
+      setError(messageOf(configureError, 'Could not set up scheduled behaviour email delivery.'));
+    } finally {
+      setConfiguringSchedule(false);
+    }
+  }
+
   async function manageDelivery(delivery: EmailDelivery, action: 'approve' | 'retry') {
     if (activeDelivery) return;
     setActiveDelivery(delivery.id);
@@ -213,6 +232,12 @@ export function StudentBehaviourEmailSettings({ schoolId, userId, canConfigure }
         <button className="button button-primary" type="submit" disabled={saving}>Save mail settings</button>
       </form>
       <p className="behaviour-email-hint">Only a generic notice and a sign-in-required link are sent. Incident descriptions, student names and PDFs are not included. Meeting details are shown after sign-in.</p>
+      <div className="behaviour-schedule-setup">
+        <div><h3>Automatic delivery</h3><p>Set up the secure 15-minute schedule. This saves the existing Edge Function secret into Supabase Vault without showing or copying it.</p></div>
+        <button className="button button-primary" type="button" disabled={configuringSchedule} onClick={() => void configureSchedule()}>
+          {configuringSchedule ? 'Setting up…' : 'Set up automatic delivery'}
+        </button>
+      </div>
     </section>}
 
     {canConfigure && <div className="behaviour-email-template-list">

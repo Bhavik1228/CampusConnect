@@ -23,6 +23,7 @@ type RequestBody = {
   recordId?: unknown;
   deliveryId?: unknown;
   eventType?: unknown;
+  schoolId?: unknown;
 };
 type Delivery = {
   id: string;
@@ -375,6 +376,19 @@ Deno.serve(async (request: Request) => {
     const { data: userData, error: userError } = await userClient.auth.getUser(bearer);
     if (userError || !userData.user) return respond(401, { error: 'A valid signed-in account is required.' });
     const userId = userData.user.id;
+
+    if (payload.action === 'configure_schedule') {
+      if (!isUuid(payload.schoolId)) return respond(400, { error: 'A valid school ID is required.' });
+      const role = await getMembershipRole(admin, payload.schoolId, userId);
+      if (role !== 'school_admin') return respond(403, { error: 'Only a school administrator can configure scheduled delivery.' });
+      const cronSecret = Deno.env.get('BEHAVIOUR_EMAIL_CRON_SECRET');
+      if (!cronSecret) return respond(500, { error: 'Scheduled email authorization is not configured.' });
+      const { error: configureError } = await admin.rpc('configure_student_behaviour_email_scheduler', {
+        target_secret: cronSecret,
+      });
+      if (configureError) throw configureError;
+      return respond(200, { configured: true, interval: '15 minutes' });
+    }
 
     if (payload.action === 'email_report' || payload.action === 'queue_event') {
       if (!isUuid(payload.recordId)) return respond(400, { error: 'A valid behaviour report ID is required.' });

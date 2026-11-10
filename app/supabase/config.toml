@@ -36,3 +36,6 @@ verify_jwt = false
 
 [functions.past-paper-pipeline]
 verify_jwt = false
+
+[functions.student-behaviour-email]
+verify_jwt = false
