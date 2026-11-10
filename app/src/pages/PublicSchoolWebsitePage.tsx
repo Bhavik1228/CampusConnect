@@ -20,7 +20,7 @@ type PublicWebsite = {
   admission_requirements: string;
   admissions_deadline: string | null;
   admissions_email: string | null;
-  fees: { level: string; tuition: number; currency: string; frequency: string; additional: string }[];
+  fees?: { level: string; tuition: number; currency: string; frequency: string; additional: string }[] | null;
   name: string;
   address: string | null;
   contact_email: string | null;
@@ -31,10 +31,10 @@ type PublicWebsite = {
   secondary_color: string | null;
   motto: string | null;
 };
-type PublicApplicationField = { key: string; label: string; type: 'text' | 'email' | 'tel' | 'date' | 'select' | 'textarea'; required: boolean; options: string[] };
+type PublicApplicationField = { key: string; label: string; type: 'text' | 'email' | 'tel' | 'date' | 'select' | 'textarea'; required: boolean; options?: string[] | null };
 type PublicRequiredDocument = { key: string; label: string };
-type PublicAppointmentSlot = { id: string; slot_type: 'appointment' | 'open_day'; title: string; starts_at: string; ends_at: string; location: string; remaining: number };
-type PublicAdmissionsConfiguration = { application_fields: PublicApplicationField[]; required_documents: PublicRequiredDocument[]; appointments_enabled: boolean; appointment_slots: PublicAppointmentSlot[] };
+type PublicAppointmentSlot = { id: string; slot_type: 'appointment' | 'open_day'; title: string; starts_at: string; ends_at: string; location: string | null; remaining: number };
+type PublicAdmissionsConfiguration = { application_fields?: PublicApplicationField[] | null; required_documents?: PublicRequiredDocument[] | null; appointments_enabled: boolean; appointment_slots?: PublicAppointmentSlot[] | null };
 
 type PublicResult = {
   student_number: string;
@@ -88,6 +88,15 @@ function safeWebsiteUrl(value: string | null) {
   } catch {
     return null;
   }
+}
+
+function getErrorMessage(error: unknown, fallback: string) {
+  if (error instanceof Error) return error.message;
+  if (typeof error === 'object' && error !== null && 'message' in error && typeof error.message === 'string') {
+    const code = 'code' in error && typeof error.code === 'string' ? ` [${error.code}]` : '';
+    return `${error.message}${code}`;
+  }
+  return fallback;
 }
 
 export function PublicSchoolWebsitePage() {
@@ -181,7 +190,7 @@ export function PublicSchoolWebsitePage() {
           target_student_number: normalizedNumber,
         });
       if (queryError) throw queryError;
-      const records = (data ?? []) as PublicResult[];
+      const records = Array.isArray(data) ? data as PublicResult[] : [];
       setResults(records);
       setSearched(true);
       if (records.length === 0) setSearchError('No published results were found for that student number. Check the number with the school and try again.');
@@ -327,7 +336,7 @@ export function PublicSchoolWebsitePage() {
         setApplicationSuccess('Your application has been submitted. Keep this reference number to check its status with your guardian email.');
       }
     } catch (submitError) {
-      setApplicationError(submitError instanceof Error ? submitError.message : 'Could not submit the application. Please try again.');
+      setApplicationError(getErrorMessage(submitError, 'Could not submit the application. Please try again.'));
     } finally {
       setSubmittingApplication(false);
     }
@@ -427,6 +436,10 @@ export function PublicSchoolWebsitePage() {
   const logoUrl = safeWebsiteUrl(website.logo_path);
   const schoolUrl = safeWebsiteUrl(website.website);
   const visibleResults = results;
+  const schoolFees = Array.isArray(website.fees) ? website.fees : [];
+  const applicationFields = Array.isArray(admissionsConfiguration?.application_fields) ? admissionsConfiguration.application_fields : [];
+  const requiredDocuments = Array.isArray(admissionsConfiguration?.required_documents) ? admissionsConfiguration.required_documents : [];
+  const appointmentSlots = Array.isArray(admissionsConfiguration?.appointment_slots) ? admissionsConfiguration.appointment_slots : [];
   const totalMarks = visibleResults.reduce((total, result) => total + Number(result.marks_obtained), 0);
   const possibleMarks = visibleResults.reduce((total, result) => total + Number(result.maximum_marks), 0);
   const average = possibleMarks ? totalMarks / possibleMarks * 100 : 0;
@@ -441,7 +454,7 @@ export function PublicSchoolWebsitePage() {
         <nav aria-label="School website">
           <a href="#about">About</a>
           <a href="#admissions">Admissions</a>
-          {website.fees.length > 0 && <a href="#fees">Fees</a>}
+          {schoolFees.length > 0 && <a href="#fees">Fees</a>}
           {website.public_results_enabled && <a href="#results">Student results</a>}
         </nav>
         {website.admissions_open && website.admissions_applications_enabled && <a className="public-school-header-cta" href="#admission-application">Apply now <ArrowRight size={14} /></a>}
@@ -501,10 +514,10 @@ export function PublicSchoolWebsitePage() {
         </form>
       </section>}
 
-      {admissionsConfiguration?.appointments_enabled && admissionsConfiguration.appointment_slots.length > 0 && <section className="public-admission-status public-school-section">
+      {admissionsConfiguration?.appointments_enabled && appointmentSlots.length > 0 && <section className="public-admission-status public-school-section">
         <div><span className="public-school-section-kicker">Meet the school</span><h3>Book an admissions appointment</h3><p>Choose an available appointment or open day. Remaining places update as families book.</p></div>
         <form className="public-admission-fields" onSubmit={(event) => void bookAdmissionAppointment(event)}>
-          <label className="public-admission-wide"><span>Available event *</span><select name="slot_id" required defaultValue=""><option value="" disabled>Select a date</option>{admissionsConfiguration.appointment_slots.map((slot) => <option key={slot.id} value={slot.id}>{slot.title}, {slot.slot_type === 'open_day' ? 'Open day' : 'Appointment'}, {new Date(slot.starts_at).toLocaleString()}, {slot.remaining} place(s)</option>)}</select></label>
+          <label className="public-admission-wide"><span>Available event *</span><select name="slot_id" required defaultValue=""><option value="" disabled>Select a date</option>{appointmentSlots.map((slot) => <option key={slot.id} value={slot.id}>{slot.title}, {slot.slot_type === 'open_day' ? 'Open day' : 'Appointment'}, {new Date(slot.starts_at).toLocaleString()}, {slot.remaining} place(s)</option>)}</select></label>
           <label><span>Guardian name *</span><input name="booking_guardian_name" required minLength={2} maxLength={160} /></label>
           <label><span>Email *</span><input name="booking_guardian_email" required type="email" maxLength={254} /></label>
           <label><span>Phone</span><input name="booking_guardian_phone" type="tel" maxLength={40} /></label>
@@ -537,11 +550,11 @@ export function PublicSchoolWebsitePage() {
             <label><span>Student phone</span><input name="student_phone" type="tel" maxLength={40} autoComplete="tel" disabled={submittingApplication} /></label>
             <label className="public-admission-wide"><span>Home address</span><input name="address" maxLength={500} autoComplete="street-address" disabled={submittingApplication} /></label>
           </div></div>
-          {admissionsConfiguration?.application_fields.length ? <div className="public-admission-form-section"><h3>Additional information</h3><div className="public-admission-fields">
-            {admissionsConfiguration.application_fields.map((field) => <label key={field.key} className={field.type === 'textarea' ? 'public-admission-wide' : ''}>
+          {applicationFields.length ? <div className="public-admission-form-section"><h3>Additional information</h3><div className="public-admission-fields">
+            {applicationFields.map((field) => <label key={field.key} className={field.type === 'textarea' ? 'public-admission-wide' : ''}>
               <span>{field.label}{field.required ? ' *' : ''}</span>
               {field.type === 'textarea' ? <textarea name={`custom_${field.key}`} required={field.required} maxLength={2000} rows={3} disabled={submittingApplication} />
-                : field.type === 'select' ? <select name={`custom_${field.key}`} required={field.required} defaultValue="" disabled={submittingApplication}><option value="">Select an option</option>{field.options.map((option) => <option key={option} value={option}>{option}</option>)}</select>
+                : field.type === 'select' ? <select name={`custom_${field.key}`} required={field.required} defaultValue="" disabled={submittingApplication}><option value="">Select an option</option>{(Array.isArray(field.options) ? field.options : []).map((option) => <option key={option} value={option}>{option}</option>)}</select>
                   : <input name={`custom_${field.key}`} type={field.type} required={field.required} maxLength={2000} disabled={submittingApplication} />}
             </label>)}
           </div></div> : null}
@@ -554,7 +567,7 @@ export function PublicSchoolWebsitePage() {
           <div className="public-admission-form-section"><h3>Supporting information</h3>
             <label className="public-admission-wide"><span>Notes for the admissions team</span><textarea name="notes" rows={4} maxLength={3000} disabled={submittingApplication} placeholder="Share anything the admissions team should know." /></label>
             <label className="public-admission-upload"><FileText size={18} /><span><strong>Supporting documents</strong><small>PDF, JPG, PNG, DOC or DOCX · up to five files, 10 MB each</small></span><input name="admission_documents" type="file" multiple accept=".pdf,.jpg,.jpeg,.png,.doc,.docx" disabled={submittingApplication} /></label>
-            {!!admissionsConfiguration?.required_documents.length && <div className="public-admission-required-documents"><strong>Required documents checklist</strong><ul>{admissionsConfiguration.required_documents.map((document) => <li key={document.key}>{document.label}</li>)}</ul></div>}
+            {!!requiredDocuments.length && <div className="public-admission-required-documents"><strong>Required documents checklist</strong><ul>{requiredDocuments.map((document) => <li key={document.key}>{document.label}</li>)}</ul></div>}
             <p className="public-admission-privacy">Application details and uploaded documents are only available to this school’s authorized admissions administrator.</p>
           </div>
           <div className="public-admission-form-actions"><button className="public-school-secondary-action" type="button" onClick={() => void saveAdmissionDraft()} disabled={savingDraft || submittingApplication}>{savingDraft ? 'Saving draft…' : 'Save and resume later'}</button><button className="public-school-primary-action public-admission-submit" type="submit" disabled={submittingApplication}>{submittingApplication ? 'Submitting application…' : 'Submit application'}<ArrowRight size={16} /></button></div>
@@ -570,9 +583,9 @@ export function PublicSchoolWebsitePage() {
         </section>
       </section>}
 
-      {website.fees.length > 0 && <section id="fees" className="public-school-fees public-school-section">
+      {schoolFees.length > 0 && <section id="fees" className="public-school-fees public-school-section">
         <div className="public-school-section-heading"><span className="public-school-section-kicker">Planning ahead</span><h2>Fee structure</h2><p>Published tuition information. Please contact the school to confirm the latest fees and payment options.</p></div>
-        <div className="public-school-fees-table-wrap"><table className="public-school-fees-table"><thead><tr><th>Class / level</th><th>Tuition</th><th>Payment schedule</th><th>Additional information</th></tr></thead><tbody>{website.fees.map((fee, index) => <tr key={`${fee.level}-${index}`}><td><strong>{fee.level}</strong></td><td>{fee.currency} {Number(fee.tuition).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</td><td>{fee.frequency}</td><td>{fee.additional || 'Contact the school for details'}</td></tr>)}</tbody></table></div>
+        <div className="public-school-fees-table-wrap"><table className="public-school-fees-table"><thead><tr><th>Class / level</th><th>Tuition</th><th>Payment schedule</th><th>Additional information</th></tr></thead><tbody>{schoolFees.map((fee, index) => <tr key={`${fee.level}-${index}`}><td><strong>{fee.level}</strong></td><td>{fee.currency} {Number(fee.tuition).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</td><td>{fee.frequency}</td><td>{fee.additional || 'Contact the school for details'}</td></tr>)}</tbody></table></div>
       </section>}
 
       {website.public_results_enabled && <section id="results" className="public-school-results public-school-section">

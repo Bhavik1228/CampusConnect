@@ -2,7 +2,7 @@ import { useCallback, useEffect, useMemo, useState, type FormEvent } from 'react
 import { useParams } from 'react-router-dom';
 import { jsPDF } from 'jspdf';
 import QRCode from 'qrcode';
-import { AlertCircle, Award, Check, Download, FileText, Plus, RefreshCw, ShieldCheck, UsersRound } from 'lucide-react';
+import { AlertCircle, Award, Check, Download, FileText, Mail, Plus, RefreshCw, ShieldCheck, UsersRound } from 'lucide-react';
 import { useAuth } from '../contexts/AuthContext';
 import { EmptyState, ErrorState, LoadingState } from '../components/Feedback';
 import { requireSupabase } from '../lib/supabase';
@@ -91,6 +91,7 @@ export function StudentBehaviourPage() {
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
   const [saving, setSaving] = useState(false);
+  const [emailingReportId, setEmailingReportId] = useState('');
   const [error, setError] = useState('');
   const [notice, setNotice] = useState('');
   const [selectedRecord, setSelectedRecord] = useState<BehaviourRecord | null>(null);
@@ -469,6 +470,30 @@ export function StudentBehaviourPage() {
     }
   }
 
+  async function emailParentReport(record: BehaviourRecord) {
+    if (emailingReportId) return;
+    setError('');
+    setNotice('');
+    setEmailingReportId(record.id);
+    try {
+      const { data, error: invokeError } = await requireSupabase().functions.invoke('student-behaviour-email', {
+        body: { recordId: record.id },
+      });
+      if (invokeError) throw invokeError;
+      if (typeof data?.sentCount !== 'number' || data.sentCount < 1) {
+        throw new Error('No verified parent email address is linked to this student.');
+      }
+      setNotice(data.failedCount > 0
+        ? `Report link emailed to ${data.sentCount} parent(s); ${data.failedCount} delivery attempt(s) failed.`
+        : `Secure report link emailed to ${data.sentCount} parent(s).`);
+      setSelectedRecord(null);
+    } catch (emailError) {
+      setError(messageOf(emailError, 'Could not email the secure report link to the student’s parent.'));
+    } finally {
+      setEmailingReportId('');
+    }
+  }
+
   if (loading) return <div className="page-stack"><LoadingState label="Loading behaviour records…" /></div>;
 
   if (recordId) {
@@ -665,6 +690,9 @@ export function StudentBehaviourPage() {
         <p><strong>Actions taken:</strong> {selectedRecord.actions_taken || 'None recorded'}</p>
         <p><strong>Follow-up / consequence:</strong> {selectedRecord.action_name || 'None selected'}</p>
         <div className="behaviour-modal-actions"><button className="button button-primary" type="button" onClick={() => void handleDownloadReport(selectedRecord, true)}><Download size={16} />Download parent PDF</button>
+          <button className="button button-quiet" type="button" disabled={Boolean(emailingReportId)} onClick={() => void emailParentReport(selectedRecord)}>
+            <Mail size={16} />{emailingReportId === selectedRecord.id ? 'Sending…' : 'Email parent link'}
+          </button>
           <a className="button button-quiet" href={behaviourReportUrl(selectedRecord.id)} target="_blank" rel="noreferrer">Open secure report</a></div>
       </section>
     </div>}
