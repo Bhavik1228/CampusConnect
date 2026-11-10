@@ -51,6 +51,19 @@ type OwnerRequest = {
   cause?: unknown;
   fix?: unknown;
   lessons?: unknown;
+  testIssueId?: unknown;
+  testType?: unknown;
+  deviceType?: unknown;
+  operatingSystem?: unknown;
+  browser?: unknown;
+  browserVersion?: unknown;
+  assistiveTechnology?: unknown;
+  assistiveTechnologyVersion?: unknown;
+  wcagCriterion?: unknown;
+  stepsToReproduce?: unknown;
+  expectedResult?: unknown;
+  actualResult?: unknown;
+  resolutionNotes?: unknown;
 };
 
 const schoolTypes = ['primary', 'secondary', 'k12', 'university', 'other'];
@@ -377,6 +390,19 @@ Deno.serve(async (request: Request) => {
       return respond(200, { performanceDashboard: { ...performanceDashboard, coreWebVitals } });
     }
 
+    if (payload.action === 'api-health-dashboard') {
+      const windowDays = payload.windowDays;
+      if (windowDays !== 7 && windowDays !== 30 && windowDays !== 90) {
+        return respond(400, { error: 'Choose a 7, 30, or 90 day API health dashboard window.' });
+      }
+      const { data: apiHealthDashboard, error: dashboardError } = await serviceClient.rpc(
+        'platform_owner_api_health_dashboard',
+        { window_days: windowDays },
+      );
+      if (dashboardError) throw dashboardError;
+      return respond(200, { apiHealthDashboard });
+    }
+
     if (payload.action === 'incident-list') {
       const { data: incidents, error: incidentsError } = await serviceClient
         .from('platform_incidents')
@@ -447,6 +473,68 @@ Deno.serve(async (request: Request) => {
       if (saveError) throw saveError;
       if (!incident) return respond(404, { error: 'The incident was not found.' });
       return respond(200, { incident });
+    }
+
+    if (payload.action === 'accessibility-test-issues') {
+      const { data: issues, error: issuesError } = await serviceClient
+        .from('platform_accessibility_test_issues')
+        .select('id,test_type,title,severity,status,device_type,operating_system,browser,browser_version,assistive_technology,assistive_technology_version,wcag_criterion,steps_to_reproduce,expected_result,actual_result,resolution_notes,created_by,updated_by,created_at,updated_at')
+        .order('updated_at', { ascending: false })
+        .limit(500);
+      if (issuesError) throw issuesError;
+      return respond(200, { issues: issues ?? [] });
+    }
+
+    if (payload.action === 'save-accessibility-test-issue') {
+      const issueId = payload.testIssueId;
+      const values = {
+        test_type: payload.testType,
+        title: payload.title,
+        severity: payload.severity,
+        status: payload.status,
+        device_type: payload.deviceType,
+        operating_system: payload.operatingSystem,
+        browser: payload.browser,
+        browser_version: payload.browserVersion,
+        assistive_technology: payload.assistiveTechnology,
+        assistive_technology_version: payload.assistiveTechnologyVersion,
+        wcag_criterion: payload.wcagCriterion,
+        steps_to_reproduce: payload.stepsToReproduce,
+        expected_result: payload.expectedResult,
+        actual_result: payload.actualResult,
+        resolution_notes: payload.resolutionNotes,
+      };
+      const validText = (value: unknown, min: number, max: number) =>
+        typeof value === 'string' && value.trim().length >= min && value.length <= max;
+      if ((issueId !== undefined && !isUuid(issueId))
+        || !['accessibility', 'browser'].includes(String(values.test_type))
+        || !validText(values.title, 3, 180)
+        || !['critical', 'high', 'medium', 'low'].includes(String(values.severity))
+        || !['open', 'in_progress', 'resolved', 'wont_fix'].includes(String(values.status))
+        || !['desktop', 'mobile', 'tablet', 'other'].includes(String(values.device_type))
+        || !validText(values.operating_system, 1, 120)
+        || !isShortText(values.browser, 120)
+        || !isShortText(values.browser_version, 80)
+        || !isShortText(values.assistive_technology, 160)
+        || !isShortText(values.assistive_technology_version, 80)
+        || !isShortText(values.wcag_criterion, 80)
+        || !validText(values.steps_to_reproduce, 3, 4000)
+        || !isShortText(values.expected_result, 2000)
+        || !validText(values.actual_result, 3, 2000)
+        || !isShortText(values.resolution_notes, 2000)
+        || (!String(values.browser).trim() && !String(values.assistive_technology).trim())
+        || (values.status === 'resolved' && !validText(values.resolution_notes, 3, 2000))) {
+        return respond(400, { error: 'Provide a valid test issue, environment, reproduction details, and resolution notes when resolving.' });
+      }
+
+      const query = issueId
+        ? serviceClient.from('platform_accessibility_test_issues').update({ ...values, updated_by: user.id }).eq('id', issueId)
+        : serviceClient.from('platform_accessibility_test_issues').insert({ ...values, created_by: user.id, updated_by: user.id });
+      const { data: issue, error: saveError } = await query
+        .select('id,test_type,title,severity,status,device_type,operating_system,browser,browser_version,assistive_technology,assistive_technology_version,wcag_criterion,steps_to_reproduce,expected_result,actual_result,resolution_notes,created_by,updated_by,created_at,updated_at')
+        .single();
+      if (saveError) throw saveError;
+      return respond(200, { issue });
     }
 
     if (payload.action === 'deployment-status') {

@@ -1,5 +1,5 @@
 import { useState } from 'react';
-import { AlertTriangle, Building2, Gauge, History, LifeBuoy, LogOut, Menu, Settings, ShieldAlert, Activity, X } from 'lucide-react';
+import { Accessibility, AlertTriangle, Building2, Gauge, History, LifeBuoy, LogOut, Menu, Settings, ShieldAlert, Activity, Server, X } from 'lucide-react';
 import { NavLink, Outlet, useLocation, useNavigate } from 'react-router-dom';
 import { useAuth } from '../contexts/AuthContext';
 import { ErrorState } from './Feedback';
@@ -11,7 +11,9 @@ const links = [
   { to: '/system-owner/maintenance', label: 'Maintenance mode', icon: ShieldAlert },
   { to: '/system-owner/errors', label: 'Error dashboard', icon: AlertTriangle },
   { to: '/system-owner/performance', label: 'Performance monitoring', icon: Activity },
+  { to: '/system-owner/api-health', label: 'API health dashboard', icon: Server },
   { to: '/system-owner/releases', label: 'Release history', icon: History },
+  { to: '/system-owner/accessibility', label: 'Accessibility testing', icon: Accessibility },
   { to: '/system-owner/support', label: 'Support requests', icon: LifeBuoy },
 ];
 
@@ -23,7 +25,9 @@ const titles: Record<string, string> = {
   '/system-owner/errors': 'Error dashboard',
   '/system-owner/errors/incidents': 'System incident log',
   '/system-owner/performance': 'Performance monitoring',
+  '/system-owner/api-health': 'API health dashboard',
   '/system-owner/releases': 'Release history',
+  '/system-owner/accessibility': 'Accessibility testing',
   '/system-owner/support': 'Support requests',
 };
 
