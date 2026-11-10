@@ -218,12 +218,12 @@ async function sendDelivery(admin: SupabaseClient, deliveryId: string) {
     return 'suppressed';
   }
 
-  const apiKey = Deno.env.get('MAILJET_API_KEY');
-  const secretKey = Deno.env.get('MAILJET_SECRET_KEY');
+  const apiKey = Deno.env.get('MAILJET_BEHAVIOUR_API_KEY');
+  const secretKey = Deno.env.get('MAILJET_BEHAVIOUR_SECRET_KEY');
   const sender = Deno.env.get('MAILJET_BEHAVIOUR_FROM_EMAIL');
   if (!apiKey || !secretKey || !sender) {
     const { error: updateError } = await admin.from('student_behaviour_email_deliveries')
-      .update({ status: 'failed', last_error: 'Mailjet behaviour sender configuration is incomplete.' })
+      .update({ status: 'failed', last_error: 'Mailjet behaviour-specific credentials or sender are not configured.' })
       .eq('id', delivery.id);
     if (updateError) throw updateError;
     await fallbackNotification(admin, delivery);

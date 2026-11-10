@@ -220,7 +220,7 @@ export function StudentBehaviourEmailSettings({ schoolId, userId, canConfigure }
     {canConfigure && settings && <section className="content-card behaviour-email-policy">
       <div className="behaviour-card-heading">
         <div className="behaviour-card-icon"><ShieldCheck size={19} /></div>
-        <div><h2>Mail and privacy controls</h2><p>Behaviour email uses the verified Mailjet sender behaviour@campus-connect.work.gd. Security notices continue to use their separate sender.</p></div>
+        <div><h2>Mail and privacy controls</h2><p>Behaviour email uses its own Mailjet API key and the verified sender behaviour@campus-connect.work.gd. Security notices keep their separate credentials and sender.</p></div>
       </div>
       <form className="behaviour-settings-form" onSubmit={(event) => void saveSettings(event)}>
         <label className="field"><span>School contact email</span><input type="email" maxLength={320} value={settings.school_contact_email}
