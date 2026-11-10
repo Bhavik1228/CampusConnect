@@ -58,6 +58,7 @@ create table public.student_behaviour_records (
   action_name text,
   created_at timestamptz not null default timezone('utc', now()),
   updated_at timestamptz not null default timezone('utc', now()),
+  unique (school_id, id),
   foreign key (school_id, student_id) references public.students(school_id, id) on delete cascade,
   foreign key (school_id, behaviour_type_id) references public.student_behaviour_types(school_id, id),
   foreign key (school_id, action_id) references public.student_behaviour_actions(school_id, id),
