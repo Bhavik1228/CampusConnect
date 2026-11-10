@@ -92,11 +92,11 @@ async function queueReportEvents(
   actorId: string,
 ) {
   const { data: report, error: reportError } = await admin.from('student_behaviour_records')
-    .select('id,school_id,student_id,category,status,guardian_visible')
+    .select('id,school_id,student_id,category,status,guardian_visible,confidential')
     .eq('id', recordId)
     .maybeSingle();
   if (reportError) throw reportError;
-  if (!report || report.status !== 'published' || report.guardian_visible !== true) {
+  if (!report || report.status !== 'published' || report.guardian_visible !== true || report.confidential) {
     return { error: 'Only a published report approved for guardian access can be emailed.' };
   }
   if (eventType === 'improvement_update' && report.category !== 'positive') {
@@ -139,7 +139,7 @@ async function queueReportEvents(
   if (templateError) throw templateError;
   if (!template?.enabled) return { error: 'This email type is disabled in school behaviour settings.' };
 
-  let queued = 0;
+  const deliveryIds: string[] = [];
   for (const recipientId of recipients) {
     const { data: preference, error: preferenceError } = await admin.from('student_behaviour_email_preferences')
       .select('email_enabled')
@@ -157,13 +157,13 @@ async function queueReportEvents(
       target_source_type: 'record',
       target_source: report.id,
       target_path: `/behaviour/report/${report.id}`,
-      target_key: `${crypto.randomUUID()}:${recipientId}`,
+      target_key: `${report.id}:${eventType}:${recipientId}`,
       actor: actorId,
     });
     if (enqueueError) throw enqueueError;
-    if (inserted) queued += 1;
+    if (typeof inserted === 'string') deliveryIds.push(inserted);
   }
-  return { queued };
+  return { queued: deliveryIds.length, deliveryIds };
 }
 
 async function fallbackNotification(admin: SupabaseClient, delivery: Delivery) {
@@ -178,9 +178,10 @@ async function fallbackNotification(admin: SupabaseClient, delivery: Delivery) {
     target_path: delivery.target_path,
   }).select('id').single();
   if (error) throw error;
-  await admin.from('student_behaviour_email_deliveries')
+  const { error: updateError } = await admin.from('student_behaviour_email_deliveries')
     .update({ notification_id: data.id })
     .eq('id', delivery.id);
+  if (updateError) throw updateError;
 }
 
 async function sendDelivery(admin: SupabaseClient, deliveryId: string) {
@@ -198,9 +199,10 @@ async function sendDelivery(admin: SupabaseClient, deliveryId: string) {
     .maybeSingle();
   if (templateError) throw templateError;
   if (!template?.enabled) {
-    await admin.from('student_behaviour_email_deliveries')
+    const { error: suppressError } = await admin.from('student_behaviour_email_deliveries')
       .update({ status: 'suppressed', last_error: 'Email type disabled before delivery.' })
       .eq('id', delivery.id);
+    if (suppressError) throw suppressError;
     return 'suppressed';
   }
 
@@ -208,9 +210,10 @@ async function sendDelivery(admin: SupabaseClient, deliveryId: string) {
   if (authError) throw authError;
   const recipientEmail = authUser.user?.email;
   if (!recipientEmail || !authUser.user.email_confirmed_at) {
-    await admin.from('student_behaviour_email_deliveries')
+    const { error: suppressError } = await admin.from('student_behaviour_email_deliveries')
       .update({ status: 'suppressed', last_error: 'No confirmed recipient address.' })
       .eq('id', delivery.id);
+    if (suppressError) throw suppressError;
     return 'suppressed';
   }
 
@@ -218,9 +221,10 @@ async function sendDelivery(admin: SupabaseClient, deliveryId: string) {
   const secretKey = Deno.env.get('MAILJET_SECRET_KEY');
   const sender = Deno.env.get('MAILJET_BEHAVIOUR_FROM_EMAIL');
   if (!apiKey || !secretKey || !sender) {
-    await admin.from('student_behaviour_email_deliveries')
+    const { error: updateError } = await admin.from('student_behaviour_email_deliveries')
       .update({ status: 'failed', last_error: 'Mailjet behaviour sender configuration is incomplete.' })
       .eq('id', delivery.id);
+    if (updateError) throw updateError;
     await fallbackNotification(admin, delivery);
     return 'failed';
   }
@@ -262,9 +266,10 @@ async function sendDelivery(admin: SupabaseClient, deliveryId: string) {
       deliveryId: delivery.id,
       error: networkError,
     });
-    await admin.from('student_behaviour_email_deliveries')
+    const { error: updateError } = await admin.from('student_behaviour_email_deliveries')
       .update({ status: 'unknown', last_error: 'Mailjet outcome is unknown; automatic retry was stopped to avoid duplicates.' })
       .eq('id', delivery.id);
+    if (updateError) throw updateError;
     await fallbackNotification(admin, delivery);
     return 'unknown';
   }
@@ -274,10 +279,13 @@ async function sendDelivery(admin: SupabaseClient, deliveryId: string) {
     payload = await response.json();
   } catch (parseError) {
     console.error('Mailjet returned an unreadable behaviour-email response.', { deliveryId: delivery.id });
-    const status = response.ok ? 'unknown' : 'failed';
-    await admin.from('student_behaviour_email_deliveries')
-      .update({ status, last_error: response.ok ? 'Mailjet outcome is unknown; automatic retry was stopped.' : 'Mailjet rejected the message.' })
+    const status = response.ok || response.status >= 500 ? 'unknown' : 'failed';
+    const { error: updateError } = await admin.from('student_behaviour_email_deliveries')
+      .update({ status, last_error: status === 'unknown'
+        ? 'Mailjet outcome is unknown; automatic retry was stopped to avoid duplicates.'
+        : 'Mailjet rejected the message.' })
       .eq('id', delivery.id);
+    if (updateError) throw updateError;
     await fallbackNotification(admin, delivery);
     return status;
   }
@@ -290,23 +298,25 @@ async function sendDelivery(admin: SupabaseClient, deliveryId: string) {
     : null;
 
   if (response.ok && messageStatus === 'success') {
-    await admin.from('student_behaviour_email_deliveries').update({
+    const { error: updateError } = await admin.from('student_behaviour_email_deliveries').update({
       status: 'sent',
       provider_reference: messageId,
       delivered_at: new Date().toISOString(),
       last_error: '',
     }).eq('id', delivery.id);
+    if (updateError) throw updateError;
     return 'sent';
   }
 
-  const outcome = response.ok && messageStatus === null ? 'unknown' : 'failed';
+  const outcome = (response.ok && messageStatus === null) || response.status >= 500 ? 'unknown' : 'failed';
   console.error('Mailjet did not accept a behaviour email.', { deliveryId: delivery.id, statusCode: response.status, messageStatus });
-  await admin.from('student_behaviour_email_deliveries').update({
+  const { error: updateError } = await admin.from('student_behaviour_email_deliveries').update({
     status: outcome,
     last_error: outcome === 'unknown'
       ? 'Mailjet outcome is unknown; automatic retry was stopped to avoid duplicates.'
       : 'Mailjet rejected the message.',
   }).eq('id', delivery.id);
+  if (updateError) throw updateError;
   await fallbackNotification(admin, delivery);
   return outcome;
 }
@@ -351,7 +361,8 @@ Deno.serve(async (request: Request) => {
       const cronSecret = Deno.env.get('BEHAVIOUR_EMAIL_CRON_SECRET');
       const suppliedSecret = request.headers.get('x-behaviour-cron-secret');
       if (!cronSecret || suppliedSecret !== cronSecret) return respond(401, { error: 'Scheduled delivery authorization failed.' });
-      await admin.rpc('queue_due_student_behaviour_emails_job');
+      const { error: queueError } = await admin.rpc('queue_due_student_behaviour_emails_job');
+      if (queueError) throw queueError;
       return respond(200, await processDue(admin));
     }
 
@@ -373,8 +384,8 @@ Deno.serve(async (request: Request) => {
       }
       const result = await queueReportEvents(admin, userId, payload.recordId, eventType, userId);
       if ('error' in result) return respond(422, { error: result.error });
-      if (!result.queued) return respond(422, { error: 'No linked parent is eligible for this email or the notification is disabled.' });
-      const deliveryResult = await processDue(admin);
+      if (!result.queued) return respond(409, { error: 'No new email was queued. The parent may be unlinked, opted out, or this notification was already queued.' });
+      const deliveryResult = await processDue(admin, result.deliveryIds);
       return respond(200, { queuedCount: result.queued, ...deliveryResult });
     }
 

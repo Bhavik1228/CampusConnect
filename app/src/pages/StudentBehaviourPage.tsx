@@ -5,6 +5,8 @@ import QRCode from 'qrcode';
 import { AlertCircle, Award, Check, Download, FileText, Mail, Plus, RefreshCw, ShieldCheck, UsersRound } from 'lucide-react';
 import { useAuth } from '../contexts/AuthContext';
 import { EmptyState, ErrorState, LoadingState } from '../components/Feedback';
+import { StudentBehaviourEmailSettings } from './StudentBehaviourEmailSettings';
+import { StudentBehaviourRecordWorkflowPanel } from './StudentBehaviourRecordWorkflowPanel';
 import { requireSupabase } from '../lib/supabase';
 
 type BehaviourCategory = 'positive' | 'negative';
@@ -48,6 +50,13 @@ type BehaviourRecord = {
   location: string;
   description: string;
   actions_taken: string;
+  status: string;
+  severity: string;
+  context: string;
+  student_perspective: string;
+  guardian_visible: boolean;
+  confidential: boolean;
+  review_note: string;
   created_at: string;
   updated_at: string;
 };
@@ -79,9 +88,10 @@ export function StudentBehaviourPage() {
   const { recordId } = useParams<{ recordId: string }>();
   const role = activeMembership?.role;
   const schoolId = activeMembership?.school_id;
-  const isParentReport = role === 'parent' && Boolean(recordId);
+  const isFamilyReport = (role === 'parent' || role === 'student') && Boolean(recordId);
   const canUseBehaviour = ['school_admin', 'academic_coordinator', 'teacher', 'librarian', 'secretary', 'hr_staff_administrator', 'safeguarding_officer'].includes(role ?? '');
   const canConfigure = role === 'school_admin';
+  const canReview = ['school_admin', 'academic_coordinator', 'safeguarding_officer'].includes(role ?? '');
   const [students, setStudents] = useState<BehaviourStudent[]>([]);
   const [types, setTypes] = useState<BehaviourType[]>([]);
   const [actions, setActions] = useState<BehaviourAction[]>([]);
@@ -95,7 +105,7 @@ export function StudentBehaviourPage() {
   const [error, setError] = useState('');
   const [notice, setNotice] = useState('');
   const [selectedRecord, setSelectedRecord] = useState<BehaviourRecord | null>(null);
-  const [tab, setTab] = useState<'records' | 'settings'>('records');
+  const [tab, setTab] = useState<'records' | 'review' | 'settings'>('records');
   const [typeName, setTypeName] = useState('');
   const [typeCategory, setTypeCategory] = useState<BehaviourCategory>('positive');
   const [typeDescription, setTypeDescription] = useState('');
@@ -109,6 +119,11 @@ export function StudentBehaviourPage() {
   const [occurredAt, setOccurredAt] = useState(inputDateTime());
   const [location, setLocation] = useState('');
   const [description, setDescription] = useState('');
+  const [severity, setSeverity] = useState<'minor' | 'moderate' | 'serious'>('minor');
+  const [context, setContext] = useState('');
+  const [studentPerspective, setStudentPerspective] = useState('');
+  const [confidential, setConfidential] = useState(false);
+  const [reviewNote, setReviewNote] = useState('');
   const [actionsTaken, setActionsTaken] = useState('');
   const [search, setSearch] = useState('');
   const [parentRecord, setParentRecord] = useState<BehaviourRecord | null>(null);
@@ -133,13 +148,13 @@ export function StudentBehaviourPage() {
       const client = requireSupabase();
       if (recordId) {
         const { data, error: recordError } = await client.from('student_behaviour_records')
-          .select('id,school_id,student_id,student_name,student_number,class_name,school_name,behaviour_type_id,behaviour_type_name,category,points_awarded,action_id,action_name,reported_by,reported_by_name,occurred_at,location,description,actions_taken,created_at,updated_at')
+          .select('id,school_id,student_id,student_name,student_number,class_name,school_name,behaviour_type_id,behaviour_type_name,category,points_awarded,action_id,action_name,reported_by,reported_by_name,occurred_at,location,description,actions_taken,status,severity,context,student_perspective,guardian_visible,confidential,review_note,created_at,updated_at')
           .eq('id', recordId).maybeSingle();
         if (recordError) throw recordError;
         if (!data) throw new Error('This report is unavailable or you do not have permission to view it.');
         setParentRecord(data as BehaviourRecord);
         setSelectedRecord(data as BehaviourRecord);
-        if (!isParentReport) {
+        if (!isFamilyReport) {
           const { data: participantData, error: participantError } = await client
             .from('student_behaviour_record_participants')
             .select('record_id,student_id')
@@ -163,7 +178,7 @@ export function StudentBehaviourPage() {
         client.from('student_behaviour_settings').select('points_enabled')
           .eq('school_id', schoolId).maybeSingle(),
         client.from('student_behaviour_records')
-          .select('id,student_id,student_name,student_number,class_name,school_name,behaviour_type_id,behaviour_type_name,category,points_awarded,action_id,action_name,reported_by,reported_by_name,occurred_at,location,description,actions_taken,created_at,updated_at')
+          .select('id,student_id,student_name,student_number,class_name,school_name,behaviour_type_id,behaviour_type_name,category,points_awarded,action_id,action_name,reported_by,reported_by_name,occurred_at,location,description,actions_taken,status,severity,context,student_perspective,guardian_visible,confidential,review_note,created_at,updated_at')
           .eq('school_id', schoolId).order('occurred_at', { ascending: false }).limit(500),
       ]);
       if (studentResult.error) throw studentResult.error;
@@ -198,7 +213,7 @@ export function StudentBehaviourPage() {
       setLoading(false);
       setRefreshing(false);
     }
-  }, [canUseBehaviour, isParentReport, recordId, schoolId]);
+  }, [canUseBehaviour, isFamilyReport, recordId, schoolId]);
 
   useEffect(() => {
     setStudents([]);
@@ -235,17 +250,25 @@ export function StudentBehaviourPage() {
         target_description: description.trim(),
         target_actions_taken: actionsTaken.trim(),
         involved_student_ids: involvedIds.filter((id) => id !== studentId),
+        target_severity: severity,
+        target_context: context.trim(),
+        target_student_perspective: studentPerspective.trim(),
+        target_confidential: confidential,
       });
       if (insertError) throw insertError;
       if (typeof recordId !== 'string') throw new Error('The saved behaviour report did not return a valid report ID.');
       savedRecordId = recordId;
       const { data: record, error: recordError } = await client.from('student_behaviour_records')
-        .select('id,student_id,student_name,student_number,class_name,school_name,behaviour_type_id,behaviour_type_name,category,points_awarded,action_id,action_name,reported_by,reported_by_name,occurred_at,location,description,actions_taken,created_at,updated_at')
+        .select('id,student_id,student_name,student_number,class_name,school_name,behaviour_type_id,behaviour_type_name,category,points_awarded,action_id,action_name,reported_by,reported_by_name,occurred_at,location,description,actions_taken,status,severity,context,student_perspective,guardian_visible,confidential,review_note,created_at,updated_at')
         .eq('id', recordId).single();
       if (recordError) throw recordError;
       setDescription('');
       setActionsTaken('');
       setLocation('');
+      setContext('');
+      setStudentPerspective('');
+      setSeverity('minor');
+      setConfidential(false);
       setActionId('');
       setInvolvedIds([]);
       setOccurredAt(inputDateTime());
@@ -360,6 +383,10 @@ export function StudentBehaviourPage() {
   }
 
   async function downloadReport(record: BehaviourRecord, parentCopy = true) {
+    if (parentCopy && (!['published', 'resolved', 'closed'].includes(record.status)
+      || !record.guardian_visible || record.confidential)) {
+      throw new Error('A parent report PDF is available only after the record is published for family access.');
+    }
     const qr = await QRCode.toDataURL(behaviourReportUrl(record.id), {
       errorCorrectionLevel: 'Q',
       margin: 1,
@@ -426,7 +453,10 @@ export function StudentBehaviourPage() {
     field('Occurred', displayDate(record.occurred_at));
     field('Reported by', record.reported_by_name || 'School staff');
     field('Location', record.location || 'Not recorded');
+    field('Context', record.context);
+    field('Severity', record.severity);
     field('What happened', record.description);
+    field('Student perspective', record.student_perspective);
     field('Actions taken', record.actions_taken || 'No immediate action recorded.');
     field('Follow-up / consequence', record.action_name ?? 'No follow-up action selected.');
     if (record.points_awarded !== null) field('Points', String(record.points_awarded));
@@ -477,15 +507,12 @@ export function StudentBehaviourPage() {
     setEmailingReportId(record.id);
     try {
       const { data, error: invokeError } = await requireSupabase().functions.invoke('student-behaviour-email', {
-        body: { recordId: record.id },
+        body: { action: 'email_report', recordId: record.id },
       });
       if (invokeError) throw invokeError;
-      if (typeof data?.sentCount !== 'number' || data.sentCount < 1) {
-        throw new Error('No verified parent email address is linked to this student.');
-      }
-      setNotice(data.failedCount > 0
-        ? `Report link emailed to ${data.sentCount} parent(s); ${data.failedCount} delivery attempt(s) failed.`
-        : `Secure report link emailed to ${data.sentCount} parent(s).`);
+      setNotice(data?.sent > 0
+        ? `Secure report link sent to linked parent account(s).`
+        : 'Secure report link queued. It may require staff approval or wait for the next delivery run.');
       setSelectedRecord(null);
     } catch (emailError) {
       setError(messageOf(emailError, 'Could not email the secure report link to the student’s parent.'));
@@ -494,19 +521,46 @@ export function StudentBehaviourPage() {
     }
   }
 
+  async function reviewRecord(record: BehaviourRecord, decision: 'under_review' | 'published' | 'returned' | 'resolved' | 'closed') {
+    if (!canReview || saving) return;
+    setSaving(true);
+    setError('');
+    setNotice('');
+    try {
+      const { error: reviewError } = await requireSupabase().rpc('review_student_behaviour_record', {
+        target_record: record.id,
+        target_decision: decision,
+        target_note: reviewNote.trim(),
+        target_guardian_visible: decision === 'published' || decision === 'resolved',
+      });
+      if (reviewError) throw reviewError;
+      setReviewNote('');
+      setSelectedRecord(null);
+      setNotice(decision === 'published'
+        ? 'Record published. Guardian notifications are queued according to school email settings.'
+        : `Record marked ${decision.replaceAll('_', ' ')}.`);
+      await loadData(true);
+    } catch (reviewError) {
+      setError(messageOf(reviewError, 'Could not update the behaviour record review.'));
+    } finally {
+      setSaving(false);
+    }
+  }
+
   if (loading) return <div className="page-stack"><LoadingState label="Loading behaviour records…" /></div>;
 
   if (recordId) {
     if (!parentRecord) return <div className="page-stack"><ErrorState message={error || 'This report is unavailable.'} /></div>;
-    const isLinkedParent = role === 'parent';
+    const isLinkedParent = role === 'parent' || role === 'student';
     const recordParticipants = participants.filter((participant) => participant.record_id === parentRecord.id
       && participant.student_id !== parentRecord.student_id);
     return <div className="page-stack student-behaviour-report">
       <header className="page-heading">
         <div><span className="eyebrow">Protected student record</span><h1>Behaviour report</h1><p>{parentRecord.school_name || activeMembership?.school.name}</p></div>
-        <button className="button button-primary" type="button" onClick={() => void handleDownloadReport(parentRecord, true)}>
-          <Download size={16} /> Download parent PDF
-        </button>
+        {['published', 'resolved', 'closed'].includes(parentRecord.status) && parentRecord.guardian_visible && !parentRecord.confidential
+          && <button className="button button-primary" type="button" onClick={() => void handleDownloadReport(parentRecord, true)}>
+            <Download size={16} /> Download parent PDF
+          </button>}
       </header>
       {error && <ErrorState message={error} />}
       <div className="content-card behaviour-report-card">
@@ -522,9 +576,13 @@ export function StudentBehaviourPage() {
           <div><span>When</span><strong>{displayDate(parentRecord.occurred_at)}</strong></div>
           <div><span>Reported by</span><strong>{parentRecord.reported_by_name || 'School staff'}</strong></div>
           {parentRecord.location && <div><span>Location</span><strong>{parentRecord.location}</strong></div>}
+          {parentRecord.context && <div><span>Context</span><strong>{parentRecord.context}</strong></div>}
+          <div><span>Status</span><strong>{parentRecord.status.replaceAll('_', ' ')}</strong></div>
+          <div><span>Severity</span><strong>{parentRecord.severity}</strong></div>
           {parentRecord.points_awarded !== null && <div><span>Points</span><strong>{parentRecord.points_awarded}</strong></div>}
         </div>
         <section><h3>What happened</h3><p>{parentRecord.description}</p></section>
+        {parentRecord.student_perspective && <section><h3>Student perspective</h3><p>{parentRecord.student_perspective}</p></section>}
         <section><h3>Actions taken</h3><p>{parentRecord.actions_taken || 'No immediate action was recorded.'}</p></section>
         <section><h3>Follow-up / consequence</h3><p>{parentRecord.action_name || 'No follow-up action was selected.'}</p></section>
         {!isLinkedParent && recordParticipants.length > 0 && <section>
@@ -559,10 +617,16 @@ export function StudentBehaviourPage() {
     {notice && <div className="behaviour-notice" role="status"><Check size={17} />{notice}</div>}
     {canConfigure && <div className="page-tabs" role="tablist" aria-label="Behaviour management sections">
       <button className={tab === 'records' ? 'active' : ''} type="button" role="tab" aria-selected={tab === 'records'} onClick={() => setTab('records')}>Records</button>
+      {canReview && <button className={tab === 'review' ? 'active' : ''} type="button" role="tab" aria-selected={tab === 'review'} onClick={() => setTab('review')}>Review queue</button>}
       <button className={tab === 'settings' ? 'active' : ''} type="button" role="tab" aria-selected={tab === 'settings'} onClick={() => setTab('settings')}>Configure types & actions</button>
     </div>}
+    {!canConfigure && canReview && <div className="page-tabs" role="tablist" aria-label="Behaviour management sections">
+      <button className={tab === 'records' ? 'active' : ''} type="button" role="tab" aria-selected={tab === 'records'} onClick={() => setTab('records')}>Records</button>
+      <button className={tab === 'review' ? 'active' : ''} type="button" role="tab" aria-selected={tab === 'review'} onClick={() => setTab('review')}>Review queue</button>
+    </div>}
 
-    {tab === 'records' && <>
+    {(tab === 'records' || tab === 'review') && <>
+      {tab === 'records' && <>
       <form className="content-card student-behaviour-form" onSubmit={(event) => void saveRecord(event)}>
         <div className="behaviour-card-heading">
           <div className="behaviour-card-icon"><FileText size={19} /></div>
@@ -582,6 +646,10 @@ export function StudentBehaviourPage() {
           </label>
           <label className="field"><span>Date and time *</span><input type="datetime-local" required value={occurredAt} onChange={(event) => setOccurredAt(event.target.value)} /></label>
           <label className="field"><span>Location</span><input maxLength={200} value={location} onChange={(event) => setLocation(event.target.value)} placeholder="For example, library or classroom" /></label>
+          <label className="field"><span>Context</span><input maxLength={200} value={context} onChange={(event) => setContext(event.target.value)} placeholder="Lesson, trip, library activity…" /></label>
+          <label className="field"><span>Severity</span><select value={severity} onChange={(event) => setSeverity(event.target.value as 'minor' | 'moderate' | 'serious')}>
+            <option value="minor">Minor</option><option value="moderate">Moderate</option><option value="serious">Serious · requires review</option>
+          </select></label>
           <label className="field behaviour-full-field"><span>Other students involved</span>
             <select multiple value={involvedIds} onChange={(event) => setInvolvedIds(Array.from(event.currentTarget.selectedOptions, (option) => option.value))}
               aria-describedby="behaviour-involved-help">
@@ -598,6 +666,10 @@ export function StudentBehaviourPage() {
             <textarea maxLength={3000} rows={3} value={actionsTaken} onChange={(event) => setActionsTaken(event.target.value)}
               placeholder="Support offered, discussion held, or immediate response" />
           </label>
+          <label className="field behaviour-full-field"><span>Student perspective (optional)</span>
+            <textarea maxLength={3000} rows={3} value={studentPerspective} onChange={(event) => setStudentPerspective(event.target.value)}
+              placeholder="Record the student’s account where appropriate." />
+          </label>
           <label className="field"><span>Follow-up / consequence</span>
             <select value={actionId} onChange={(event) => setActionId(event.target.value)}>
               <option value="">No follow-up selected</option>
@@ -605,21 +677,24 @@ export function StudentBehaviourPage() {
             </select>
           </label>
         </div>
+        <label className="behaviour-workflow-check"><input type="checkbox" checked={confidential} onChange={(event) => setConfidential(event.target.checked)} />
+          Restrict to school leads and safeguarding staff; do not show to students or guardians</label>
         <div className="behaviour-form-footer">
-          <p>{pointsEnabled ? 'Points are enabled; the configured points will be applied when saved.' : 'Points are disabled for this school.'}</p>
+          <p>{pointsEnabled ? 'Points are enabled; the configured points will be applied when saved.' : 'Points are disabled for this school.'} New records are submitted for review and are not emailed until authorized.</p>
           <button className="button button-primary" type="submit" disabled={saving || !studentId || !typeId || !activeTypes.length}>
             <Plus size={16} />{saving ? 'Saving…' : 'Save behaviour report'}
           </button>
         </div>
       </form>
+      </>}
 
       <section className="content-card behaviour-records-card">
         <div className="behaviour-list-heading">
-          <div><h2>Recent reports</h2><p>Up to 500 most recent records for this school.</p></div>
+          <div><h2>{tab === 'review' ? 'Records awaiting review' : 'Recent reports'}</h2><p>{tab === 'review' ? 'Publish, return, or review submitted reports before family access.' : 'Up to 500 most recent records for this school.'}</p></div>
           <label className="behaviour-search"><span className="sr-only">Search behaviour reports</span><input value={search} onChange={(event) => setSearch(event.target.value)} placeholder="Search reports" /></label>
         </div>
-        {filteredRecords.length ? <div className="behaviour-record-list">
-          {filteredRecords.map((record) => {
+        {(tab === 'review' ? filteredRecords.filter((record) => ['submitted', 'under_review', 'returned'].includes(record.status)) : filteredRecords).length ? <div className="behaviour-record-list">
+          {(tab === 'review' ? filteredRecords.filter((record) => ['submitted', 'under_review', 'returned'].includes(record.status)) : filteredRecords).map((record) => {
             const otherStudents = participants.filter((participant) => participant.record_id === record.id
               && participant.student_id !== record.student_id).length;
             return <article className="behaviour-record-row" key={record.id}>
@@ -629,16 +704,18 @@ export function StudentBehaviourPage() {
               <div className="behaviour-record-main">
                 <div className="behaviour-record-title"><strong>{record.student_name}</strong><span>{record.behaviour_type_name}</span></div>
                 <p>{record.description}</p>
-                <small>{displayDate(record.occurred_at)}{record.class_name ? ` · ${record.class_name}` : ''}{otherStudents ? ` · ${otherStudents} other student(s) involved` : ''}</small>
+                <small>{displayDate(record.occurred_at)}{record.class_name ? ` · ${record.class_name}` : ''} · {record.status.replaceAll('_', ' ')} · {record.severity}{otherStudents ? ` · ${otherStudents} other student(s) involved` : ''}</small>
               </div>
               <div className="behaviour-record-actions">
                 {record.points_awarded !== null && <span className="behaviour-points">{record.points_awarded > 0 ? '+' : ''}{record.points_awarded} pts</span>}
                 <button className="button button-quiet" type="button" onClick={() => setSelectedRecord(record)}>Report</button>
-                <button className="button button-quiet" type="button" onClick={() => void handleDownloadReport(record, true)} aria-label={`Download parent report for ${record.student_name}`}><Download size={16} /></button>
+                <button className="button button-quiet" type="button"
+                  disabled={!['published', 'resolved', 'closed'].includes(record.status) || !record.guardian_visible || record.confidential}
+                  onClick={() => void handleDownloadReport(record, true)} aria-label={`Download parent report for ${record.student_name}`}><Download size={16} /></button>
               </div>
             </article>;
           })}
-        </div> : <EmptyState title="No behaviour reports yet" detail={search ? 'Try another search.' : 'Saved positive behaviour and concerns will appear here.'} />}
+        </div> : <EmptyState title={tab === 'review' ? 'No reports awaiting review' : 'No behaviour reports yet'} detail={search ? 'Try another search.' : 'Submitted reports will appear here.'} />}
       </section>
     </>}
 
@@ -676,7 +753,13 @@ export function StudentBehaviourPage() {
           </div>)}</div>
         </section>
       </div>
+      {schoolId && user?.id && <StudentBehaviourEmailSettings schoolId={schoolId} userId={user.id} canConfigure />}
     </section>}
+    {tab === 'review' && canReview && schoolId && user?.id && <StudentBehaviourEmailSettings
+      schoolId={schoolId}
+      userId={user.id}
+      canConfigure={canConfigure}
+    />}
 
     {selectedRecord && <div className="behaviour-modal-backdrop" role="presentation" onMouseDown={(event) => { if (event.target === event.currentTarget) setSelectedRecord(null); }}>
       <section className="content-card behaviour-detail-modal" role="dialog" aria-modal="true" aria-labelledby="behaviour-detail-title">
@@ -689,8 +772,29 @@ export function StudentBehaviourPage() {
         <p><strong>What happened:</strong> {selectedRecord.description}</p>
         <p><strong>Actions taken:</strong> {selectedRecord.actions_taken || 'None recorded'}</p>
         <p><strong>Follow-up / consequence:</strong> {selectedRecord.action_name || 'None selected'}</p>
-        <div className="behaviour-modal-actions"><button className="button button-primary" type="button" onClick={() => void handleDownloadReport(selectedRecord, true)}><Download size={16} />Download parent PDF</button>
-          <button className="button button-quiet" type="button" disabled={Boolean(emailingReportId)} onClick={() => void emailParentReport(selectedRecord)}>
+        <p><strong>Review status:</strong> {selectedRecord.status.replaceAll('_', ' ')} · {selectedRecord.severity}{selectedRecord.confidential ? ' · confidential' : ''}</p>
+        {selectedRecord.student_perspective && <p><strong>Student perspective:</strong> {selectedRecord.student_perspective}</p>}
+        {canReview && <div className="behaviour-review-actions">
+          <label className="field"><span>Review note</span><textarea rows={2} maxLength={2000} value={reviewNote} onChange={(event) => setReviewNote(event.target.value)} /></label>
+          {['submitted', 'returned'].includes(selectedRecord.status) && <button className="button button-quiet" type="button" disabled={saving} onClick={() => void reviewRecord(selectedRecord, 'under_review')}>Start review</button>}
+          {['submitted', 'under_review', 'returned'].includes(selectedRecord.status) && <>
+            <button className="button button-primary" type="button" disabled={saving} onClick={() => void reviewRecord(selectedRecord, 'published')}>Publish to family</button>
+            <button className="button button-quiet" type="button" disabled={saving || !reviewNote.trim()} onClick={() => void reviewRecord(selectedRecord, 'returned')}>Return for changes</button>
+          </>}
+          {selectedRecord.status === 'published' && <button className="button button-primary" type="button" disabled={saving} onClick={() => void reviewRecord(selectedRecord, 'resolved')}>Resolve case</button>}
+          {selectedRecord.status === 'resolved' && <button className="button button-quiet" type="button" disabled={saving} onClick={() => void reviewRecord(selectedRecord, 'closed')}>Close case</button>}
+        </div>}
+        {schoolId && user?.id && canUseBehaviour && <StudentBehaviourRecordWorkflowPanel
+          record={selectedRecord}
+          schoolId={schoolId}
+          userId={user.id}
+          role={role ?? ''}
+          onChange={() => void loadData(true)}
+        />}
+        <div className="behaviour-modal-actions"><button className="button button-primary" type="button"
+          disabled={!['published', 'resolved', 'closed'].includes(selectedRecord.status) || !selectedRecord.guardian_visible || selectedRecord.confidential}
+          onClick={() => void handleDownloadReport(selectedRecord, true)}><Download size={16} />Download parent PDF</button>
+          <button className="button button-quiet" type="button" disabled={Boolean(emailingReportId) || selectedRecord.status !== 'published' || !selectedRecord.guardian_visible || selectedRecord.confidential} onClick={() => void emailParentReport(selectedRecord)}>
             <Mail size={16} />{emailingReportId === selectedRecord.id ? 'Sending…' : 'Email parent link'}
           </button>
           <a className="button button-quiet" href={behaviourReportUrl(selectedRecord.id)} target="_blank" rel="noreferrer">Open secure report</a></div>

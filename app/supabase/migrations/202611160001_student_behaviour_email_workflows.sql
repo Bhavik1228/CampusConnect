@@ -163,6 +163,7 @@ create table public.student_behaviour_meetings (
   agenda text not null default '' check (char_length(agenda) <= 2000),
   scheduled_at timestamptz not null,
   location text not null default '' check (char_length(location) <= 200),
+  guardian_visible boolean not null default true,
   status text not null default 'scheduled' check (status in ('scheduled', 'completed', 'cancelled')),
   created_by uuid not null references public.profiles(id),
   created_at timestamptz not null default timezone('utc', now()),
@@ -233,6 +234,109 @@ create table public.student_behaviour_awards (
   foreign key (school_id, record_id) references public.student_behaviour_records(school_id, id) on delete set null (record_id)
 );
 
+drop function public.create_student_behaviour_record(uuid, uuid, uuid, uuid, timestamptz, text, text, text, uuid[]);
+create function public.create_student_behaviour_record(
+  target_school uuid,
+  target_student uuid,
+  target_behaviour_type uuid,
+  target_action uuid,
+  target_occurred_at timestamptz,
+  target_location text,
+  target_description text,
+  target_actions_taken text,
+  involved_student_ids uuid[] default '{}'::uuid[],
+  target_severity text default 'minor',
+  target_context text default '',
+  target_student_perspective text default '',
+  target_confidential boolean default false
+)
+returns uuid
+language plpgsql
+security definer
+set search_path = public, pg_temp
+as $$
+declare
+  created_record_id uuid;
+  participant_ids uuid[] := coalesce(involved_student_ids, '{}'::uuid[]);
+begin
+  if auth.uid() is null or not public.can_access_student_behaviour(target_school) then
+    raise exception 'Your school role cannot record student behaviour.';
+  end if;
+  if target_severity not in ('minor', 'moderate', 'serious')
+    or char_length(coalesce(target_context, '')) > 200
+    or char_length(coalesce(target_student_perspective, '')) > 3000 then
+    raise exception 'Review the severity, context, and student-perspective fields.';
+  end if;
+  if cardinality(participant_ids) > 100 then
+    raise exception 'A behaviour report cannot include more than 100 additional students.';
+  end if;
+  if exists (
+    select 1 from unnest(participant_ids) as participants(student_id)
+    where participants.student_id is null or participants.student_id = target_student
+      or not exists (
+        select 1 from public.students student
+        where student.school_id = target_school and student.id = participants.student_id
+          and student.status = 'active' and student.merged_into_student_id is null
+      )
+  ) then
+    raise exception 'Choose only active students from this school as additional participants.';
+  end if;
+  insert into public.student_behaviour_records (
+    school_id, student_id, behaviour_type_id, action_id, reported_by, occurred_at,
+    location, context, description, actions_taken, student_perspective, severity, confidential
+  ) values (
+    target_school, target_student, target_behaviour_type, target_action, auth.uid(),
+    target_occurred_at, coalesce(target_location, ''), coalesce(target_context, ''),
+    target_description, coalesce(target_actions_taken, ''), coalesce(target_student_perspective, ''),
+    target_severity, coalesce(target_confidential, false)
+  ) returning id into created_record_id;
+  insert into public.student_behaviour_record_participants (school_id, record_id, student_id)
+  select target_school, created_record_id, participant_id
+  from (select distinct unnest(array_remove(participant_ids, target_student)) as participant_id) participants;
+  return created_record_id;
+end;
+$$;
+
+create or replace function public.list_student_behaviour_family(target_school uuid)
+returns table (
+  student_id uuid,
+  student_number text,
+  first_name text,
+  last_name text,
+  class_name text
+)
+language plpgsql
+stable
+security definer
+set search_path = public, pg_temp
+as $$
+begin
+  if auth.uid() is null or not public.is_school_member(target_school) then
+    raise exception 'An active school membership is required.';
+  end if;
+  return query
+  select student.id, student.student_number, student.first_name, student.last_name,
+    coalesce(class.name, '')
+  from public.students student
+  left join public.school_classes class
+    on class.school_id = student.school_id and class.id = student.class_id
+  where student.school_id = target_school
+    and student.status = 'active'
+    and student.merged_into_student_id is null
+    and (
+      student.profile_id = auth.uid()
+      or exists (
+        select 1
+        from public.parent_students link
+        join public.parent_profiles parent on parent.school_id = link.school_id and parent.id = link.parent_id
+        where link.school_id = student.school_id and link.student_id = student.id
+          and parent.profile_id = auth.uid()
+      )
+    )
+  order by student.last_name, student.first_name;
+end;
+$$;
+
 create or replace function public.behaviour_email_scheduled_time(target_school uuid, delay_minutes integer)
 returns timestamptz
 language plpgsql
@@ -292,6 +396,35 @@ cross join (values
 ) as events(event_type, subject_template, body_template)
 on conflict (school_id, event_type) do nothing;
 
+create or replace function public.create_student_behaviour_email_defaults()
+returns trigger
+language plpgsql
+security definer
+set search_path = public, pg_temp
+as $$
+begin
+  insert into public.student_behaviour_email_templates (school_id, event_type, subject_template, body_template)
+  values
+    (new.id, 'positive_recognition', 'A positive update from your school', 'A positive recognition is available in your Campus Connect account. Sign in to view it: {secure_link}'),
+    (new.id, 'recognition_award', 'A school recognition is available', 'A school recognition is available in your Campus Connect account. Sign in to view it: {secure_link}'),
+    (new.id, 'improvement_update', 'A positive school update is available', 'A positive school update is available in your Campus Connect account. Sign in to view it: {secure_link}'),
+    (new.id, 'weekly_positive_summary', 'Your weekly school recognition summary', 'Positive recognitions from this week are available in your Campus Connect account. Sign in to review them: {secure_link}'),
+    (new.id, 'library_recognition', 'A library recognition is available', 'A library recognition is available in your Campus Connect account. Sign in to view it: {secure_link}'),
+    (new.id, 'concern_notification', 'A school update is available', 'A school update is available in your Campus Connect account. Sign in to review it and any next steps: {secure_link}'),
+    (new.id, 'meeting_invitation', 'A school meeting invitation', 'A meeting invitation is available in your Campus Connect account. Sign in to review the details and respond: {secure_link}'),
+    (new.id, 'followup_reminder', 'A school follow-up is due', 'A school follow-up is due. Sign in to review the information and next steps: {secure_link}'),
+    (new.id, 'support_plan_review', 'A school support-plan review is due', 'A school support-plan review is due. Sign in to review the goals and next steps: {secure_link}'),
+    (new.id, 'case_resolution', 'A school update is available', 'A school update is available in your Campus Connect account. Sign in to review it: {secure_link}'),
+    (new.id, 'correction_update', 'An update to your school request', 'There is an update to your behaviour-record request. Sign in to review it: {secure_link}'),
+    (new.id, 'staff_escalation', 'A behaviour concern requires staff review', 'A behaviour concern requires authorized staff review. Sign in to the staff workspace: {secure_link}'),
+    (new.id, 'manual_report', 'A secure student report is available', 'A secure student report is available in your Campus Connect account. Sign in to view it: {secure_link}');
+  return new;
+end;
+$$;
+create trigger create_student_behaviour_email_defaults_after_school_insert
+  after insert on public.schools
+  for each row execute function public.create_student_behaviour_email_defaults();
+
 create or replace function public.enqueue_student_behaviour_email(
   target_school uuid,
   target_profile uuid,
@@ -311,18 +444,32 @@ as $$
 declare
   template_row public.student_behaviour_email_templates%rowtype;
   delivery_id uuid;
+  require_approval boolean;
 begin
   select * into template_row
   from public.student_behaviour_email_templates
   where school_id = target_school and event_type = target_event and enabled;
   if not found or target_profile is null then return null; end if;
-  if exists (
+  require_approval := template_row.require_approval
+    or target_event in ('concern_notification', 'staff_escalation');
+  if target_record is not null and exists (
+    select 1 from public.student_behaviour_records report
+    where report.school_id = target_school and report.id = target_record
+      and (report.confidential or report.severity = 'serious')
+  ) then
+    require_approval := true;
+  end if;
+  if target_event not in ('concern_notification', 'meeting_invitation', 'support_plan_review', 'case_resolution', 'correction_update', 'staff_escalation')
+    and exists (
     select 1 from public.student_behaviour_email_preferences preference
     where preference.school_id = target_school
       and preference.profile_id = target_profile
       and preference.event_type = target_event
       and not preference.email_enabled
   ) then return null; end if;
+  if target_event in ('concern_notification', 'staff_escalation') then
+    template_row.require_approval := true;
+  end if;
 
   insert into public.student_behaviour_email_deliveries (
     school_id, recipient_profile_id, event_type, record_id, source_type, source_id,
@@ -330,7 +477,7 @@ begin
   ) values (
     target_school, target_profile, target_event, target_record, target_source_type,
     target_source, target_path, target_key,
-    case when template_row.require_approval then 'awaiting_approval' else 'queued' end,
+    case when require_approval then 'awaiting_approval' else 'queued' end,
     public.behaviour_email_scheduled_time(target_school, template_row.delay_minutes), actor
   )
   on conflict (idempotency_key) do nothing
@@ -462,6 +609,7 @@ as $$
 declare
   parent_row record;
 begin
+  if not new.guardian_visible then return new; end if;
   for parent_row in
     select distinct parent.profile_id
     from public.parent_students link
@@ -475,11 +623,21 @@ begin
     on conflict (meeting_id, profile_id) do nothing;
     perform public.enqueue_student_behaviour_email(
       new.school_id, parent_row.profile_id, 'meeting_invitation', new.record_id, 'meeting', new.id,
-      '/behaviour/meeting/' || new.id::text,
+      '/behaviour/my',
       concat(new.id::text, ':meeting_invitation:', parent_row.profile_id::text),
       auth.uid()
     );
   end loop;
+  insert into public.student_behaviour_meeting_responses (school_id, meeting_id, profile_id)
+  select new.school_id, new.id, student.profile_id
+  from public.students student
+  join public.school_memberships membership
+    on membership.school_id = student.school_id and membership.profile_id = student.profile_id
+  where student.school_id = new.school_id
+    and student.id = new.student_id
+    and student.profile_id is not null
+    and membership.role::text = 'student'
+  on conflict (meeting_id, profile_id) do nothing;
   return new;
 end;
 $$;
@@ -619,6 +777,63 @@ begin
 end;
 $$;
 
+create or replace function public.create_student_behaviour_support_plan(
+  target_school uuid,
+  target_student uuid,
+  target_record uuid,
+  target_title text,
+  target_goals text,
+  target_staff_note text,
+  target_review_due timestamptz,
+  target_guardian_visible boolean
+)
+returns uuid
+language plpgsql
+security definer
+set search_path = public, pg_temp
+as $$
+declare
+  plan_id uuid;
+begin
+  if auth.uid() is null or not public.has_school_role(target_school, array['school_admin', 'academic_coordinator', 'safeguarding_officer']::public.app_role[]) then
+    raise exception 'You are not authorized to create a support plan.';
+  end if;
+  if char_length(trim(coalesce(target_title, ''))) not between 2 and 120
+    or char_length(coalesce(target_goals, '')) > 3000
+    or char_length(coalesce(target_staff_note, '')) > 3000 then
+    raise exception 'Review the support-plan title and notes.';
+  end if;
+  if not exists (
+    select 1 from public.students student
+    where student.school_id = target_school and student.id = target_student
+      and student.status = 'active' and student.merged_into_student_id is null
+  ) then
+    raise exception 'Choose an active student from this school.';
+  end if;
+  if target_record is not null and not exists (
+    select 1 from public.student_behaviour_records report
+    where report.school_id = target_school and report.id = target_record and report.student_id = target_student
+  ) then
+    raise exception 'The selected behaviour record does not belong to this student.';
+  end if;
+  insert into public.student_behaviour_support_plans (
+    school_id, student_id, record_id, title, guardian_goals, review_due_at,
+    guardian_visible, created_by
+  ) values (
+    target_school, target_student, target_record, trim(target_title), coalesce(target_goals, ''),
+    target_review_due, coalesce(target_guardian_visible, false), auth.uid()
+  ) returning id into plan_id;
+  if nullif(trim(target_staff_note), '') is not null then
+    insert into public.student_behaviour_support_plan_staff_notes (school_id, plan_id, note, created_by)
+    values (target_school, plan_id, trim(target_staff_note), auth.uid());
+  end if;
+  insert into public.audit_logs (school_id, actor_id, action, target_table, target_id, metadata)
+  values (target_school, auth.uid(), 'behaviour_support_plan_created', 'student_behaviour_support_plans',
+    plan_id, jsonb_build_object('guardian_visible', coalesce(target_guardian_visible, false)));
+  return plan_id;
+end;
+$$;
+
 create or replace function public.queue_due_student_behaviour_emails()
 returns integer
 language plpgsql
@@ -741,7 +956,15 @@ begin
   end if;
   update public.student_behaviour_records
   set status = target_decision,
-      guardian_visible = case when target_decision in ('published', 'resolved') then target_guardian_visible else false end,
+      guardian_visible = case
+        when target_decision in ('published', 'resolved') then target_guardian_visible and not (
+          select report.confidential from public.student_behaviour_records report where report.id = target_record
+        )
+        when target_decision = 'closed' then guardian_visible and not (
+          select report.confidential from public.student_behaviour_records report where report.id = target_record
+        )
+        else false
+      end,
       reviewed_by = auth.uid(),
       reviewed_at = timezone('utc', now()),
       review_note = coalesce(target_note, ''),
@@ -749,7 +972,8 @@ begin
   where id = target_record;
   insert into public.audit_logs (school_id, actor_id, action, target_table, target_id, metadata)
   values (record_school, auth.uid(), 'behaviour_record_reviewed', 'student_behaviour_records', target_record,
-    jsonb_build_object('decision', target_decision, 'guardian_visible', target_decision in ('published', 'resolved') and target_guardian_visible));
+    jsonb_build_object('decision', target_decision, 'guardian_visible',
+      (select report.guardian_visible from public.student_behaviour_records report where report.id = target_record)));
 end;
 $$;
 
@@ -824,6 +1048,37 @@ begin
 end;
 $$;
 
+create or replace function public.review_student_behaviour_award(
+  target_award uuid,
+  target_status text,
+  target_guardian_visible boolean default true
+)
+returns void
+language plpgsql
+security definer
+set search_path = public, pg_temp
+as $$
+declare
+  award_school uuid;
+begin
+  if auth.uid() is null or target_status not in ('approved', 'rejected') then
+    raise exception 'Choose a valid recognition decision.';
+  end if;
+  select school_id into award_school from public.student_behaviour_awards where id = target_award;
+  if award_school is null
+    or not public.has_school_role(award_school, array['school_admin', 'academic_coordinator']::public.app_role[]) then
+    raise exception 'You are not authorized to review this recognition.';
+  end if;
+  update public.student_behaviour_awards
+  set status = target_status, guardian_visible = target_status = 'approved' and target_guardian_visible,
+      reviewed_by = auth.uid(), reviewed_at = timezone('utc', now())
+  where id = target_award;
+  insert into public.audit_logs (school_id, actor_id, action, target_table, target_id, metadata)
+  values (award_school, auth.uid(), 'behaviour_award_reviewed', 'student_behaviour_awards', target_award,
+    jsonb_build_object('decision', target_status, 'guardian_visible', target_status = 'approved' and target_guardian_visible));
+end;
+$$;
+
 alter table public.student_behaviour_email_templates enable row level security;
 alter table public.student_behaviour_email_preferences enable row level security;
 alter table public.student_behaviour_email_deliveries enable row level security;
@@ -841,7 +1096,7 @@ create policy "Behaviour staff and approved family read reports"
   using (
     (public.can_access_student_behaviour(school_id) and (not confidential or public.has_school_role(school_id, array['school_admin', 'academic_coordinator', 'safeguarding_officer']::public.app_role[])))
     or (
-      status in ('published', 'resolved') and guardian_visible
+      status in ('published', 'resolved', 'closed') and guardian_visible and not confidential
       and (public.is_parent_of_student(student_behaviour_records.school_id, student_behaviour_records.student_id)
         or exists (
           select 1 from public.students student
@@ -853,6 +1108,27 @@ create policy "Behaviour staff and approved family read reports"
 drop policy if exists "Authors and admins update reports" on public.student_behaviour_records;
 revoke update on public.student_behaviour_records from authenticated;
 grant update (location, context, description, actions_taken, student_perspective) on public.student_behaviour_records to authenticated;
+drop policy if exists "Behaviour staff manage report participants" on public.student_behaviour_record_participants;
+create policy "Authorized staff manage report participants"
+  on public.student_behaviour_record_participants for all to authenticated
+  using (
+    public.can_access_student_behaviour(school_id)
+    and exists (
+      select 1 from public.student_behaviour_records report
+      where report.school_id = student_behaviour_record_participants.school_id
+        and report.id = student_behaviour_record_participants.record_id
+        and (not report.confidential or public.has_school_role(report.school_id, array['school_admin', 'academic_coordinator', 'safeguarding_officer']::public.app_role[]))
+    )
+  )
+  with check (
+    public.can_access_student_behaviour(school_id)
+    and exists (
+      select 1 from public.student_behaviour_records report
+      where report.school_id = student_behaviour_record_participants.school_id
+        and report.id = student_behaviour_record_participants.record_id
+        and (not report.confidential or public.has_school_role(report.school_id, array['school_admin', 'academic_coordinator', 'safeguarding_officer']::public.app_role[]))
+    )
+  );
 
 create policy "Behaviour staff read email templates"
   on public.student_behaviour_email_templates for select to authenticated
@@ -913,8 +1189,8 @@ create policy "Staff and linked parents read behaviour meetings"
   on public.student_behaviour_meetings for select to authenticated
   using (
     public.can_access_student_behaviour(school_id)
-    or public.is_parent_of_student(school_id, student_id)
-    or exists (select 1 from public.students student where student.school_id = student_behaviour_meetings.school_id and student.id = student_behaviour_meetings.student_id and student.profile_id = auth.uid())
+    or (guardian_visible and public.is_parent_of_student(school_id, student_id))
+    or (guardian_visible and exists (select 1 from public.students student where student.school_id = student_behaviour_meetings.school_id and student.id = student_behaviour_meetings.student_id and student.profile_id = auth.uid()))
   );
 create policy "Authorized staff manage behaviour meetings"
   on public.student_behaviour_meetings for all to authenticated
@@ -975,7 +1251,17 @@ create policy "Staff and guardians read approved awards"
     ))
   );
 create policy "School admins manage behaviour awards"
-  on public.student_behaviour_awards for all to authenticated
+  on public.student_behaviour_awards for select to authenticated
+  using (public.has_school_role(school_id, array['school_admin', 'academic_coordinator']::public.app_role[]))
+;
+create policy "Staff nominate behaviour awards"
+  on public.student_behaviour_awards for insert to authenticated
+  with check (
+    created_by = auth.uid() and status = 'pending' and not guardian_visible
+    and public.can_access_student_behaviour(school_id)
+  );
+create policy "Admins update behaviour awards"
+  on public.student_behaviour_awards for update to authenticated
   using (public.has_school_role(school_id, array['school_admin', 'academic_coordinator']::public.app_role[]))
   with check (public.has_school_role(school_id, array['school_admin', 'academic_coordinator']::public.app_role[]));
 
@@ -989,7 +1275,7 @@ grant select, insert, update on public.student_behaviour_meetings to authenticat
 grant select, insert, update on public.student_behaviour_meeting_responses to authenticated;
 grant select, insert, update on public.student_behaviour_correction_requests to authenticated;
 grant select, insert, update on public.student_behaviour_escalations to authenticated;
-grant select, insert, update on public.student_behaviour_awards to authenticated;
+grant select, insert on public.student_behaviour_awards to authenticated;
 grant select on public.student_behaviour_meeting_responses to authenticated;
 
 revoke all on function public.enqueue_student_behaviour_email(uuid, uuid, text, uuid, text, uuid, text, text, uuid) from public, anon, authenticated;
@@ -1003,13 +1289,24 @@ revoke all on function public.queue_due_student_behaviour_emails_job() from publ
 revoke all on function public.claim_student_behaviour_email(uuid) from public, anon, authenticated;
 revoke all on function public.behaviour_email_scheduled_time(uuid, integer) from public, anon, authenticated;
 revoke all on function public.create_student_behaviour_escalation(uuid, text, uuid) from public, anon;
+revoke all on function public.review_student_behaviour_award(uuid, text, boolean) from public, anon;
+revoke all on function public.create_student_behaviour_support_plan(uuid, uuid, uuid, text, text, text, timestamptz, boolean) from public, anon;
+revoke all on function public.list_student_behaviour_family(uuid) from public, anon;
 grant execute on function public.review_student_behaviour_record(uuid, text, text, boolean) to authenticated;
 grant execute on function public.create_student_behaviour_correction_request(uuid, text) to authenticated;
 grant execute on function public.review_student_behaviour_correction(uuid, text, text) to authenticated;
 grant execute on function public.create_student_behaviour_escalation(uuid, text, uuid) to authenticated;
 grant execute on function public.approve_student_behaviour_email(uuid) to authenticated;
+grant execute on function public.review_student_behaviour_award(uuid, text, boolean) to authenticated;
+grant execute on function public.create_student_behaviour_support_plan(uuid, uuid, uuid, text, text, text, timestamptz, boolean) to authenticated;
+grant execute on function public.list_student_behaviour_family(uuid) to authenticated;
+revoke all on function public.create_student_behaviour_record(uuid, uuid, uuid, uuid, timestamptz, text, text, text, uuid[], text, text, text, boolean) from public, anon;
+grant execute on function public.create_student_behaviour_record(uuid, uuid, uuid, uuid, timestamptz, text, text, text, uuid[], text, text, text, boolean) to authenticated;
 grant execute on function public.claim_student_behaviour_email(uuid) to service_role;
 grant execute on function public.queue_due_student_behaviour_emails_job() to service_role;
+grant execute on function public.enqueue_student_behaviour_email(uuid, uuid, text, uuid, text, uuid, text, text, uuid) to service_role;
+revoke all on function public.create_student_behaviour_email_defaults() from public, anon, authenticated;
+revoke all on function public.behaviour_email_scheduled_time(uuid, integer) from public, anon, authenticated;
 grant select, update on public.student_behaviour_email_deliveries to service_role;
 grant select on public.student_behaviour_email_templates, public.student_behaviour_email_preferences,
   public.student_behaviour_records, public.student_behaviour_meetings,

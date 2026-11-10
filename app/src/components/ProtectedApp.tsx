@@ -65,6 +65,7 @@ import { DraftRecoveryDemoPage } from '../pages/DraftRecoveryDemoPage';
 import { PastPaperPipelinePage } from '../pages/PastPaperPipelinePage';
 import { NotFoundPage } from '../pages/NotFoundPage';
 import { StudentBehaviourPage } from '../pages/StudentBehaviourPage';
+import { StudentBehaviourFamilyPage } from '../pages/StudentBehaviourFamilyPage';
 
 function RouteGate({ authOnly = true, requireMembership = true }: { authOnly?: boolean; requireMembership?: boolean }) {
   const { user, loading, memberships } = useAuth();
@@ -200,6 +201,7 @@ export function ProtectedApp() {
           <Route path="/support" element={<SupportPage />} />
           <Route path="/dashboard" element={<DashboardPage />} />
           <Route path="/behaviour/report/:recordId" element={<StudentBehaviourPage />} />
+          <Route path="/behaviour/my" element={<StudentBehaviourFamilyPage />} />
           <Route path="/students" element={<StudentsPage />} />
           <Route path="/guardian-contact-verification" element={<GuardianContactVerificationPage />} />
           <Route path="/admissions" element={<AdmissionsPage />} />

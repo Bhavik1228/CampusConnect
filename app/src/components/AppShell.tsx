@@ -53,6 +53,7 @@ const navigation: NavigationGroup[] = [
   ] },
   { id: 'student-life', title: 'Student Life', icon: HeartPulse, items: [
     { to: '/behaviour', label: 'Behaviour management', icon: ShieldCheck, roles: ['school_admin', 'academic_coordinator', 'teacher', 'librarian', 'secretary', 'hr_staff_administrator', 'safeguarding_officer'] },
+    { to: '/behaviour/my', label: 'My behaviour', icon: Award, roles: ['parent', 'student'] },
     { to: '/health', label: 'Health', icon: HeartPulse, roles: ['school_admin', 'nurse', 'doctor'], module: 'module_health' },
   ] },
   { id: 'school-operations', title: 'School Operations', icon: BriefcaseBusiness, items: [
@@ -106,6 +107,7 @@ const pageNames: Record<string, string> = {
   '/academic-planning': 'Academic planning',
   '/automations': 'Automations',
   '/messaging': 'Messages', '/audit-log': 'Audit log', '/behaviour': 'Behaviour management',
+  '/behaviour/my': 'My behaviour',
   '/support': 'Support Bot',
   '/draft-recovery-demo': 'Draft recovery demo',
   '/library': 'Library', '/health': 'Student health', '/health/report': 'Health report', '/visitors': 'Visitor management',
