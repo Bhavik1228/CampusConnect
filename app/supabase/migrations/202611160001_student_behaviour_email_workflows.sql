@@ -16,9 +16,6 @@ alter table public.student_behaviour_settings
   add column quiet_hours_end time not null default '07:00',
   add column school_contact_email text not null default '' check (char_length(school_contact_email) <= 320);
 
-update public.student_behaviour_records
-set status = 'published', guardian_visible = true;
-
 alter table public.student_behaviour_records
   alter column status set default 'submitted',
   alter column guardian_visible set default false,
