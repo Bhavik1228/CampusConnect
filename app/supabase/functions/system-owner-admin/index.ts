@@ -37,6 +37,8 @@ type OwnerRequest = {
   ticketStatus?: unknown;
   ownerResponse?: unknown;
   windowDays?: unknown;
+  fromDate?: unknown;
+  throughDate?: unknown;
   vercelDeploymentId?: unknown;
   knownIssues?: unknown;
   cursor?: unknown;
@@ -74,6 +76,12 @@ type ConnectionCheck = {
   statusCode: number | null;
   durationMs: number;
 };
+
+function isIsoDate(value: unknown): value is string {
+  if (typeof value !== 'string' || !/^\d{4}-\d{2}-\d{2}$/.test(value)) return false;
+  const parsed = new Date(`${value}T00:00:00.000Z`);
+  return Number.isFinite(parsed.getTime()) && parsed.toISOString().slice(0, 10) === value;
+}
 
 const edgeFunctionNames = [
   'system-owner-admin', 'learning-material-storage', 'support-bot', 'curriculum-ai',
@@ -524,6 +532,25 @@ Deno.serve(async (request: Request) => {
       );
       if (dashboardError) throw dashboardError;
       return respond(200, { apiHealthDashboard });
+    }
+
+    if (payload.action === 'usage-analytics') {
+      const fromDate = payload.fromDate;
+      const throughDate = payload.throughDate;
+      const schoolId = payload.schoolId ?? null;
+      if (!isIsoDate(fromDate) || !isIsoDate(throughDate)
+        || fromDate > throughDate
+        || throughDate > new Date().toISOString().slice(0, 10)
+        || (Date.parse(`${throughDate}T00:00:00.000Z`) - Date.parse(`${fromDate}T00:00:00.000Z`)) / 86400000 > 89
+        || (schoolId !== null && (typeof schoolId !== 'string' || !/^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(schoolId)))) {
+        return respond(400, { error: 'Choose valid dates within the last 90 days and, optionally, a valid school.' });
+      }
+      const { data: usageAnalytics, error: analyticsError } = await serviceClient.rpc(
+        'platform_owner_usage_analytics',
+        { from_date: fromDate, through_date: throughDate, selected_school: schoolId },
+      );
+      if (analyticsError) throw analyticsError;
+      return respond(200, { usageAnalytics });
     }
 
     if (payload.action === 'incident-list') {

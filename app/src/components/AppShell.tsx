@@ -18,6 +18,14 @@ import { CommandPalette, openCommandPalette } from './CommandPalette';
 type NavigationItem = { to: string; label: string; icon: LucideIcon; roles?: AppRole[]; module?: string };
 type NavigationGroup = { id: string; title: string; icon: LucideIcon; items: NavigationItem[] };
 
+function normalizePerformanceRoute(path: string) {
+  return path
+    .split('/')
+    .map((segment) => (/^[0-9a-f]{8}-[0-9a-f-]{27,}$/i.test(segment) || segment.length >= 24 ? ':id' : segment))
+    .join('/')
+    .slice(0, 160) || '/workspace';
+}
+
 const dashboardItem: NavigationItem = { to: '/dashboard', label: 'Overview', icon: LayoutDashboard };
 const accountSecurityItem: NavigationItem = { to: '/account-security', label: 'Account security', icon: ShieldCheck };
 const supportItem: NavigationItem = { to: '/support', label: 'Support Bot', icon: LifeBuoy };
@@ -133,9 +141,9 @@ export function AppShell() {
   const [maintenance, setMaintenance] = useState<{ active: boolean; scope: string | null; read_only: boolean; notice: string; ends_at: string | null; emergency: boolean } | null>(null);
   const navigate = useNavigate();
   const location = useLocation();
-  const performanceRoute = useRef(location.pathname);
+  const performanceRoute = useRef(normalizePerformanceRoute(location.pathname));
   const performanceSessionId = useRef(crypto.randomUUID());
-  performanceRoute.current = location.pathname;
+  performanceRoute.current = normalizePerformanceRoute(location.pathname);
   const sidebarPreferenceKey = `campus-connect-sidebar:${user?.id ?? 'anonymous'}:${activeMembership?.school_id ?? 'no-school'}`;
   const isHealthcareRole = activeMembership?.role === 'nurse' || activeMembership?.role === 'doctor';
   const isSecretaryRole = activeMembership?.role === 'secretary';
@@ -670,7 +678,7 @@ export function AppShell() {
   useEffect(() => {
     const targetSchoolId = activeMembership?.school_id;
     if (!targetSchoolId || !user?.id) return;
-    const route = location.pathname.slice(0, 160) || '/workspace';
+    const route = normalizePerformanceRoute(location.pathname);
     const startedAt = performance.now();
     let firstFrame = 0;
     let secondFrame = 0;
