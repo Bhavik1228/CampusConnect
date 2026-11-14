@@ -48,6 +48,7 @@ const navigation: NavigationGroup[] = [
     { to: '/learning', label: 'Learning', icon: BookOpenText, module: 'module_learning' },
     { to: '/courses-lessons', label: 'Courses & lessons', icon: Library, module: 'module_learning' },
     { to: '/learning-materials', label: 'Learning materials', icon: FileStack, module: 'module_learning' },
+    { to: '/curriculum-intelligence', label: 'Curriculum intelligence', icon: BookOpenCheck, roles: ['school_admin', 'academic_coordinator', 'teacher'], module: 'module_learning' },
     { to: '/assignments', label: 'Assignments & homework', icon: ClipboardList, roles: ['school_admin', 'academic_coordinator', 'teacher', 'student', 'parent'], module: 'module_assignments' },
     { to: '/grades-results', label: 'Grades & results', icon: Award, roles: ['school_admin', 'academic_coordinator', 'teacher', 'student', 'parent'], module: 'module_assessment_results' },
     { to: '/library', label: 'Library', icon: BookCopy, module: 'module_library' },
@@ -77,7 +78,7 @@ const navigation: NavigationGroup[] = [
 
 const teacherNavigationPaths = new Set([
   '/timetable', '/classes', '/subjects', '/attendance', '/grades-results', '/calendar',
-  '/learning', '/assignments', '/courses-lessons', '/learning-materials', '/messaging', '/behaviour',
+  '/learning', '/assignments', '/courses-lessons', '/learning-materials', '/curriculum-intelligence', '/messaging', '/behaviour',
 ]);
 const teacherNavigationLabels: Record<string, string> = {
   '/timetable': 'My timetable',
@@ -96,7 +97,7 @@ const pageNames: Record<string, string> = {
   '/guardian-contact-verification': 'Guardian contact verification',
   '/parent-access': 'Parent access',
   '/classes': 'Classes', '/subjects': 'Subjects', '/timetable': 'Timetable', '/attendance': 'Attendance',
-  '/learning': 'Learning', '/courses-lessons': 'Courses & lessons', '/learning-materials': 'Learning materials', '/assignments': 'Assignments & homework', '/grades-results': 'Grades & results', '/calendar': 'Calendar', '/academic-calendar': 'Academic calendar', '/settings': 'Settings',
+  '/learning': 'Learning', '/courses-lessons': 'Courses & lessons', '/learning-materials': 'Learning materials', '/curriculum-intelligence': 'Curriculum intelligence', '/assignments': 'Assignments & homework', '/grades-results': 'Grades & results', '/calendar': 'Calendar', '/academic-calendar': 'Academic calendar', '/settings': 'Settings',
   '/past-paper-pipeline': 'Past-paper pipeline',
   '/finance': 'Student fees', '/accounting-staff': 'Accounting & specialist staff',
   '/website-management': 'Website content', '/admin-workflows': 'Administrative workflows',
@@ -185,6 +186,7 @@ export function AppShell() {
     '/learning': 'module_learning',
     '/courses-lessons': 'module_learning',
     '/learning-materials': 'module_learning',
+    '/curriculum-intelligence': 'module_learning',
     '/assignments': 'module_assignments',
     '/grades-results': 'module_assessment_results',
     '/finance': 'module_finance',
@@ -213,6 +215,7 @@ export function AppShell() {
     '/learning': 'learning',
     '/courses-lessons': 'learning',
     '/learning-materials': 'learning',
+    '/curriculum-intelligence': 'learning',
     '/assignments': 'assignments',
     '/grades-results': 'assessment_results',
     '/calendar': 'academics',
@@ -236,6 +239,7 @@ export function AppShell() {
     '/learning': 'learning',
     '/courses-lessons': 'learning',
     '/learning-materials': 'learning',
+    '/curriculum-intelligence': 'learning',
     '/assignments': 'assignments',
     '/grades-results': 'grades',
     '/finance': 'finance',

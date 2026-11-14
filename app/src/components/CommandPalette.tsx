@@ -50,6 +50,7 @@ const synonymMap: Record<string, string[]> = {
   '/timetable': ['schedule', 'lessons', 'periods'],
   '/admissions': ['admission', 'enrolment', 'enrollment', 'applications'],
   '/subjects': ['courses', 'curriculum'],
+  '/curriculum-intelligence': ['syllabus', 'curriculum', 'objectives', 'topics', 'teaching plan'],
   '/academic-calendar': ['calendar', 'term dates'],
 };
 

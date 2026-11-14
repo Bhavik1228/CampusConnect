@@ -67,6 +67,7 @@ import { PastPaperPipelinePage } from '../pages/PastPaperPipelinePage';
 import { NotFoundPage } from '../pages/NotFoundPage';
 import { StudentBehaviourPage } from '../pages/StudentBehaviourPage';
 import { StudentBehaviourFamilyPage } from '../pages/StudentBehaviourFamilyPage';
+import { CurriculumIntelligencePage } from '../pages/CurriculumIntelligencePage';
 
 function RouteGate({ authOnly = true, requireMembership = true }: { authOnly?: boolean; requireMembership?: boolean }) {
   const { user, loading, memberships } = useAuth();
@@ -219,6 +220,7 @@ export function ProtectedApp() {
           <Route path="/academic-calendar" element={<AcademicCalendarPage />} />
           <Route path="/attendance" element={<AttendancePage />} />
           <Route path="/learning" element={<TestMakerPage />} />
+          <Route path="/curriculum-intelligence" element={<CurriculumIntelligencePage />} />
           <Route element={<AcademicLeadGate />}>
             <Route path="/past-paper-pipeline" element={<PastPaperPipelinePage />} />
           </Route>

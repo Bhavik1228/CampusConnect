@@ -340,7 +340,11 @@ async function queueReportEvents(
     : { data: [], error: null };
   if (membershipError) throw membershipError;
   const recipients = [...new Set((memberships ?? []).map((item) => item.profile_id))];
-  if (!recipients.length) return { error: 'No linked parent account is available for email delivery.' };
+  if (!recipients.length) {
+    return {
+      error: 'A guardian contact is on file, but no Campus Connect parent account is linked. A school administrator must open Parent access, invite or link the guardian, and then retry.',
+    };
+  }
 
   const { data: template, error: templateError } = await admin.from('student_behaviour_email_templates')
     .select('enabled')
@@ -712,7 +716,9 @@ Deno.serve(async (request: Request) => {
         return respond(400, { error: 'This behaviour email event is not available for manual delivery.' });
       }
       const result = await queueReportEvents(admin, userId, payload.recordId, eventType, userId);
-      if ('error' in result) return respond(422, { error: result.error });
+      if ('error' in result) {
+        return respond(409, { error: result.error });
+      }
       if (!result.queued) return respond(409, { error: 'No new email was queued. The parent may be unlinked, opted out, or this notification was already queued.' });
       const deliveryResult = await processDue(admin, result.deliveryIds);
       return respond(200, { queuedCount: result.queued, ...deliveryResult });

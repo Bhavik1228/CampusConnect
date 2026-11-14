@@ -125,6 +125,16 @@ type AssessmentResult = {
   created_at: string;
   updated_at: string;
 };
+type CurriculumObjectiveChoice = {
+  id: string;
+  document_id: string;
+  section_number: string;
+  original_text: string;
+  corrected_text: string;
+  subject_name: string;
+  syllabus_code: string;
+  document_title: string;
+};
 type ResultForm = {
   student_id: string;
   assessment_id: string;
@@ -221,6 +231,9 @@ export function TestMakerPage() {
   const [hodDepartmentIds, setHodDepartmentIds] = useState<string[]>([]);
   const [students, setStudents] = useState<StudentChoice[]>([]);
   const [results, setResults] = useState<AssessmentResult[]>([]);
+  const [curriculumObjectiveChoices, setCurriculumObjectiveChoices] = useState<CurriculumObjectiveChoice[]>([]);
+  const [assessmentObjectiveById, setAssessmentObjectiveById] = useState<Record<string, string>>({});
+  const [assessmentObjectiveId, setAssessmentObjectiveId] = useState('');
   const [activeAssessmentId, setActiveAssessmentId] = useState('');
   const [editingResultId, setEditingResultId] = useState('');
   const [resultForm, setResultForm] = useState<ResultForm>({
@@ -263,6 +276,7 @@ export function TestMakerPage() {
 
   function restoreAssessmentDraft(value: { activeAssessmentId: string; form: AssessmentForm }) {
     setActiveAssessmentId(value.activeAssessmentId);
+    setAssessmentObjectiveId(assessmentObjectiveById[value.activeAssessmentId] ?? '');
     setForm({
       ...EMPTY_ASSESSMENT,
       ...value.form,
@@ -302,13 +316,16 @@ export function TestMakerPage() {
       setError('');
       try {
         const client = requireSupabase();
-        const [assessmentResult, questionResult, papersResult, studentResult, resultResult, departmentResult] = await Promise.all([
+        const [assessmentResult, questionResult, papersResult, studentResult, resultResult, departmentResult, curriculumDocumentResult, curriculumObjectiveResult, subjectResult] = await Promise.all([
           client.from('learning_assessments').select('*').eq('school_id', schoolId).order('updated_at', { ascending: false }),
           client.from('learning_questions').select('*').eq('school_id', schoolId).order('created_at', { ascending: false }),
           client.from('past_papers').select('id, subject_name, subject_code, year, session, paper_number, document_type, file_name, file_size, created_at').eq('school_id', schoolId).order('year', { ascending: false }),
           client.from('students').select('id, student_number, first_name, last_name, status').eq('school_id', schoolId).order('last_name').order('first_name'),
           client.from('learning_assessment_results').select('id, student_id, assessment_id, marks_obtained, maximum_marks, percentage, assessment_date, notes, status, created_at, updated_at').eq('school_id', schoolId).order('assessment_date', { ascending: false }).order('created_at', { ascending: false }),
           client.from('school_departments').select('id,name').eq('school_id', schoolId).order('name'),
+          client.from('curriculum_documents').select('id,title,subject_id,syllabus_code').eq('school_id', schoolId).in('status', ['approved', 'source_deleted']),
+          client.from('curriculum_objectives').select('id,document_id,section_number,original_text,corrected_text').eq('school_id', schoolId).eq('review_status', 'approved').order('sort_order'),
+          client.from('subjects').select('id,name').eq('school_id', schoolId),
         ]);
         if (assessmentResult.error) throw assessmentResult.error;
         if (questionResult.error) throw questionResult.error;
@@ -316,6 +333,28 @@ export function TestMakerPage() {
         if (studentResult.error) throw studentResult.error;
         if (resultResult.error) throw resultResult.error;
         if (departmentResult.error) throw departmentResult.error;
+        if (curriculumDocumentResult.error) throw curriculumDocumentResult.error;
+        if (curriculumObjectiveResult.error) throw curriculumObjectiveResult.error;
+        if (subjectResult.error) throw subjectResult.error;
+        const assessmentIds = ((assessmentResult.data ?? []) as Assessment[]).map((assessment) => assessment.id);
+        const alignmentResult = assessmentIds.length
+          ? await client.from('curriculum_assessment_objectives')
+            .select('assessment_id,syllabus_objective_id,question_id')
+            .eq('school_id', schoolId).in('assessment_id', assessmentIds).is('question_id', null)
+          : { data: [], error: null };
+        if (alignmentResult.error) throw alignmentResult.error;
+        const documentsById = new Map((curriculumDocumentResult.data ?? []).map((document) => [document.id, document]));
+        const subjectsById = new Map((subjectResult.data ?? []).map((subject) => [subject.id, subject.name]));
+        const curriculumChoices = (curriculumObjectiveResult.data ?? []).flatMap((objective) => {
+          const document = documentsById.get(objective.document_id);
+          if (!document) return [];
+          return [{
+            ...objective,
+            subject_name: subjectsById.get(document.subject_id) ?? '',
+            syllabus_code: document.syllabus_code,
+            document_title: document.title,
+          }];
+        }) as CurriculumObjectiveChoice[];
         let currentHodDepartmentIds: string[] = [];
         if (activeMembership?.role === 'teacher' && user?.id) {
           const { data: teacherRows, error: teacherError } = await client.from('teacher_profiles')
@@ -337,6 +376,8 @@ export function TestMakerPage() {
           setStudents((studentResult.data ?? []) as StudentChoice[]);
           setResults((resultResult.data ?? []) as AssessmentResult[]);
           setDepartments((departmentResult.data ?? []) as Department[]);
+          setCurriculumObjectiveChoices(curriculumChoices);
+          setAssessmentObjectiveById(Object.fromEntries((alignmentResult.data ?? []).map((item) => [item.assessment_id, item.syllabus_objective_id])));
           setHodDepartmentIds(currentHodDepartmentIds);
           if (currentHodDepartmentIds.length) {
             setForm((current) => current.department_id
@@ -436,9 +477,16 @@ export function TestMakerPage() {
     ? Number(editingResult.maximum_marks)
     : Number(selectedResultAssessment?.total_marks ?? 0);
   const recordableAssessments = assessments.filter((assessment) => Number(assessment.total_marks) > 0);
+  const assessmentHasResults = Boolean(activeAssessmentId && results.some((result) => result.assessment_id === activeAssessmentId));
+  const matchingCurriculumObjectives = curriculumObjectiveChoices.filter((objective) =>
+    objective.subject_name.toLocaleLowerCase() === form.subject.trim().toLocaleLowerCase()
+    && (!form.syllabus_code.trim() || !objective.syllabus_code.trim()
+      || objective.syllabus_code.trim().toLocaleLowerCase() === form.syllabus_code.trim().toLocaleLowerCase()),
+  );
 
   function beginNewAssessment() {
     setActiveAssessmentId('');
+    setAssessmentObjectiveId('');
     setForm({ ...EMPTY_ASSESSMENT, department_id: isHod ? hodDepartmentIds[0] ?? null : null });
     setView('assessments');
     setNotice('');
@@ -446,6 +494,7 @@ export function TestMakerPage() {
 
   function editAssessment(assessment: Assessment) {
     setActiveAssessmentId(assessment.id);
+    setAssessmentObjectiveId(assessmentObjectiveById[assessment.id] ?? '');
     setForm(toAssessmentForm(assessment));
     setView('assessments');
     setNotice('');
@@ -475,6 +524,20 @@ export function TestMakerPage() {
       setError(`Resolve the blueprint before marking this test ready: ${blueprintIssues[0]}`);
       return;
     }
+    if (activeAssessmentId
+      && results.some((result) => result.assessment_id === activeAssessmentId)
+      && (assessmentObjectiveById[activeAssessmentId] ?? '') !== assessmentObjectiveId) {
+      setError('Objective alignment cannot change after results have been recorded. Keep the saved alignment or create a new test.');
+      return;
+    }
+    const activeAssessment = assessments.find((assessment) => assessment.id === activeAssessmentId);
+    if (activeAssessment
+      && results.some((result) => result.assessment_id === activeAssessmentId)
+      && assessmentObjectiveById[activeAssessmentId]
+      && (form.subject !== activeAssessment.subject || form.syllabus_code !== activeAssessment.syllabus_code)) {
+      setError('The subject and syllabus of an aligned test cannot change after marks have been recorded.');
+      return;
+    }
     setSaving(true);
     setError('');
     setNotice('');
@@ -492,6 +555,26 @@ export function TestMakerPage() {
         : await client.from('learning_assessments').insert({ ...payload, created_by: user.id }).select().single();
       if (result.error) throw result.error;
       const saved = result.data as Assessment;
+      if (!results.some((assessmentResult) => assessmentResult.assessment_id === saved.id)) {
+        const { error: alignmentDeleteError } = await client.from('curriculum_assessment_objectives')
+          .delete().eq('school_id', schoolId).eq('assessment_id', saved.id).is('question_id', null);
+        if (alignmentDeleteError) throw alignmentDeleteError;
+        if (assessmentObjectiveId) {
+          const { error: alignmentInsertError } = await client.from('curriculum_assessment_objectives').insert({
+            school_id: schoolId,
+            assessment_id: saved.id,
+            syllabus_objective_id: assessmentObjectiveId,
+            question_id: null,
+          });
+          if (alignmentInsertError) throw alignmentInsertError;
+        }
+        setAssessmentObjectiveById((current) => {
+          const next = { ...current };
+          if (assessmentObjectiveId) next[saved.id] = assessmentObjectiveId;
+          else delete next[saved.id];
+          return next;
+        });
+      }
       setAssessments((current) => [saved, ...current.filter((item) => item.id !== saved.id)]);
       setActiveAssessmentId(saved.id);
       setForm(toAssessmentForm(saved));
@@ -862,8 +945,8 @@ export function TestMakerPage() {
                   }}><option>Cambridge</option><option>Custom curriculum</option></select></label>
                   <label>Qualification<select value={form.qualification} onChange={(event) => updateForm('qualification', event.target.value)}>{qualificationOptions.map((qualification) => <option key={qualification}>{qualification}</option>)}</select></label>
                   {(isAcademicLead || isHod) && <label>Department<select value={form.department_id ?? ''} onChange={(event) => updateForm('department_id', event.target.value || null)}><option value="">Not department-assigned</option>{availableDepartments.map((department) => <option key={department.id} value={department.id}>{department.name}</option>)}</select></label>}
-                  <label>Subject<input value={form.subject} onChange={(event) => updateForm('subject', event.target.value)} placeholder="e.g. Biology" /></label>
-                  <label>Syllabus code<input value={form.syllabus_code} onChange={(event) => updateForm('syllabus_code', event.target.value)} placeholder="Optional" /></label>
+                  <label>Subject<input value={form.subject} disabled={assessmentHasResults && Boolean(assessmentObjectiveById[activeAssessmentId])} onChange={(event) => updateForm('subject', event.target.value)} placeholder="e.g. Biology" /></label>
+                  <label>Syllabus code<input value={form.syllabus_code} disabled={assessmentHasResults && Boolean(assessmentObjectiveById[activeAssessmentId])} onChange={(event) => updateForm('syllabus_code', event.target.value)} placeholder="Optional" /></label>
                   <label>Topic<input value={form.topic} onChange={(event) => updateForm('topic', event.target.value)} placeholder="e.g. Cells" /></label>
                   <label>Subtopic<input value={form.subtopic} onChange={(event) => updateForm('subtopic', event.target.value)} placeholder="Optional" /></label>
                 </div>
@@ -881,6 +964,25 @@ export function TestMakerPage() {
                   <label className="span-2">Overall marking guidance<textarea value={form.mark_scheme} onChange={(event) => updateForm('mark_scheme', event.target.value)} rows={2} placeholder="Optional teacher-defined marking criteria" /></label>
                   <label>Status<select value={form.status} onChange={(event) => updateForm('status', event.target.value as AssessmentStatus)}><option value="draft">Draft</option><option value="ready">Ready</option></select></label>
                 </div>
+              </div>
+
+              <div className="test-form-section curriculum-assessment-alignment">
+                <h3>Curriculum objective alignment</h3>
+                <p>Link this test to one approved objective so published assessment results can contribute to that objective’s performance summary. Alignment is locked after marks are recorded.</p>
+                <label>Approved objective
+                  <select value={assessmentObjectiveId} disabled={assessmentHasResults} onChange={(event) => setAssessmentObjectiveId(event.target.value)}>
+                    <option value="">No objective alignment</option>
+                    {matchingCurriculumObjectives.map((objective) => <option key={objective.id} value={objective.id}>
+                      {objective.section_number ? `${objective.section_number} · ` : ''}{objective.corrected_text || objective.original_text} · {objective.document_title}
+                    </option>)}
+                    {assessmentObjectiveId && !matchingCurriculumObjectives.some((objective) => objective.id === assessmentObjectiveId)
+                      && curriculumObjectiveChoices.find((objective) => objective.id === assessmentObjectiveId) && <option value={assessmentObjectiveId}>
+                        {curriculumObjectiveChoices.find((objective) => objective.id === assessmentObjectiveId)?.corrected_text || curriculumObjectiveChoices.find((objective) => objective.id === assessmentObjectiveId)?.original_text}
+                      </option>}
+                  </select>
+                </label>
+                {assessmentHasResults && <small>The objective link and assessment subject are preserved because this test already has recorded marks.</small>}
+                {!matchingCurriculumObjectives.length && !assessmentObjectiveId && <small>Approve curriculum objectives for this subject to enable alignment.</small>}
               </div>
 
               <div className="test-form-section test-blueprint-section">

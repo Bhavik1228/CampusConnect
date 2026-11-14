@@ -66,6 +66,123 @@ type OwnerRequest = {
   resolutionNotes?: unknown;
 };
 
+type ConnectionCheck = {
+  category: 'API' | 'Table' | 'RPC' | 'Edge Function';
+  name: string;
+  status: 'pass' | 'fail' | 'warning';
+  detail: string;
+  statusCode: number | null;
+  durationMs: number;
+};
+
+const edgeFunctionNames = [
+  'system-owner-admin', 'learning-material-storage', 'support-bot', 'curriculum-ai',
+  'past-paper-pipeline', 'student-behaviour-email', 'login-alert', 'parent-invite', 'staff-invite',
+];
+
+async function checkConnections(supabaseUrl: string, serviceRoleKey: string): Promise<ConnectionCheck[]> {
+  const checks: ConnectionCheck[] = [];
+  const baseUrl = supabaseUrl.replace(/\/+$/, '');
+  const headers = { apikey: serviceRoleKey, Authorization: `Bearer ${serviceRoleKey}` };
+  const probe = async (category: ConnectionCheck['category'], name: string, url: string, method: 'GET' | 'OPTIONS') => {
+    const started = Date.now();
+    try {
+      const response = await fetch(url.replace(supabaseUrl, baseUrl), { method, headers, signal: AbortSignal.timeout(5000) });
+      const durationMs = Date.now() - started;
+      const deployedOrReachable = response.ok;
+      checks.push({
+        category, name,
+        status: deployedOrReachable ? 'pass' : 'fail',
+        detail: deployedOrReachable
+          ? (category === 'Edge Function'
+            ? 'Gateway/preflight responded; no function action executed.'
+            : category === 'Table' ? 'Table endpoint responded to a zero-row query.' : 'Health endpoint responded.')
+          : 'Endpoint did not respond successfully.',
+        statusCode: response.status,
+        durationMs,
+      });
+      await response.body?.cancel().catch(() => undefined);
+    } catch (error) {
+      checks.push({
+        category, name, status: 'fail',
+        detail: error instanceof Error && error.name === 'TimeoutError' ? 'Timed out after 5 seconds.' : 'Connection failed.',
+        statusCode: null, durationMs: Date.now() - started,
+      });
+    }
+  };
+
+  await probe('API', 'Supabase Auth API', `${baseUrl}/auth/v1/health`, 'GET');
+  const apiStarted = Date.now();
+  let openApi: Record<string, unknown> | null = null;
+  try {
+    const response = await fetch(`${baseUrl}/rest/v1/`, {
+      headers: { ...headers, Accept: 'application/openapi+json' },
+      signal: AbortSignal.timeout(10000),
+    });
+    const durationMs = Date.now() - apiStarted;
+    if (response.ok) {
+      const value: unknown = await response.json();
+      if (isRecord(value) && isRecord(value.paths)) openApi = value;
+      checks.push({
+        category: 'API', name: 'Supabase REST / OpenAPI catalog',
+        status: openApi ? 'pass' : 'warning',
+        detail: openApi ? 'REST API responded and exposed its current schema catalog.' : 'REST API responded, but returned no readable schema catalog.',
+        statusCode: response.status, durationMs,
+      });
+    } else {
+      checks.push({
+        category: 'API', name: 'Supabase REST / OpenAPI catalog', status: 'fail',
+        detail: 'REST API did not return a successful response.', statusCode: response.status, durationMs,
+      });
+    }
+  } catch (error) {
+    checks.push({
+      category: 'API', name: 'Supabase REST / OpenAPI catalog', status: 'fail',
+      detail: error instanceof Error && error.name === 'TimeoutError' ? 'Timed out after 10 seconds.' : 'Connection failed.',
+      statusCode: null, durationMs: Date.now() - apiStarted,
+    });
+  }
+
+  if (openApi && isRecord(openApi.paths)) {
+    const resources = Object.keys(openApi.paths).filter((path) => /^\/[a-zA-Z0-9_]+$/.test(path) && !path.startsWith('/rpc/'));
+    const rpcs = Object.keys(openApi.paths).filter((path) => path.startsWith('/rpc/'));
+    const runLimited = async (tasks: Array<() => Promise<void>>, concurrency: number) => {
+      let next = 0;
+      await Promise.all(Array.from({ length: Math.min(concurrency, tasks.length) }, async () => {
+        while (next < tasks.length) {
+          const index = next++;
+          await tasks[index]();
+        }
+      }));
+    };
+    const tableTasks = resources.map((path) => {
+      const name = path.slice(1);
+      return () => probe('Table', name, `${baseUrl}/rest/v1/${encodeURIComponent(name)}?select=*&limit=0`, 'GET');
+    });
+    const rpcTasks = rpcs.map((path) => {
+      const name = path.slice('/rpc/'.length);
+      return async () => checks.push({
+        category: 'RPC', name, status: 'pass',
+        detail: 'Function is present in the live PostgREST schema catalog; it was not invoked.',
+        statusCode: null, durationMs: 0,
+      });
+    });
+    await runLimited([...tableTasks, ...rpcTasks], 20);
+  } else {
+    checks.push({
+      category: 'Table', name: 'Public table catalog', status: 'warning',
+      detail: 'Skipped because the REST schema catalog was unavailable.', statusCode: null, durationMs: 0,
+    });
+  }
+
+  await Promise.all(edgeFunctionNames.map((name) =>
+    probe('Edge Function', name, `${baseUrl}/functions/v1/${name}`, 'OPTIONS')));
+  const categoryOrder: ConnectionCheck['category'][] = ['API', 'Table', 'RPC', 'Edge Function'];
+  return checks.sort((left, right) =>
+    categoryOrder.indexOf(left.category) - categoryOrder.indexOf(right.category)
+    || left.name.localeCompare(right.name));
+}
+
 const schoolTypes = ['primary', 'secondary', 'k12', 'university', 'other'];
 const subscriptionStatuses = ['free', 'trial', 'active', 'past_due', 'cancelled'];
 const maintenanceModules = [
@@ -330,6 +447,12 @@ Deno.serve(async (request: Request) => {
       auth: { persistSession: false, autoRefreshToken: false },
     });
     if (payload.action === 'check') return respond(200, { authorized: true });
+    if (payload.action === 'connection-test') {
+      return respond(200, {
+        observedAt: new Date().toISOString(),
+        checks: await checkConnections(supabaseUrl, serviceRoleKey),
+      });
+    }
 
     if (payload.action === 'system-health') {
       const recordedHealth = await recordSystemHealth(serviceClient);
