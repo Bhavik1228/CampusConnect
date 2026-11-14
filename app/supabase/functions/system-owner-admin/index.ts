@@ -829,10 +829,46 @@ Deno.serve(async (request: Request) => {
         && Deno.env.get('R2_ACCESS_KEY_ID')
         && Deno.env.get('R2_SECRET_ACCESS_KEY'),
       );
+      const securityAlertCutoff = new Date(Date.now() - 30 * 24 * 60 * 60 * 1000).toISOString();
+      const [supportCasesResult, securityAlertCountResult, latestSecurityAlertResult, openIncidentsResult] = await Promise.all([
+        serviceClient.from('support_tickets')
+          .select('id', { count: 'exact', head: true })
+          .in('status', ['new', 'in_progress', 'waiting_on_requester']),
+        serviceClient.from('auth_login_failure_windows')
+          .select('alert_sent_at', { count: 'exact', head: true })
+          .not('alert_sent_at', 'is', null)
+          .gte('alert_sent_at', securityAlertCutoff),
+        serviceClient.from('auth_login_failure_windows')
+          .select('alert_sent_at')
+          .not('alert_sent_at', 'is', null)
+          .gte('alert_sent_at', securityAlertCutoff)
+          .order('alert_sent_at', { ascending: false })
+          .limit(1)
+          .maybeSingle(),
+        serviceClient.from('platform_incidents')
+          .select('id,title,severity,status,started_at,affected_services', { count: 'exact' })
+          .in('status', ['investigating', 'identified', 'monitoring'])
+          .order('started_at', { ascending: false })
+          .limit(5),
+      ]);
+      if (supportCasesResult.error) throw supportCasesResult.error;
+      if (securityAlertCountResult.error) throw securityAlertCountResult.error;
+      if (latestSecurityAlertResult.error) throw latestSecurityAlertResult.error;
+      if (openIncidentsResult.error) throw openIncidentsResult.error;
       return respond(200, {
         dashboard: {
           ...data,
           managedStorageConfigured,
+          pendingSupportCases: supportCasesResult.count ?? 0,
+          securityAlerts: {
+            windowDays: 30,
+            count: securityAlertCountResult.count ?? 0,
+            latestAt: latestSecurityAlertResult.data?.alert_sent_at ?? null,
+          },
+          openIncidents: {
+            count: openIncidentsResult.count ?? 0,
+            items: openIncidentsResult.data ?? [],
+          },
           setupHealth,
           performance: {
             windowDays: 7,

@@ -111,6 +111,7 @@ create table public.curriculum_source_units (
   review_status text not null default 'pending' check (review_status in ('pending', 'approved', 'needs_correction')),
   warnings jsonb not null default '[]'::jsonb check (jsonb_typeof(warnings) = 'array'),
   created_at timestamptz not null default timezone('utc', now()),
+  unique (school_id, id),
   unique (school_id, document_id, unit_reference),
   foreign key (school_id, document_id) references public.curriculum_documents(school_id, id) on delete cascade,
   foreign key (school_id, job_id) references public.curriculum_processing_jobs(school_id, id) on delete cascade

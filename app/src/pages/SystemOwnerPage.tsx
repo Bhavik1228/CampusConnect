@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import {
-  Activity, AlertTriangle, Building2, Check, CircleDollarSign, Database, ExternalLink, GraduationCap,
-  HardDrive, History, KeyRound, RefreshCw, Server, ShieldAlert, UserRound, UsersRound, X,
+  Activity, AlertTriangle, Building2, CalendarDays, Check, CircleDollarSign, Database, ExternalLink, GraduationCap,
+  HardDrive, History, KeyRound, LifeBuoy, RefreshCw, Server, ShieldAlert, UserRound, UsersRound, X,
 } from 'lucide-react';
 import { Link } from 'react-router-dom';
 import { ErrorState, LoadingState } from '../components/Feedback';
@@ -19,6 +19,12 @@ type Dashboard = {
     pendingStorageRequests: number;
   };
   managedStorageConfigured: boolean;
+  pendingSupportCases: number;
+  securityAlerts: { windowDays: number; count: number; latestAt: string | null };
+  openIncidents: {
+    count: number;
+    items: { id: string; title: string; severity: string; status: string; started_at: string; affected_services: string }[];
+  };
   roles: { role: string; users: number }[];
   recentSchools: { id: string; name: string; platform_status: 'active' | 'suspended'; managed_storage_enabled: boolean; created_at: string }[];
   recentActivity: { id: string; action: string; target_type: string; target_id: string | null; details: Record<string, unknown>; created_at: string; actor_name: string | null }[];
@@ -42,6 +48,51 @@ type Dashboard = {
     sampleCount: number;
     metrics: { name: string; count: number; p75: number | null }[];
   };
+};
+type UsageRange = { fromDate: string; throughDate: string; schoolId: string };
+type UsageDaily = {
+  date: string;
+  pageRenders: number;
+  apiSamples: number;
+  databaseSamples: number;
+  activeUsers: number;
+  activeSessions: number;
+  activeSchools: number;
+};
+type UsageSchool = {
+  schoolId: string;
+  schoolName: string;
+  hasTelemetry: boolean;
+  events: number;
+  pageRenders: number;
+  apiSamples: number;
+  databaseSamples: number;
+  activeUsers: number;
+  activeSessions: number;
+  modulesUsed: number;
+  lastActivity: string | null;
+};
+type UsageAnalytics = {
+  fromDate: string;
+  throughDate: string;
+  selectedSchoolId: string | null;
+  registeredSchools: number;
+  reportingSchools: number;
+  coveragePercent: number | null;
+  totals: {
+    events: number;
+    pageRenders: number;
+    apiSamples: number;
+    databaseSamples: number;
+    activeUsers: number;
+    activeSessions: number;
+    lastActivity: string | null;
+  };
+  previousTotals: { events: number | null; activeUsers: number | null };
+  comparisonAvailable: boolean;
+  daily: UsageDaily[];
+  schools: UsageSchool[];
+  schoolOptions: { schoolId: string; schoolName: string }[];
 };
 type SystemHealth = {
   observedAt: string;
@@ -110,6 +161,59 @@ function formatDuration(seconds: number) {
   return `${minutes}m`;
 }
 
+function dateDaysAgo(days: number, throughDate = new Date().toISOString().slice(0, 10)) {
+  const date = new Date(`${throughDate}T00:00:00.000Z`);
+  date.setUTCDate(date.getUTCDate() - days);
+  return date.toISOString().slice(0, 10);
+}
+
+function defaultUsageRange(): UsageRange {
+  const throughDate = new Date().toISOString().slice(0, 10);
+  return { fromDate: dateDaysAgo(29, throughDate), throughDate, schoolId: '' };
+}
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === 'object' && value !== null && !Array.isArray(value);
+}
+
+function isUsageAnalytics(value: unknown): value is UsageAnalytics {
+  if (!isRecord(value) || !isRecord(value.totals) || !isRecord(value.previousTotals)) return false;
+  return typeof value.fromDate === 'string'
+    && typeof value.throughDate === 'string'
+    && (value.selectedSchoolId === null || typeof value.selectedSchoolId === 'string')
+    && typeof value.registeredSchools === 'number'
+    && typeof value.reportingSchools === 'number'
+    && (typeof value.coveragePercent === 'number' || value.coveragePercent === null)
+    && typeof value.totals.events === 'number'
+    && typeof value.totals.pageRenders === 'number'
+    && typeof value.totals.apiSamples === 'number'
+    && typeof value.totals.databaseSamples === 'number'
+    && typeof value.totals.activeUsers === 'number'
+    && typeof value.totals.activeSessions === 'number'
+    && (typeof value.totals.lastActivity === 'string' || value.totals.lastActivity === null)
+    && (typeof value.previousTotals.events === 'number' || value.previousTotals.events === null)
+    && (typeof value.previousTotals.activeUsers === 'number' || value.previousTotals.activeUsers === null)
+    && typeof value.comparisonAvailable === 'boolean'
+    && Array.isArray(value.daily)
+    && Array.isArray(value.schools)
+    && Array.isArray(value.schoolOptions);
+}
+
+function periodComparison(current: number, previous: number | null, available: boolean) {
+  if (!available || previous === null) return 'No previous-period comparison';
+  if (previous === 0) return current === 0 ? 'No change from previous period' : 'New activity this period';
+  const change = ((current - previous) / previous) * 100;
+  return `${change > 0 ? '+' : ''}${change.toFixed(1)}% vs previous period`;
+}
+
+function formatDay(value: string) {
+  return new Date(`${value}T12:00:00.000Z`).toLocaleDateString(undefined, {
+    month: 'short',
+    day: 'numeric',
+    timeZone: 'UTC',
+  });
+}
+
 export function SystemOwnerPage() {
   const { user } = useAuth();
   const [dashboard, setDashboard] = useState<Dashboard | null>(null);
@@ -124,6 +228,13 @@ export function SystemOwnerPage() {
   const [query, setQuery] = useState('');
   const [healthQuery, setHealthQuery] = useState('');
   const [pendingAction, setPendingAction] = useState('');
+  const [usageRange, setUsageRange] = useState<UsageRange>(defaultUsageRange);
+  const [appliedUsageRange, setAppliedUsageRange] = useState<UsageRange>(defaultUsageRange);
+  const [usageAnalytics, setUsageAnalytics] = useState<UsageAnalytics | null>(null);
+  const [dailyUsage, setDailyUsage] = useState<UsageAnalytics | null>(null);
+  const [monthlyUsage, setMonthlyUsage] = useState<UsageAnalytics | null>(null);
+  const [usageLoading, setUsageLoading] = useState(true);
+  const [usageError, setUsageError] = useState('');
 
   const loadDashboard = useCallback(async (background = false) => {
     if (!user) return;
@@ -179,7 +290,47 @@ export function SystemOwnerPage() {
     }
   }, [user]);
 
+  const loadUsageAnalytics = useCallback(async () => {
+    if (!user) return;
+    setUsageLoading(true);
+    setUsageError('');
+    try {
+      const today = new Date().toISOString().slice(0, 10);
+      const invokeAnalytics = (fromDate: string, throughDate: string) =>
+        requireSupabase().functions.invoke('system-owner-admin', {
+          body: {
+            action: 'usage-analytics',
+            fromDate,
+            throughDate,
+            schoolId: appliedUsageRange.schoolId || null,
+          },
+        });
+      const [rangeResult, dailyResult, monthlyResult] = await Promise.all([
+        invokeAnalytics(appliedUsageRange.fromDate, appliedUsageRange.throughDate),
+        invokeAnalytics(today, today),
+        invokeAnalytics(dateDaysAgo(29, today), today),
+      ]);
+      for (const result of [rangeResult, dailyResult, monthlyResult]) {
+        if (result.error) throw result.error;
+      }
+      const range = rangeResult.data?.usageAnalytics;
+      const daily = dailyResult.data?.usageAnalytics;
+      const monthly = monthlyResult.data?.usageAnalytics;
+      if (!isUsageAnalytics(range) || !isUsageAnalytics(daily) || !isUsageAnalytics(monthly)) {
+        throw new Error('The system owner service returned invalid usage analytics.');
+      }
+      setUsageAnalytics(range);
+      setDailyUsage(daily);
+      setMonthlyUsage(monthly);
+    } catch (loadError) {
+      setUsageError(loadError instanceof Error ? loadError.message : 'Could not load platform usage analytics.');
+    } finally {
+      setUsageLoading(false);
+    }
+  }, [appliedUsageRange, user]);
+
   useEffect(() => { void loadDashboard(); }, [loadDashboard]);
+  useEffect(() => { void loadUsageAnalytics(); }, [loadUsageAnalytics]);
 
   const filteredSchools = useMemo(() => {
     const needle = query.trim().toLocaleLowerCase();
@@ -198,6 +349,29 @@ export function SystemOwnerPage() {
     if (!metric || metric.p75 === null) return '—';
     return name === 'cls' ? metric.p75.toFixed(3) : `${Math.round(metric.p75)} ms`;
   };
+
+  function applyUsageFilters(event: React.FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    const today = new Date().toISOString().slice(0, 10);
+    const rangeDays = (Date.parse(`${usageRange.throughDate}T00:00:00.000Z`)
+      - Date.parse(`${usageRange.fromDate}T00:00:00.000Z`)) / 86400000;
+    if (usageRange.fromDate > usageRange.throughDate || usageRange.throughDate > today || rangeDays > 89) {
+      setUsageError('Choose a valid date range of up to 90 days ending today or earlier.');
+      return;
+    }
+    setAppliedUsageRange(usageRange);
+  }
+
+  function viewSchoolAnalytics(schoolId: string) {
+    const nextRange = { ...appliedUsageRange, schoolId };
+    setUsageRange(nextRange);
+    setAppliedUsageRange(nextRange);
+  }
+
+  const today = new Date().toISOString().slice(0, 10);
+  const dailyActiveUsers = dailyUsage?.daily.find((day) => day.date === today)?.activeUsers ?? 0;
+  const monthlyActiveUsers = monthlyUsage?.totals.activeUsers ?? 0;
+  const maxDailyActiveUsers = Math.max(1, ...(usageAnalytics?.daily.map((day) => day.activeUsers) ?? []));
 
   async function setSchoolStatus(schoolId: string, status: 'active' | 'suspended') {
     setPendingAction(schoolId);
