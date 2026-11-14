@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useState, type FormEvent } from 'react';
 import {
   Activity, AlertTriangle, Building2, CalendarDays, Check, CircleDollarSign, Database, ExternalLink, GraduationCap,
   HardDrive, History, KeyRound, LifeBuoy, RefreshCw, Server, ShieldAlert, UserRound, UsersRound, X,
@@ -195,8 +195,26 @@ function isUsageAnalytics(value: unknown): value is UsageAnalytics {
     && (typeof value.previousTotals.activeUsers === 'number' || value.previousTotals.activeUsers === null)
     && typeof value.comparisonAvailable === 'boolean'
     && Array.isArray(value.daily)
+    && value.daily.every((day) => isRecord(day)
+      && typeof day.date === 'string'
+      && typeof day.pageRenders === 'number'
+      && typeof day.apiSamples === 'number'
+      && typeof day.databaseSamples === 'number'
+      && typeof day.activeUsers === 'number'
+      && typeof day.activeSessions === 'number'
+      && typeof day.activeSchools === 'number')
     && Array.isArray(value.schools)
-    && Array.isArray(value.schoolOptions);
+    && value.schools.every((school) => isRecord(school)
+      && typeof school.schoolId === 'string'
+      && typeof school.schoolName === 'string'
+      && typeof school.hasTelemetry === 'boolean'
+      && typeof school.events === 'number'
+      && typeof school.activeUsers === 'number'
+      && (typeof school.lastActivity === 'string' || school.lastActivity === null))
+    && Array.isArray(value.schoolOptions)
+    && value.schoolOptions.every((school) => isRecord(school)
+      && typeof school.schoolId === 'string'
+      && typeof school.schoolName === 'string');
 }
 
 function periodComparison(current: number, previous: number | null, available: boolean) {
@@ -294,6 +312,9 @@ export function SystemOwnerPage() {
     if (!user) return;
     setUsageLoading(true);
     setUsageError('');
+    setUsageAnalytics(null);
+    setDailyUsage(null);
+    setMonthlyUsage(null);
     try {
       const today = new Date().toISOString().slice(0, 10);
       const invokeAnalytics = (fromDate: string, throughDate: string) =>
@@ -305,16 +326,17 @@ export function SystemOwnerPage() {
             schoolId: appliedUsageRange.schoolId || null,
           },
         });
-      const [rangeResult, dailyResult, monthlyResult] = await Promise.all([
+      const rangeIncludesToday = appliedUsageRange.fromDate <= today && appliedUsageRange.throughDate >= today;
+      const [rangeResult, monthlyResult, dailyResult] = await Promise.all([
         invokeAnalytics(appliedUsageRange.fromDate, appliedUsageRange.throughDate),
-        invokeAnalytics(today, today),
         invokeAnalytics(dateDaysAgo(29, today), today),
+        rangeIncludesToday ? Promise.resolve(null) : invokeAnalytics(today, today),
       ]);
-      for (const result of [rangeResult, dailyResult, monthlyResult]) {
-        if (result.error) throw result.error;
+      for (const result of [rangeResult, monthlyResult, dailyResult]) {
+        if (result?.error) throw result.error;
       }
       const range = rangeResult.data?.usageAnalytics;
-      const daily = dailyResult.data?.usageAnalytics;
+      const daily = rangeIncludesToday ? range : dailyResult?.data?.usageAnalytics;
       const monthly = monthlyResult.data?.usageAnalytics;
       if (!isUsageAnalytics(range) || !isUsageAnalytics(daily) || !isUsageAnalytics(monthly)) {
         throw new Error('The system owner service returned invalid usage analytics.');
@@ -350,7 +372,7 @@ export function SystemOwnerPage() {
     return name === 'cls' ? metric.p75.toFixed(3) : `${Math.round(metric.p75)} ms`;
   };
 
-  function applyUsageFilters(event: React.FormEvent<HTMLFormElement>) {
+  function applyUsageFilters(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
     const today = new Date().toISOString().slice(0, 10);
     const rangeDays = (Date.parse(`${usageRange.throughDate}T00:00:00.000Z`)
@@ -372,6 +394,7 @@ export function SystemOwnerPage() {
   const dailyActiveUsers = dailyUsage?.daily.find((day) => day.date === today)?.activeUsers ?? 0;
   const monthlyActiveUsers = monthlyUsage?.totals.activeUsers ?? 0;
   const maxDailyActiveUsers = Math.max(1, ...(usageAnalytics?.daily.map((day) => day.activeUsers) ?? []));
+  const maxRoleUsers = Math.max(1, ...(dashboard?.roles.map((role) => role.users) ?? []));
 
   async function setSchoolStatus(schoolId: string, status: 'active' | 'suspended') {
     setPendingAction(schoolId);
@@ -414,13 +437,120 @@ export function SystemOwnerPage() {
   return (
     <main className="system-owner-page">
       <header className="system-owner-header">
-        <div><span className="eyebrow">Platform control</span><h1>System owner dashboard</h1><p>Private Campus Connect operations · {user?.email}</p></div>
+        <div><span className="eyebrow">Platform overview</span><h1>System owner dashboard</h1><p>Cross-school activity, platform health, and operational priorities.</p></div>
         <div className="system-owner-header-actions">
-          <button className="button button-quiet" onClick={() => void loadDashboard(true)} disabled={refreshing}><RefreshCw size={15} className={refreshing ? 'system-owner-spinning' : ''} /> Refresh</button>
+          <button className="button button-quiet" onClick={() => { void loadDashboard(true); void loadUsageAnalytics(); }} disabled={refreshing || usageLoading}><RefreshCw size={15} className={refreshing || usageLoading ? 'system-owner-spinning' : ''} /> Refresh</button>
         </div>
       </header>
       {error && <ErrorState message={error} />}
       {notice && <p className="inline-success" role="status">{notice}</p>}
+      {dashboard && <>
+        <section className="system-owner-stat-grid" aria-label="Platform summary metrics">
+          <article className="system-owner-stat">
+            <span><Building2 size={17} /></span><small>Registered schools</small>
+            <strong>{dashboard.stats.schools.toLocaleString()}</strong>
+            <p>{dashboard.stats.activeSchools.toLocaleString()} active · {dashboard.stats.suspendedSchools.toLocaleString()} inactive</p>
+            <Link to="/system-owner/schools">Manage schools</Link>
+          </article>
+          <article className="system-owner-stat">
+            <span><UserRound size={17} /></span><small>Registered users</small>
+            <strong>{dashboard.stats.users.toLocaleString()}</strong><p>Unique Campus Connect accounts</p>
+          </article>
+          <article className="system-owner-stat">
+            <span><GraduationCap size={17} /></span><small>Students</small>
+            <strong>{dashboard.stats.students.toLocaleString()}</strong><p>Across registered schools</p>
+          </article>
+          <article className="system-owner-stat">
+            <span><UsersRound size={17} /></span><small>Teachers</small>
+            <strong>{dashboard.stats.teachers.toLocaleString()}</strong><p>Across registered schools</p>
+          </article>
+          <article className="system-owner-stat">
+            <span><Activity size={17} /></span><small>Daily active users</small>
+            <strong>{usageLoading ? '…' : dailyUsage ? dailyActiveUsers.toLocaleString() : '—'}</strong>
+            <p>Distinct accounts with telemetry today</p>
+          </article>
+          <article className="system-owner-stat">
+            <span><CalendarDays size={17} /></span><small>Monthly active users</small>
+            <strong>{usageLoading ? '…' : monthlyUsage ? monthlyActiveUsers.toLocaleString() : '—'}</strong>
+            <p>Distinct accounts in the last 30 days</p>
+          </article>
+          <article className="system-owner-stat">
+            <span><LifeBuoy size={17} /></span><small>Pending support cases</small>
+            <strong>{dashboard.pendingSupportCases.toLocaleString()}</strong>
+            <p><Link to="/system-owner/support">Open support centre</Link></p>
+          </article>
+          <article className="system-owner-stat">
+            <span><ShieldAlert size={17} /></span><small>Sign-in alert groups · 30 days</small>
+            <strong>{dashboard.securityAlerts.count.toLocaleString()}</strong>
+            <p>{dashboard.securityAlerts.latestAt ? `Latest ${formatDate(dashboard.securityAlerts.latestAt)}` : 'No alerts recorded'}</p>
+          </article>
+          <article className="system-owner-stat">
+            <span><AlertTriangle size={17} /></span><small>Unresolved incidents</small>
+            <strong>{dashboard.openIncidents.count.toLocaleString()}</strong>
+            <p><Link to="/system-owner/errors/incidents">Review incident log</Link></p>
+          </article>
+        </section>
+
+        <section className="content-card system-owner-panel" id="platform-activity">
+          <div className="system-owner-panel-heading">
+            <div><span className="eyebrow">Usage analytics</span><h2>Platform activity</h2>
+              <p>Activity recorded by school workspaces. Active users are distinct signed-in profiles with telemetry.</p>
+            </div>
+          <div className="system-owner-header-actions"><Link className="button button-quiet" to="/system-owner/usage-analytics">Detailed analytics</Link><Activity size={18} /></div>
+          </div>
+          <form className="system-owner-usage-filters" onSubmit={applyUsageFilters}>
+            <label><span>From</span><input type="date" required value={usageRange.fromDate} min={dateDaysAgo(89, today)} max={today} onChange={(event) => setUsageRange((current) => ({ ...current, fromDate: event.target.value }))} /></label>
+            <label><span>Through</span><input type="date" required value={usageRange.throughDate} min={usageRange.fromDate} max={today} onChange={(event) => setUsageRange((current) => ({ ...current, throughDate: event.target.value }))} /></label>
+            <label className="system-owner-usage-school-filter"><span>School</span>
+              <select value={usageRange.schoolId} onChange={(event) => setUsageRange((current) => ({ ...current, schoolId: event.target.value }))}>
+                <option value="">All schools</option>
+                {(usageAnalytics?.schoolOptions ?? []).map((school) => <option key={school.schoolId} value={school.schoolId}>{school.schoolName}</option>)}
+              </select>
+            </label>
+            <button type="submit" className="button button-secondary" disabled={usageLoading}><CalendarDays size={15} /> Apply filters</button>
+          </form>
+          {usageError && <ErrorState message={usageError} />}
+          {!usageAnalytics && usageLoading && <LoadingState label="Loading school activity analytics…" />}
+          {usageAnalytics && <>
+            <div className="system-owner-usage-metrics">
+              <article><span>Active users in period</span><strong>{usageAnalytics.totals.activeUsers.toLocaleString()}</strong><small>{periodComparison(usageAnalytics.totals.activeUsers, usageAnalytics.previousTotals.activeUsers, usageAnalytics.comparisonAvailable)}</small></article>
+              <article><span>Recorded events</span><strong>{usageAnalytics.totals.events.toLocaleString()}</strong><small>{periodComparison(usageAnalytics.totals.events, usageAnalytics.previousTotals.events, usageAnalytics.comparisonAvailable)}</small></article>
+              <article><span>Page views</span><strong>{usageAnalytics.totals.pageRenders.toLocaleString()}</strong><small>{usageAnalytics.totals.activeSessions.toLocaleString()} distinct sessions</small></article>
+              <article><span>API / database samples</span><strong>{(usageAnalytics.totals.apiSamples + usageAnalytics.totals.databaseSamples).toLocaleString()}</strong><small>{usageAnalytics.totals.apiSamples.toLocaleString()} API · {usageAnalytics.totals.databaseSamples.toLocaleString()} database</small></article>
+            </div>
+            <div className="system-owner-usage-chart-heading">
+              <div><strong>Daily active users</strong><small>{usageAnalytics.fromDate} – {usageAnalytics.throughDate}</small></div>
+              <span>{usageAnalytics.reportingSchools.toLocaleString()} of {usageAnalytics.registeredSchools.toLocaleString()} schools reporting</span>
+            </div>
+            <div className="system-owner-usage-chart" role="img" aria-label={`Daily active users from ${usageAnalytics.fromDate} through ${usageAnalytics.throughDate}`}>
+              {usageAnalytics.daily.length ? usageAnalytics.daily.map((day) => (
+                <div className="system-owner-usage-bar-column" key={day.date} title={`${formatDay(day.date)}: ${day.activeUsers} active users, ${day.pageRenders} page views`}>
+                  <span className="system-owner-usage-bar-value">{day.activeUsers || ''}</span>
+                  <div className="system-owner-usage-bar-track"><span style={{ height: `${day.activeUsers ? Math.max(4, day.activeUsers / maxDailyActiveUsers * 100) : 0}%` }} /></div>
+                  <small>{formatDay(day.date)}</small>
+                </div>
+              )) : <p className="system-owner-muted">No activity was recorded for this range.</p>}
+            </div>
+            <p className="system-owner-muted">Comparison uses the immediately preceding period of equal length when telemetry is available. Coverage: {usageAnalytics.coveragePercent === null ? '—' : `${usageAnalytics.coveragePercent}%`}. {usageAnalytics.totals.lastActivity ? `Last recorded activity ${formatDate(usageAnalytics.totals.lastActivity)}.` : 'No telemetry has been recorded in this period.'}</p>
+            <div className="system-owner-panel-heading">
+              <div><span className="eyebrow">School drill-down</span><h3>Activity by school</h3></div>
+              <Link className="button button-quiet" to="/system-owner/schools">School management</Link>
+            </div>
+            <div className="system-owner-usage-school-list" aria-label="School activity results">
+              {usageAnalytics.schools.map((school) => (
+                <article key={school.schoolId}>
+                  <div><strong>{school.schoolName}</strong><small>{school.hasTelemetry ? `Last activity ${school.lastActivity ? formatDate(school.lastActivity) : 'not available'}` : 'No telemetry in this period'}</small></div>
+                  <span>{school.activeUsers.toLocaleString()} users</span>
+                  <span>{school.events.toLocaleString()} events</span>
+                  <button type="button" className="button button-quiet" disabled={usageLoading || appliedUsageRange.schoolId === school.schoolId} onClick={() => viewSchoolAnalytics(school.schoolId)}>
+                    {appliedUsageRange.schoolId === school.schoolId ? 'Selected' : 'View'}
+                  </button>
+                </article>
+              ))}
+            </div>
+          </>}
+        </section>
+      </>}
       <section className="content-card system-owner-panel">
         <div className="system-owner-panel-heading"><div><span className="eyebrow">Production deployment</span><h2>Deployment status</h2><p>Latest production deployment reported by Vercel.</p></div><History size={18} /></div>
         {deploymentStatusError && <ErrorState message={deploymentStatusError} />}
@@ -498,26 +628,25 @@ export function SystemOwnerPage() {
       </section>
       {!dashboard && !error && <ErrorState message="Platform dashboard data is not available." />}
       {dashboard && <>
-        <section className="system-owner-stat-grid" aria-label="Platform statistics">
-          <article className="system-owner-stat"><span><Building2 size={17} /></span><small>Registered schools</small><strong>{dashboard.stats.schools.toLocaleString()}</strong><p>{dashboard.stats.activeSchools} active · {dashboard.stats.suspendedSchools} suspended</p></article>
-          <article className="system-owner-stat"><span><UserRound size={17} /></span><small>Registered users</small><strong>{dashboard.stats.users.toLocaleString()}</strong><p>Unique Campus Connect accounts</p></article>
-          <article className="system-owner-stat"><span><GraduationCap size={17} /></span><small>Students</small><strong>{dashboard.stats.students.toLocaleString()}</strong><p>Across registered schools</p></article>
-          <article className="system-owner-stat"><span><UsersRound size={17} /></span><small>Teachers</small><strong>{dashboard.stats.teachers.toLocaleString()}</strong><p>Across registered schools</p></article>
-        </section>
-
         <div className="system-owner-grid">
           <section className="content-card system-owner-panel">
-            <div className="system-owner-panel-heading"><div><span className="eyebrow">Platform overview</span><h2>Users by role</h2></div><UserRound size={17} /></div>
-            {dashboard.roles.length ? <div className="system-owner-role-list">{dashboard.roles.map((role) => <div key={role.role}><span>{formatLabel(role.role)}</span><strong>{role.users.toLocaleString()}</strong></div>)}</div> : <p className="system-owner-muted">No school role memberships yet.</p>}
+            <div className="system-owner-panel-heading"><div><span className="eyebrow">Platform overview</span><h2>Users by role</h2><p>Distinct user accounts with each school role.</p></div><UserRound size={17} /></div>
+            {dashboard.roles.length ? <div className="system-owner-role-list">{dashboard.roles.map((role) => <div key={role.role}>
+              <span>{formatLabel(role.role)}</span><strong>{role.users.toLocaleString()}</strong>
+              <span className="system-owner-role-track"><span style={{ width: `${role.users / maxRoleUsers * 100}%` }} /></span>
+            </div>)}</div> : <p className="system-owner-muted">No school role memberships yet.</p>}
           </section>
           <section className="content-card system-owner-panel">
             <div className="system-owner-panel-heading"><div><span className="eyebrow">Needs attention</span><h2>System alerts</h2></div><AlertTriangle size={17} /></div>
             <div className="system-owner-alerts">
               {dashboard.stats.pendingStorageRequests > 0 && <div className="system-owner-alert"><AlertTriangle size={15} /><span><strong>{dashboard.stats.pendingStorageRequests} managed-storage request{dashboard.stats.pendingStorageRequests === 1 ? '' : 's'}</strong><small>Review access requests from school administrators below.</small></span></div>}
               {dashboard.stats.pendingStorageRequests > 0 && !dashboard.managedStorageConfigured && <div className="system-owner-alert"><ShieldAlert size={15} /><span><strong>Managed R2 is not configured</strong><small>Set the platform R2 secrets before approving school requests.</small></span></div>}
+              {dashboard.pendingSupportCases > 0 && <div className="system-owner-alert"><LifeBuoy size={15} /><span><strong>{dashboard.pendingSupportCases} pending support case{dashboard.pendingSupportCases === 1 ? '' : 's'}</strong><small><Link to="/system-owner/support">Review open support requests.</Link></small></span></div>}
+              {dashboard.securityAlerts.count > 0 && <div className="system-owner-alert"><ShieldAlert size={15} /><span><strong>{dashboard.securityAlerts.count} sign-in alert group{dashboard.securityAlerts.count === 1 ? '' : 's'} in 30 days</strong><small>Each group represents a hashed account/network pair; identifiers are never shown.</small></span></div>}
+              {dashboard.openIncidents.count > 0 && <div className="system-owner-alert"><AlertTriangle size={15} /><span><strong>{dashboard.openIncidents.count} unresolved platform incident{dashboard.openIncidents.count === 1 ? '' : 's'}</strong><small><Link to="/system-owner/errors/incidents">Open the incident log.</Link></small></span></div>}
               {dashboard.alerts.schoolsWithoutAdmin > 0 && <div className="system-owner-alert"><ShieldAlert size={15} /><span><strong>{dashboard.alerts.schoolsWithoutAdmin} school{dashboard.alerts.schoolsWithoutAdmin === 1 ? '' : 's'} without an administrator</strong><small>Check account setup and ensure each school has an owner.</small></span></div>}
               {dashboard.stats.suspendedSchools > 0 && <div className="system-owner-alert"><ShieldAlert size={15} /><span><strong>{dashboard.stats.suspendedSchools} suspended school{dashboard.stats.suspendedSchools === 1 ? '' : 's'}</strong><small>Review the suspended school list and reactivate when appropriate.</small></span></div>}
-              {dashboard.stats.pendingStorageRequests === 0 && dashboard.alerts.schoolsWithoutAdmin === 0 && dashboard.stats.suspendedSchools === 0 && <p className="system-owner-muted"><Check size={15} /> No outstanding platform alerts.</p>}
+              {dashboard.stats.pendingStorageRequests === 0 && dashboard.pendingSupportCases === 0 && dashboard.securityAlerts.count === 0 && dashboard.openIncidents.count === 0 && dashboard.alerts.schoolsWithoutAdmin === 0 && dashboard.stats.suspendedSchools === 0 && <p className="system-owner-muted"><Check size={15} /> No outstanding platform alerts.</p>}
             </div>
           </section>
         </div>
@@ -568,7 +697,7 @@ export function SystemOwnerPage() {
           <div className="system-owner-panel-heading"><div><span className="eyebrow">Platform administration</span><h2>Recently registered schools</h2><p>Quickly review status and switch a school between active and suspended.</p></div><Building2 size={18} /></div>
           <label className="table-search system-owner-search"><input value={query} onChange={(event) => setQuery(event.target.value)} placeholder="Filter recent schools" aria-label="Filter recent schools" /></label>
           <div className="system-owner-school-list">{filteredSchools.map((school) => <article className="system-owner-school" key={school.id}>
-            <div><strong>{school.name}</strong><small>Registered {formatDate(school.created_at)}{school.managed_storage_enabled ? ' · Managed storage' : ''}</small></div>
+            <div><strong><Link to="/system-owner/schools">{school.name}</Link></strong><small>Registered {formatDate(school.created_at)}{school.managed_storage_enabled ? ' · Managed storage' : ''}</small></div>
             <span className={`status-pill ${school.platform_status === 'active' ? 'status-active' : 'status-muted'}`}>{school.platform_status}</span>
             <button className={`button ${school.platform_status === 'active' ? 'button-quiet' : 'button-primary'}`} disabled={Boolean(pendingAction)} onClick={() => void setSchoolStatus(school.id, school.platform_status === 'active' ? 'suspended' : 'active')}>{pendingAction === school.id ? 'Saving…' : school.platform_status === 'active' ? 'Suspend' : 'Reactivate'}</button>
           </article>)}</div>
