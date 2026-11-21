@@ -22,6 +22,7 @@ interface AuthContextValue {
   recoveryMode: boolean;
   signIn: (email: string, password: string) => Promise<void>;
   signUp: (name: string, email: string, password: string) => Promise<boolean>;
+  finishPasswordRecovery: () => void;
   signOut: () => Promise<void>;
   createSchool: (name: string) => Promise<void>;
   selectSchool: (schoolId: string) => void;
@@ -83,7 +84,6 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         return;
       }
       if (event === 'PASSWORD_RECOVERY') setRecoveryMode(true);
-      if (event === 'USER_UPDATED') setRecoveryMode(false);
       if (event === 'SIGNED_IN') {
         setLoading(true);
         window.setTimeout(() => {
@@ -128,6 +128,8 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     return Boolean(data.session);
   }, []);
 
+  const finishPasswordRecovery = useCallback(() => setRecoveryMode(false), []);
+
   const signOut = useCallback(async () => {
     const { error: authError } = await requireSupabase().auth.signOut();
     if (authError) throw authError;
@@ -166,11 +168,12 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     recoveryMode,
     signIn,
     signUp,
+    finishPasswordRecovery,
     signOut,
     createSchool,
     selectSchool,
     refreshMemberships,
-  }), [session, memberships, activeMembership, loading, error, recoveryMode, signIn, signUp, signOut, createSchool, selectSchool, refreshMemberships]);
+  }), [session, memberships, activeMembership, loading, error, recoveryMode, signIn, signUp, finishPasswordRecovery, signOut, createSchool, selectSchool, refreshMemberships]);
 
   return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>;
 }

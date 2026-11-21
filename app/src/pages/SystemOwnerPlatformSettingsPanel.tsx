@@ -2,6 +2,7 @@ import { useEffect, useState, type FormEvent } from 'react';
 import { Save } from 'lucide-react';
 import { ErrorState, LoadingState } from '../components/Feedback';
 import { requireSupabase } from '../lib/supabase';
+import { invokeSystemOwnerAction } from '../lib/system-owner-actions';
 
 type PlatformSettings = {
   platform_name: string;
@@ -99,7 +100,7 @@ export function SystemOwnerPlatformSettingsPanel() {
     setError('');
     setNotice('');
     try {
-      const { error: saveError } = await requireSupabase().functions.invoke('system-owner-admin', {
+      const { error: saveError } = await invokeSystemOwnerAction({
         body: { action: 'save-platform-settings', settings },
       });
       if (saveError) throw saveError;

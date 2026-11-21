@@ -2,6 +2,7 @@ import { useCallback, useEffect, useState } from 'react';
 import { LifeBuoy, RefreshCw, Save } from 'lucide-react';
 import { ErrorState, LoadingState } from '../components/Feedback';
 import { requireSupabase } from '../lib/supabase';
+import { invokeSystemOwnerAction } from '../lib/system-owner-actions';
 
 type TicketStatus = 'new' | 'in_progress' | 'waiting_on_requester' | 'resolved' | 'closed';
 type SupportTicket = {
@@ -108,7 +109,7 @@ export function SystemOwnerSupportPage() {
     setError('');
     setNotice('');
     try {
-      const { error: saveError } = await requireSupabase().functions.invoke('system-owner-admin', {
+      const { error: saveError } = await invokeSystemOwnerAction({
         body: {
           action: 'update-support-ticket',
           ticketId,

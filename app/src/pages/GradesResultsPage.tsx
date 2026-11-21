@@ -83,7 +83,7 @@ type ResultForm = {
 };
 
 const BUILT_IN_TEMPLATES: Omit<ReportTemplate, 'id' | 'school_id'>[] = [
-  { name: 'Classic', layout: 'classic', title: 'STUDENT REPORT', subtitle: 'Academic achievement & progress', accent_color: '#5147c7', footer: 'Prepared by the school administration' },
+  { name: 'Classic', layout: 'classic', title: 'STUDENT REPORT', subtitle: 'Academic achievement & progress', accent_color: '#087E83', footer: 'Prepared by the school administration' },
   { name: 'Modern', layout: 'modern', title: 'LEARNING REPORT', subtitle: 'A clear view of progress this term', accent_color: '#167b82', footer: 'Every step forward matters.' },
   { name: 'Minimal', layout: 'minimal', title: 'ACADEMIC RECORD', subtitle: 'Student assessment summary', accent_color: '#344256', footer: 'Official student record' },
   { name: 'Academic', layout: 'academic', title: 'TERM RESULTS', subtitle: 'Assessment results & teacher feedback', accent_color: '#8c612d', footer: 'Learning with purpose' },
@@ -211,7 +211,7 @@ function drawReportPage(
 ) {
   const width = pdf.internal.pageSize.getWidth();
   const height = pdf.internal.pageSize.getHeight();
-  const [red, green, blue] = hexRgb(template.accent_color || school.primary_color || '#5147c7');
+  const [red, green, blue] = hexRgb(template.accent_color || school.primary_color || '#087E83');
   const margin = 42;
   const headerHeight = template.layout === 'minimal' ? 90 : 116;
   const lightHeader = template.layout === 'minimal' || template.layout === 'academic';

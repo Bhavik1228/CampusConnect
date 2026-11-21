@@ -2,7 +2,7 @@ import { useCallback, useEffect, useState, type FormEvent } from 'react';
 import { ExternalLink, GitBranch, History, RefreshCw, Save } from 'lucide-react';
 import { ErrorState, LoadingState } from '../components/Feedback';
 import { useAuth } from '../contexts/AuthContext';
-import { requireSupabase } from '../lib/supabase';
+import { invokeSystemOwnerAction } from '../lib/system-owner-actions';
 
 type ReleaseDeployment = {
   id: string;
@@ -66,7 +66,7 @@ export function SystemOwnerReleasesPage() {
     setError('');
     if (!cursor) setNotice('');
     try {
-      const { data, error: requestError } = await requireSupabase().functions.invoke('system-owner-admin', {
+      const { data, error: requestError } = await invokeSystemOwnerAction({
         body: { action: 'release-history', cursor },
       });
       if (requestError) throw requestError;
@@ -103,7 +103,7 @@ export function SystemOwnerReleasesPage() {
     setNotice('');
     try {
       const knownIssues = drafts[deployment.id] ?? '';
-      const { data, error: requestError } = await requireSupabase().functions.invoke('system-owner-admin', {
+      const { data, error: requestError } = await invokeSystemOwnerAction({
         body: {
           action: 'save-release-known-issues',
           vercelDeploymentId: deployment.id,

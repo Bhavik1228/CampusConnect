@@ -677,8 +677,8 @@ export function SchoolSettingsPage() {
             <Section title="Branding" detail="Choose school colors and an optional logo location.">
               <div className="settings-fields">
                 <TextField label="Logo path or URL" value={profile.logo_path ?? ''} disabled={!canEdit} maxLength={500} placeholder="https://… or storage path" onChange={(value) => updateProfile('logo_path', value || null)} />
-                <TextField label="Primary brand color" type="color" value={profile.primary_color ?? '#6555d9'} disabled={!canEdit} onChange={(value) => updateProfile('primary_color', value)} />
-                <TextField label="Secondary brand color" type="color" value={profile.secondary_color ?? '#20243a'} disabled={!canEdit} onChange={(value) => updateProfile('secondary_color', value)} />
+                <TextField label="Primary brand color" type="color" value={profile.primary_color ?? '#087E83'} disabled={!canEdit} onChange={(value) => updateProfile('primary_color', value)} />
+                <TextField label="Secondary brand color" type="color" value={profile.secondary_color ?? '#142B49'} disabled={!canEdit} onChange={(value) => updateProfile('secondary_color', value)} />
               </div>
             </Section>
             <Section title="Contact & location" detail="Contact details for families and school staff.">

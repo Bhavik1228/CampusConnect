@@ -10,10 +10,14 @@ const corsHeaders = {
 
 type OwnerRequest = {
   action?: unknown;
+  email?: unknown;
+  password?: unknown;
+  administratorId?: unknown;
   schoolId?: unknown;
   status?: unknown;
   requestId?: unknown;
   decision?: unknown;
+  requestPayload?: unknown;
   search?: unknown;
   statusFilter?: unknown;
   typeFilter?: unknown;
@@ -199,6 +203,37 @@ const maintenanceModules = [
   'library', 'staff', 'students', 'timetable',
 ];
 
+const administratorReadActions = new Set([
+  'check', 'connection-test', 'system-health', 'error-dashboard', 'performance-dashboard',
+  'api-health-dashboard', 'usage-analytics', 'incident-list', 'accessibility-test-issues',
+  'deployment-status', 'release-history', 'support-inbox', 'dashboard', 'maintenance-dashboard',
+  'list-schools', 'get-platform-settings', 'list-change-requests', 'complete-password-setup',
+]);
+
+const approvalActions = new Set([
+  'save-incident', 'save-accessibility-test-issue', 'save-release-known-issues', 'update-support-ticket',
+  'set-global-maintenance', 'schedule-maintenance', 'set-scoped-maintenance', 'cancel-maintenance',
+  'save-platform-settings', 'register-school', 'update-school', 'assign-school-admin',
+  'set-school-status', 'review-storage-request',
+]);
+
+const actionLabels: Record<string, string> = {
+  'save-incident': 'Save system incident',
+  'save-accessibility-test-issue': 'Update accessibility test issue',
+  'save-release-known-issues': 'Update release notes',
+  'update-support-ticket': 'Update support request',
+  'set-global-maintenance': 'Change global maintenance settings',
+  'schedule-maintenance': 'Schedule maintenance',
+  'set-scoped-maintenance': 'Change scoped maintenance settings',
+  'cancel-maintenance': 'Cancel scheduled maintenance',
+  'save-platform-settings': 'Change platform settings',
+  'register-school': 'Register a school',
+  'update-school': 'Update school information',
+  'assign-school-admin': 'Assign a school administrator',
+  'set-school-status': 'Change school status',
+  'review-storage-request': 'Review a managed storage request',
+};
+
 function respond(status: number, body: Record<string, unknown>) {
   return new Response(JSON.stringify(body), {
     status,
@@ -245,6 +280,39 @@ type VercelDeployment = {
 
 function isNonEmptyString(value: unknown): value is string {
   return typeof value === 'string' && value.length > 0;
+}
+
+async function sendAdministratorWelcomeEmail(email: string, actionLink: string) {
+  const apiKey = Deno.env.get('RESEND_API_KEY');
+  const from = Deno.env.get('RESEND_FROM_EMAIL');
+  if (!apiKey || !from) {
+    throw new Error('Administrator email is not configured. Set RESEND_API_KEY and RESEND_FROM_EMAIL for system-owner-admin.');
+  }
+  const response = await fetch('https://api.resend.com/emails', {
+    method: 'POST',
+    headers: {
+      Authorization: `Bearer ${apiKey}`,
+      'Content-Type': 'application/json',
+    },
+    body: JSON.stringify({
+      from,
+      to: [email],
+      subject: 'You have been added as a Campus Connect administrator',
+      text: [
+        'You have been added as an administrator for Campus Connect.',
+        '',
+        'Use this secure link to choose your password and sign in:',
+        actionLink,
+        '',
+        'Administrators have read-only access. Changes must be submitted for system owner approval.',
+      ].join('\n'),
+      html: `<p>You have been added as an administrator for Campus Connect.</p><p><a href="${actionLink}">Choose your password and sign in</a></p><p>Administrators have read-only access. Changes must be submitted for system owner approval.</p>`,
+    }),
+  });
+  if (!response.ok) {
+    console.error('Resend rejected an administrator welcome email.', { status: response.status });
+    throw new Error('The administrator welcome email could not be sent.');
+  }
 }
 
 function safeVercelUrl(value: unknown, allowedHost: (hostname: string) => boolean) {
@@ -449,12 +517,243 @@ Deno.serve(async (request: Request) => {
     });
     const { data: { user }, error: authError } = await userClient.auth.getUser(accessToken);
     if (authError || !user) return respond(401, { error: 'Your session is invalid. Sign in again.' });
-    if (user.id !== ownerId) return respond(200, { authorized: false });
 
     const serviceClient = createClient(supabaseUrl, serviceRoleKey, {
       auth: { persistSession: false, autoRefreshToken: false },
     });
-    if (payload.action === 'check') return respond(200, { authorized: true });
+    const isOwner = user.id === ownerId;
+    let administrator: { revoked_at: string | null; password_setup_pending: boolean } | null = null;
+    if (!isOwner) {
+      const { data: administratorRecord, error: administratorError } = await serviceClient
+        .from('system_owner_administrators')
+        .select('revoked_at,password_setup_pending')
+        .eq('profile_id', user.id)
+        .maybeSingle();
+      if (administratorError) throw administratorError;
+      if (!administratorRecord || administratorRecord.revoked_at) return respond(200, { authorized: false });
+      administrator = administratorRecord;
+    }
+
+    if (payload.action === 'check') {
+      return respond(200, {
+        authorized: true,
+        administrator: !isOwner,
+        passwordSetupPending: administrator?.password_setup_pending ?? false,
+      });
+    }
+
+    if (payload.action === 'complete-password-setup') {
+      if (!administrator) return respond(200, { completed: true });
+      const { error: setupError } = await serviceClient.from('system_owner_administrators')
+        .update({ password_setup_pending: false })
+        .eq('profile_id', user.id)
+        .is('revoked_at', null);
+      if (setupError) throw setupError;
+      return respond(200, { completed: true });
+    }
+
+    if (!isOwner && administrator?.password_setup_pending) {
+      return respond(403, { error: 'Choose a new password from the welcome email before using the administrator panel.' });
+    }
+
+    if (!isOwner) {
+      if (payload.action === 'list-change-requests') {
+        const query = serviceClient.from('system_owner_change_requests')
+          .select('id,requested_by,requested_by_email,action,request_payload,status,reviewed_at,result_message,created_at')
+          .order('created_at', { ascending: false })
+          .limit(200);
+        const { data: requests, error: requestsError } = await query.eq('requested_by', user.id);
+        if (requestsError) throw requestsError;
+        return respond(200, { requests: requests ?? [] });
+      }
+
+      if (!administratorReadActions.has(String(payload.action))) {
+        if (!approvalActions.has(String(payload.action))) {
+          return respond(403, { error: 'Administrators can only view platform data or request approval for listed changes.' });
+        }
+        const serializedPayload = JSON.stringify(payload);
+        if (serializedPayload.length > 24000) return respond(413, { error: 'This change request is too large to submit.' });
+        const { data: request, error: requestError } = await serviceClient.from('system_owner_change_requests')
+          .insert({
+            requested_by: user.id,
+            requested_by_email: user.email ?? '',
+            action: String(payload.action),
+            request_payload: payload,
+          })
+          .select('id,action,status,created_at')
+          .single();
+        if (requestError) throw requestError;
+        return respond(200, {
+          approvalRequired: true,
+          message: `${actionLabels[request.action] ?? 'Change'} submitted for system owner approval.`,
+          request,
+        });
+      }
+    }
+
+    if (payload.action === 'list-administrators') {
+      if (!isOwner) return respond(403, { error: 'Only the system owner can manage administrators.' });
+      const { data: administrators, error: administratorsError } = await serviceClient
+        .from('system_owner_administrators')
+        .select('profile_id,email,created_at,revoked_at,password_setup_pending')
+        .order('created_at', { ascending: false });
+      if (administratorsError) throw administratorsError;
+      return respond(200, { administrators: administrators ?? [] });
+    }
+
+    if (payload.action === 'create-administrator') {
+      if (!isOwner) return respond(403, { error: 'Only the system owner can add administrators.' });
+      const email = typeof payload.email === 'string' ? payload.email.trim().toLowerCase() : '';
+      const password = typeof payload.password === 'string' ? payload.password : '';
+      if (email.length > 320 || !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) {
+        return respond(400, { error: 'Enter a valid administrator email address.' });
+      }
+      if (password.length < 12 || password.length > 72) {
+        return respond(400, { error: 'Set a temporary password between 12 and 72 characters.' });
+      }
+      const appUrl = Deno.env.get('SYSTEM_OWNER_APP_URL');
+      if (!appUrl) throw new Error('Set SYSTEM_OWNER_APP_URL to the deployed app origin before adding administrators.');
+      const parsedAppUrl = new URL(appUrl);
+      if (parsedAppUrl.protocol !== 'https:' && parsedAppUrl.hostname !== 'localhost') {
+        throw new Error('SYSTEM_OWNER_APP_URL must use HTTPS.');
+      }
+
+      const { data: createdUser, error: createUserError } = await serviceClient.auth.admin.createUser({
+        email,
+        password,
+        email_confirm: true,
+        user_metadata: { full_name: email.split('@')[0] },
+      });
+      if (createUserError) return respond(400, { error: createUserError.message });
+      if (!createdUser.user) throw new Error('Supabase did not return the new administrator account.');
+
+      const { error: createAdministratorError } = await serviceClient.from('system_owner_administrators').insert({
+        profile_id: createdUser.user.id,
+        email,
+        created_by: user.id,
+      });
+      if (createAdministratorError) {
+        const { error: cleanupError } = await serviceClient.auth.admin.deleteUser(createdUser.user.id);
+        if (cleanupError) console.error('Could not remove an incomplete system administrator account.', cleanupError.message);
+        throw createAdministratorError;
+      }
+
+      try {
+        const { data: recoveryLink, error: linkError } = await serviceClient.auth.admin.generateLink({
+          type: 'recovery',
+          email,
+          options: { redirectTo: `${parsedAppUrl.origin}/login` },
+        });
+        if (linkError) throw linkError;
+        if (!recoveryLink.properties?.action_link) throw new Error('Supabase did not return a password setup link.');
+        await sendAdministratorWelcomeEmail(email, recoveryLink.properties.action_link);
+      } catch (emailError) {
+        const { error: administratorCleanupError } = await serviceClient.from('system_owner_administrators')
+          .delete().eq('profile_id', createdUser.user.id);
+        const { error: userCleanupError } = await serviceClient.auth.admin.deleteUser(createdUser.user.id);
+        if (administratorCleanupError || userCleanupError) {
+          console.error('Could not fully remove an administrator account after email delivery failed.', {
+            administratorCleanupError: administratorCleanupError?.message,
+            userCleanupError: userCleanupError?.message,
+          });
+        }
+        throw emailError;
+      }
+      return respond(200, { administrator: { profile_id: createdUser.user.id, email } });
+    }
+
+    if (payload.action === 'set-administrator-status') {
+      if (!isOwner) return respond(403, { error: 'Only the system owner can manage administrators.' });
+      if (!isUuid(payload.administratorId) || typeof payload.enabled !== 'boolean') {
+        return respond(400, { error: 'Choose a valid administrator and status.' });
+      }
+      if (payload.administratorId === ownerId) return respond(400, { error: 'The system owner account cannot be managed as an administrator.' });
+      const { data: administratorRecord, error: updateError } = await serviceClient.from('system_owner_administrators')
+        .update({ revoked_at: payload.enabled ? null : new Date().toISOString() })
+        .eq('profile_id', payload.administratorId)
+        .select('profile_id,email,created_at,revoked_at,password_setup_pending')
+        .maybeSingle();
+      if (updateError) throw updateError;
+      if (!administratorRecord) return respond(404, { error: 'Administrator account not found.' });
+      return respond(200, { administrator: administratorRecord });
+    }
+
+    if (payload.action === 'list-change-requests') {
+      if (!isOwner) return respond(403, { error: 'Only the system owner can review administrator change requests.' });
+      const { data: requests, error: requestsError } = await serviceClient.from('system_owner_change_requests')
+        .select('id,requested_by,requested_by_email,action,request_payload,status,reviewed_at,result_message,created_at')
+        .order('created_at', { ascending: false })
+        .limit(200);
+      if (requestsError) throw requestsError;
+      return respond(200, { requests: requests ?? [] });
+    }
+
+    if (payload.action === 'review-change-request') {
+      if (!isOwner) return respond(403, { error: 'Only the system owner can review administrator change requests.' });
+      if (!isUuid(payload.requestId) || (payload.decision !== 'approved' && payload.decision !== 'denied')) {
+        return respond(400, { error: 'Choose a valid change request and decision.' });
+      }
+      if (payload.decision === 'denied') {
+        const { data: request, error: denyError } = await serviceClient.from('system_owner_change_requests')
+          .update({ status: 'denied', reviewed_by: user.id, reviewed_at: new Date().toISOString() })
+          .eq('id', payload.requestId)
+          .eq('status', 'pending')
+          .select('id,status')
+          .maybeSingle();
+        if (denyError) throw denyError;
+        if (!request) return respond(409, { error: 'This request is no longer pending.' });
+        return respond(200, { request });
+      }
+
+      const { data: request, error: approveError } = await serviceClient.from('system_owner_change_requests')
+        .update({ status: 'processing', reviewed_by: user.id, reviewed_at: new Date().toISOString() })
+        .eq('id', payload.requestId)
+        .eq('status', 'pending')
+        .select('id,action,request_payload')
+        .maybeSingle();
+      if (approveError) throw approveError;
+      if (!request || !isRecord(request.request_payload) || request.request_payload.action !== request.action
+        || !approvalActions.has(request.action)) {
+        return respond(409, { error: 'This request is no longer pending or contains an unsupported change.' });
+      }
+
+      let replayResponse: Response;
+      try {
+        replayResponse = await fetch(`${supabaseUrl.replace(/\/+$/, '')}/functions/v1/system-owner-admin`, {
+          method: 'POST',
+          headers: {
+            Authorization: `Bearer ${accessToken}`,
+            apikey: anonKey,
+            'Content-Type': 'application/json',
+          },
+          body: JSON.stringify(request.request_payload),
+        });
+      } catch (executionError) {
+        const message = 'The change execution result could not be verified. Do not retry automatically; review the platform state.';
+        const { error: resultError } = await serviceClient.from('system_owner_change_requests')
+          .update({ status: 'execution_unknown', result_message: message })
+          .eq('id', request.id);
+        if (resultError) console.error('Could not record an uncertain administrator change execution.', resultError.message);
+        console.error('System owner change execution could not be verified.', executionError);
+        return respond(502, { error: message });
+      }
+
+      const responseBody: unknown = await replayResponse.json().catch(() => null);
+      const applied = replayResponse.ok;
+      const resultMessage = applied
+        ? 'Approved change applied.'
+        : (isRecord(responseBody) && typeof responseBody.error === 'string'
+          ? responseBody.error.slice(0, 1000)
+          : 'The approved change could not be applied.');
+      const { error: resultError } = await serviceClient.from('system_owner_change_requests')
+        .update({ status: applied ? 'applied' : 'failed', result_message: resultMessage })
+        .eq('id', request.id);
+      if (resultError) throw resultError;
+      return respond(200, {
+        request: { id: request.id, status: applied ? 'applied' : 'failed', result_message: resultMessage },
+      });
+    }
+
     if (payload.action === 'connection-test') {
       return respond(200, {
         observedAt: new Date().toISOString(),

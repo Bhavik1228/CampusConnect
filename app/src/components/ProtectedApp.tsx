@@ -77,6 +77,8 @@ import { NotFoundPage } from '../pages/NotFoundPage';
 import { StudentBehaviourPage } from '../pages/StudentBehaviourPage';
 import { StudentBehaviourFamilyPage } from '../pages/StudentBehaviourFamilyPage';
 import { CurriculumIntelligencePage } from '../pages/CurriculumIntelligencePage';
+import { SystemOwnerAdministratorsPage } from '../pages/SystemOwnerAdministratorsPage';
+import { AdministratorPasswordPage } from '../pages/AdministratorPasswordPage';
 
 function RouteGate({ authOnly = true, requireMembership = true }: { authOnly?: boolean; requireMembership?: boolean }) {
   const { user, loading, memberships } = useAuth();
@@ -88,7 +90,9 @@ function RouteGate({ authOnly = true, requireMembership = true }: { authOnly?: b
   return <Outlet />;
 }
 
-async function checkSystemOwner() {
+type PlatformAccess = { authorized: boolean; administrator: boolean; passwordSetupPending: boolean };
+
+async function checkSystemOwner(): Promise<PlatformAccess> {
   const { data, error } = await requireSupabase().functions.invoke('system-owner-admin', {
     body: { action: 'check' },
   });
@@ -99,12 +103,16 @@ async function checkSystemOwner() {
     }
     throw error;
   }
-  return data?.authorized === true;
+  return {
+    authorized: data?.authorized === true,
+    administrator: data?.administrator === true,
+    passwordSetupPending: data?.passwordSetupPending === true,
+  };
 }
 
 function SchoolWorkspaceGate() {
   const { user, loading, memberships } = useAuth();
-  const [access, setAccess] = useState<'checking' | 'school' | 'owner' | 'error'>('checking');
+  const [access, setAccess] = useState<'checking' | 'school' | 'owner' | 'administrator' | 'password-setup' | 'error'>('checking');
   const [accessError, setAccessError] = useState('Could not verify platform access. School workspace access is paused until verification succeeds.');
   const [retry, setRetry] = useState(0);
 
@@ -116,7 +124,12 @@ function SchoolWorkspaceGate() {
     }
     setAccess('checking');
     void checkSystemOwner()
-      .then((isOwner) => { if (active) setAccess(isOwner ? 'owner' : 'school'); })
+      .then((platformAccess) => {
+        if (!active) return;
+        setAccess(!platformAccess.authorized ? 'school'
+          : platformAccess.passwordSetupPending ? 'password-setup'
+            : platformAccess.administrator ? 'administrator' : 'owner');
+      })
       .catch((error: unknown) => {
         console.error('Could not verify access to the school workspace.', error);
         if (active) {
@@ -129,14 +142,15 @@ function SchoolWorkspaceGate() {
 
   if (loading || access === 'checking') return <div className="full-screen-loading"><LoadingState label="Verifying workspace access…" /></div>;
   if (access === 'error') return <main className="config-page"><div className="config-card"><ErrorState message={accessError} /><button className="button button-primary" onClick={() => setRetry((value) => value + 1)}>Retry verification</button></div></main>;
-  if (access === 'owner') return <Navigate to="/system-owner" replace />;
+  if (access === 'owner' || access === 'administrator') return <Navigate to="/system-owner" replace />;
+  if (access === 'password-setup') return <Navigate to="/administrator-password" replace />;
   if (user && memberships.length === 0) return <SchoolSetup />;
   return <Outlet />;
 }
 
 function SystemOwnerGate() {
   const { user } = useAuth();
-  const [access, setAccess] = useState<'checking' | 'owner' | 'denied' | 'error'>('checking');
+  const [access, setAccess] = useState<'checking' | 'owner' | 'administrator' | 'password-setup' | 'denied' | 'error'>('checking');
   const [retry, setRetry] = useState(0);
 
   useEffect(() => {
@@ -147,7 +161,12 @@ function SystemOwnerGate() {
     }
     setAccess('checking');
     void checkSystemOwner()
-      .then((isOwner) => { if (active) setAccess(isOwner ? 'owner' : 'denied'); })
+      .then((platformAccess) => {
+        if (!active) return;
+        setAccess(!platformAccess.authorized ? 'denied'
+          : platformAccess.passwordSetupPending ? 'password-setup'
+            : platformAccess.administrator ? 'administrator' : 'owner');
+      })
       .catch((error: unknown) => {
         console.error('Could not verify system owner page access.', error);
         if (active) setAccess('error');
@@ -158,7 +177,8 @@ function SystemOwnerGate() {
   if (access === 'checking') return <div className="full-screen-loading"><LoadingState label="Verifying system owner access…" /></div>;
   if (access === 'error') return <main className="config-page"><div className="config-card"><ErrorState message="Owner authorization could not be verified. Access is denied until verification succeeds." /><button className="button button-primary" onClick={() => setRetry((value) => value + 1)}>Retry verification</button></div></main>;
   if (access === 'denied') return <Navigate to={user ? '/dashboard' : '/login'} replace />;
-  return <Outlet />;
+  if (access === 'password-setup') return <Navigate to="/administrator-password" replace />;
+  return <Outlet context={{ administrator: access === 'administrator' }} />;
 }
 
 function SetupRequired() {
@@ -181,6 +201,7 @@ export function ProtectedApp() {
       <Routes>
       <Route path="/" element={<LandingPage />} />
       <Route path="/login" element={<LoginRoute />} />
+      <Route path="/administrator-password" element={<AdministratorPasswordPage />} />
       <Route path="/mobile/install" element={<MobileInstallPage />} />
       <Route path="/verify/document/:token" element={<DocumentVerificationPage />} />
       <Route path="/book/:slug/:barcode" element={<PublicLibraryBookPage />} />
@@ -201,6 +222,7 @@ export function ProtectedApp() {
             <Route path="releases" element={<SystemOwnerReleasesPage />} />
             <Route path="accessibility" element={<SystemOwnerAccessibilityPage />} />
             <Route path="support" element={<SystemOwnerSupportPage />} />
+            <Route path="administrators" element={<SystemOwnerAdministratorsPage />} />
           </Route>
         </Route>
         <Route element={<SchoolWorkspaceGate />}>
@@ -275,7 +297,7 @@ export function ProtectedApp() {
 function LoginRoute() {
   const { user, loading, memberships, recoveryMode } = useAuth();
   const location = useLocation();
-  const [ownerStatus, setOwnerStatus] = useState<'checking' | 'owner' | 'school' | 'error'>('checking');
+  const [ownerStatus, setOwnerStatus] = useState<'checking' | 'owner' | 'administrator' | 'password-setup' | 'school' | 'error'>('checking');
   const requestedDestination = new URLSearchParams(location.search).get('redirect');
   const publicBookPath = requestedDestination
     && (/^\/book\/[^/]+\/[^/]+$/.test(requestedDestination)
@@ -307,7 +329,12 @@ function LoginRoute() {
     }
     setOwnerStatus('checking');
     void checkSystemOwner()
-      .then((isOwner) => { if (active) setOwnerStatus(isOwner ? 'owner' : 'school'); })
+      .then((platformAccess) => {
+        if (!active) return;
+        setOwnerStatus(!platformAccess.authorized ? 'school'
+          : platformAccess.passwordSetupPending ? 'password-setup'
+            : platformAccess.administrator ? 'administrator' : 'owner');
+      })
       .catch((error: unknown) => {
         console.error('Could not verify system owner sign-in destination.', error);
         if (active) setOwnerStatus('error');
@@ -320,7 +347,8 @@ function LoginRoute() {
   if (recoveryMode) return <AuthScreen />;
   if (user && ownerStatus === 'checking') return <div className="full-screen-loading"><LoadingState label="Verifying account…" /></div>;
   if (user && ownerStatus === 'error') return <main className="config-page"><div className="config-card"><ErrorState message="Could not verify your account's platform access. Please reload and try again." /></div></main>;
-  if (user && ownerStatus === 'owner') return <Navigate to="/system-owner" replace />;
+  if (user && (ownerStatus === 'owner' || ownerStatus === 'administrator')) return <Navigate to="/system-owner" replace />;
+  if (user && ownerStatus === 'password-setup') return <Navigate to="/administrator-password" replace />;
   if (user && publicBookPath) return <Navigate to={publicBookPath} replace />;
   if (user && healthReportPath) return <Navigate to={healthReportPath} replace />;
   if (user && visitorBadgePath) return <Navigate to={visitorBadgePath} replace />;

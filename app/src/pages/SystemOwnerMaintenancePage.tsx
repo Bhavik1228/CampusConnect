@@ -2,6 +2,7 @@ import { useCallback, useEffect, useState, type FormEvent } from 'react';
 import { AlertTriangle, CalendarClock, Check, Clock3, Power, RefreshCw, ShieldAlert, X } from 'lucide-react';
 import { ErrorState, LoadingState } from '../components/Feedback';
 import { requireSupabase } from '../lib/supabase';
+import { invokeSystemOwnerAction } from '../lib/system-owner-actions';
 
 type MaintenanceWindow = {
   id: string;
@@ -89,7 +90,7 @@ export function SystemOwnerMaintenancePage() {
     setError('');
     setNotice('');
     try {
-      const { error: actionError } = await requireSupabase().functions.invoke('system-owner-admin', {
+      const { error: actionError } = await invokeSystemOwnerAction({
         body: {
           action: 'set-global-maintenance',
           enabled,
@@ -114,7 +115,7 @@ export function SystemOwnerMaintenancePage() {
     setError('');
     setNotice('');
     try {
-      const { error: actionError } = await requireSupabase().functions.invoke('system-owner-admin', {
+      const { error: actionError } = await invokeSystemOwnerAction({
         body: {
           action: 'set-global-maintenance',
           enabled: data.maintenance.global_enabled,
@@ -139,7 +140,7 @@ export function SystemOwnerMaintenancePage() {
     setError('');
     setNotice('');
     try {
-      const { error: actionError } = await requireSupabase().functions.invoke('system-owner-admin', {
+      const { error: actionError } = await invokeSystemOwnerAction({
         body: {
           action: 'schedule-maintenance',
           scope,
@@ -168,7 +169,7 @@ export function SystemOwnerMaintenancePage() {
     setError('');
     setNotice('');
     try {
-      const { error: actionError } = await requireSupabase().functions.invoke('system-owner-admin', {
+      const { error: actionError } = await invokeSystemOwnerAction({
         body: { action: 'cancel-maintenance', windowId: id },
       });
       if (actionError) throw actionError;

@@ -5,7 +5,7 @@ import { getAuthErrorMessage } from '../lib/auth-errors';
 import { requireSupabase } from '../lib/supabase';
 
 export function AuthScreen() {
-  const { signIn, signUp, recoveryMode } = useAuth();
+  const { signIn, signUp, recoveryMode, finishPasswordRecovery } = useAuth();
   const [mode, setMode] = useState<'login' | 'signup'>('login');
   const [name, setName] = useState('');
   const [email, setEmail] = useState('');
@@ -24,6 +24,11 @@ export function AuthScreen() {
       if (recoveryMode) {
         const { error: updateError } = await requireSupabase().auth.updateUser({ password });
         if (updateError) throw updateError;
+        const { error: setupError } = await requireSupabase().functions.invoke('system-owner-admin', {
+          body: { action: 'complete-password-setup' },
+        });
+        if (setupError) throw setupError;
+        finishPasswordRecovery();
         setMessage('Your password has been updated.');
       } else if (mode === 'login') {
         await signIn(email.trim(), password);

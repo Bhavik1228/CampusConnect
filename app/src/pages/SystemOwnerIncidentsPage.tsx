@@ -3,7 +3,7 @@ import { AlertTriangle, BookOpenCheck, Clock3, Plus, Save } from 'lucide-react';
 import { NavLink } from 'react-router-dom';
 import { ErrorState, LoadingState } from '../components/Feedback';
 import { useAuth } from '../contexts/AuthContext';
-import { requireSupabase } from '../lib/supabase';
+import { invokeSystemOwnerAction } from '../lib/system-owner-actions';
 
 type IncidentStatus = 'investigating' | 'identified' | 'monitoring' | 'resolved';
 type IncidentSeverity = 'critical' | 'high' | 'medium' | 'low';
@@ -110,7 +110,7 @@ export function SystemOwnerIncidentsPage() {
     setLoading(true);
     setError('');
     try {
-      const { data, error: requestError } = await requireSupabase().functions.invoke('system-owner-admin', {
+      const { data, error: requestError } = await invokeSystemOwnerAction({
         body: { action: 'incident-list' },
       });
       if (requestError) throw requestError;
@@ -137,7 +137,7 @@ export function SystemOwnerIncidentsPage() {
       const resolvedAt = draft.status === 'resolved'
         ? draft.resolved_at ? fromLocalDateTime(draft.resolved_at) : new Date().toISOString()
         : null;
-      const { data, error: requestError } = await requireSupabase().functions.invoke('system-owner-admin', {
+      const { data, error: requestError } = await invokeSystemOwnerAction({
         body: {
           action: 'save-incident',
           incidentId: draft.id,

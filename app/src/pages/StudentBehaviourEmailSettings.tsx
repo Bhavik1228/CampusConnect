@@ -86,22 +86,22 @@ function emailPreview(subject: string, body: string) {
     .split(/\r?\n/)
     .map((line) => line.trim())
     .filter(Boolean)
-    .map((line) => `<p style="margin:0 0 14px;color:#33413c;font:15px/1.65 Arial,sans-serif">${line}</p>`)
+    .map((line) => `<p style="margin:0 0 14px;color:#1F2937;font:15px/1.65 Arial,sans-serif">${line}</p>`)
     .join('');
-  return `<!doctype html><html><body style="margin:0;padding:16px;background:#f3f5f2">
-    <table role="presentation" width="100%" cellspacing="0" cellpadding="0" style="max-width:560px;margin:0 auto;background:#fff;border:1px solid #e1e8e3;border-radius:12px;overflow:hidden">
-      <tr><td style="padding:20px 24px;background:#183c32;color:#fff">
-        <div style="font:700 12px Arial,sans-serif;letter-spacing:1.6px;color:#d9ebdf">CAMPUS CONNECT</div>
+  return `<!doctype html><html><body style="margin:0;padding:16px;background:#F4F7FA">
+    <table role="presentation" width="100%" cellspacing="0" cellpadding="0" style="max-width:560px;margin:0 auto;background:#fff;border:1px solid #D9E2EA;border-radius:12px;overflow:hidden">
+      <tr><td style="padding:20px 24px;background:#142B49;color:#fff">
+        <div style="font:700 12px Arial,sans-serif;letter-spacing:1.6px;color:#D9E2EA">CAMPUS CONNECT</div>
         <div style="margin-top:8px;font:14px Arial,sans-serif">Example School</div>
       </td></tr>
       <tr><td style="padding:26px 24px 12px">
-        <div style="margin-bottom:10px;color:#b66b32;font:700 11px Arial,sans-serif;letter-spacing:1.2px">STUDENT WELLBEING</div>
-        <h1 style="margin:0 0 18px;color:#183c32;font:700 22px/1.25 Arial,sans-serif">${escapeHtml(preview(subject))}</h1>
+        <div style="margin-bottom:10px;color:#A75C00;font:700 11px Arial,sans-serif;letter-spacing:1.2px">STUDENT WELLBEING</div>
+        <h1 style="margin:0 0 18px;color:#142B49;font:700 22px/1.25 Arial,sans-serif">${escapeHtml(preview(subject))}</h1>
         ${paragraphs}
-        <div style="margin:22px 0 18px"><span style="display:inline-block;padding:13px 20px;border-radius:7px;background:#20745b;color:#fff;font:700 14px Arial,sans-serif">Open secure update</span></div>
-        <p style="margin:0;color:#66736d;font:12px/1.6 Arial,sans-serif">Sign in to Campus Connect to view this private school update. Please do not forward this email.</p>
+        <div style="margin:22px 0 18px"><span style="display:inline-block;padding:13px 20px;border-radius:7px;background:#087E83;color:#fff;font:700 14px Arial,sans-serif">Open secure update</span></div>
+        <p style="margin:0;color:#526477;font:12px/1.6 Arial,sans-serif">Sign in to Campus Connect to view this private school update. Please do not forward this email.</p>
       </td></tr>
-      <tr><td style="padding:15px 24px;border-top:1px solid #e8ede9;background:#fafbf9;color:#758078;font:11px/1.6 Arial,sans-serif">
+      <tr><td style="padding:15px 24px;border-top:1px solid #D9E2EA;background:#F4F7FA;color:#526477;font:11px/1.6 Arial,sans-serif">
         A secure message from Example School via Campus Connect.<br>Student information is confidential and intended only for the linked family.
       </td></tr>
     </table>

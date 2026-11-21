@@ -431,8 +431,8 @@ export function PublicSchoolWebsitePage() {
   if (error) return <main className="public-school-unavailable"><ErrorState message={error} /></main>;
   if (!website) return <main className="public-school-unavailable"><BookOpenCheck size={28} /><h1>School website unavailable</h1><p>This website is not published or the address is incorrect.</p><a href="/">Return to Campus Connect</a></main>;
 
-  const accent = website.primary_color || '#5147c7';
-  const secondary = website.secondary_color || '#20243a';
+  const accent = website.primary_color || '#087E83';
+  const secondary = website.secondary_color || '#142B49';
   const logoUrl = safeWebsiteUrl(website.logo_path);
   const schoolUrl = safeWebsiteUrl(website.website);
   const visibleResults = results;

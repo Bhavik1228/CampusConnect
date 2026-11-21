@@ -3,6 +3,7 @@ import { Accessibility, Check, Clock3, Monitor, Plus, RefreshCw, Save } from 'lu
 import { ErrorState, LoadingState } from '../components/Feedback';
 import { useAuth } from '../contexts/AuthContext';
 import { requireSupabase } from '../lib/supabase';
+import { invokeSystemOwnerAction } from '../lib/system-owner-actions';
 
 type TestType = 'accessibility' | 'browser';
 type Severity = 'critical' | 'high' | 'medium' | 'low';
@@ -151,7 +152,7 @@ export function SystemOwnerAccessibilityPage() {
     setError('');
     setNotice('');
     try {
-      const { data, error: saveError } = await requireSupabase().functions.invoke('system-owner-admin', {
+      const { data, error: saveError } = await invokeSystemOwnerAction({
         body: {
           action: 'save-accessibility-test-issue',
           testIssueId: draft.id,

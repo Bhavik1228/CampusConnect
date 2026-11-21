@@ -3,6 +3,7 @@ import { Building2, ChevronLeft, ChevronRight, Eye, Pencil, Plus, Save, Search, 
 import { ErrorState, LoadingState } from '../components/Feedback';
 import { requireSupabase } from '../lib/supabase';
 import { normalizeTimeZone } from '../lib/timezone';
+import { invokeSystemOwnerAction } from '../lib/system-owner-actions';
 
 type SchoolAdmin = { id: string; name: string; email: string | null };
 type SchoolRecord = {
@@ -153,7 +154,7 @@ export function SystemOwnerSchoolsPanel() {
     setError('');
     setNotice('');
     try {
-      const { error: saveError } = await requireSupabase().functions.invoke('system-owner-admin', {
+      const { error: saveError } = await invokeSystemOwnerAction({
         body: {
           action: isNew ? 'register-school' : 'update-school',
           schoolId: selected?.id,
@@ -185,7 +186,7 @@ export function SystemOwnerSchoolsPanel() {
     setError('');
     setNotice('');
     try {
-      const { error: assignError } = await requireSupabase().functions.invoke('system-owner-admin', {
+      const { error: assignError } = await invokeSystemOwnerAction({
         body: { action: 'assign-school-admin', schoolId: selected.id, adminEmail },
       });
       if (assignError) throw assignError;
@@ -215,7 +216,7 @@ export function SystemOwnerSchoolsPanel() {
     setNotice('');
     const statusValue = school.platform_status === 'active' ? 'suspended' : 'active';
     try {
-      const { error: statusError } = await requireSupabase().functions.invoke('system-owner-admin', {
+      const { error: statusError } = await invokeSystemOwnerAction({
         body: { action: 'set-school-status', schoolId: school.id, status: statusValue },
       });
       if (statusError) throw statusError;

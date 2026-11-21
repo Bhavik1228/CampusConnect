@@ -1,10 +1,10 @@
 import { useEffect, useState } from 'react';
 import {
   Accessibility, Activity, AlertTriangle, Building2, ChevronDown, Gauge, History, LifeBuoy,
-  LogOut, Menu, Server, Settings, ShieldAlert, X,
+  LogOut, Menu, Server, Settings, ShieldAlert, UserRoundPlus, X,
   type LucideIcon,
 } from 'lucide-react';
-import { NavLink, Outlet, useLocation, useNavigate } from 'react-router-dom';
+import { NavLink, Outlet, useLocation, useNavigate, useOutletContext } from 'react-router-dom';
 import { useAuth } from '../contexts/AuthContext';
 import { ErrorState } from './Feedback';
 
@@ -69,6 +69,12 @@ const groups: OwnerNavigationGroup[] = [
       { to: '/system-owner/releases', label: 'Release history', icon: History },
     ],
   },
+  {
+    id: 'administration',
+    title: 'Administrators',
+    icon: UserRoundPlus,
+    items: [{ to: '/system-owner/administrators', label: 'Administrators & approvals', icon: UserRoundPlus }],
+  },
 ];
 
 const titles: Record<string, string> = {
@@ -84,10 +90,12 @@ const titles: Record<string, string> = {
   '/system-owner/releases': 'Release history',
   '/system-owner/accessibility': 'Accessibility & browser tests',
   '/system-owner/support': 'Support requests',
+  '/system-owner/administrators': 'Administrators & approvals',
 };
 
 export function SystemOwnerShell() {
   const { user, signOut } = useAuth();
+  const { administrator } = useOutletContext<{ administrator: boolean }>();
   const [mobileOpen, setMobileOpen] = useState(false);
   const [expandedGroup, setExpandedGroup] = useState<string | null>(null);
   const [logoutError, setLogoutError] = useState('');
@@ -119,7 +127,7 @@ export function SystemOwnerShell() {
     return <>
       <div className="sidebar-top">
         <NavLink className="brand" to="/system-owner" end onClick={() => setMobileOpen(false)}>
-          <span className="brand-mark"><ShieldAlert size={19} /></span><span>Platform owner</span>
+          <span className="brand-mark"><ShieldAlert size={19} /></span><span>Platform administration</span>
         </NavLink>
         <button className="icon-button mobile-close" onClick={() => setMobileOpen(false)} aria-label="Close navigation"><X size={20} /></button>
       </div>
@@ -162,7 +170,7 @@ export function SystemOwnerShell() {
       <div className="sidebar-bottom">
         <div className="profile-row">
           <span className="avatar">{user?.email?.slice(0, 1).toUpperCase()}</span>
-          <span className="profile-copy"><strong>System owner</strong><small>{user?.email}</small></span>
+          <span className="profile-copy"><strong>{administrator ? 'Administrator' : 'System owner'}</strong><small>{user?.email}</small></span>
           <button className="icon-button" onClick={() => void logout()} aria-label="Sign out"><LogOut size={17} /></button>
         </div>
       </div>
@@ -178,11 +186,11 @@ export function SystemOwnerShell() {
       <header className="topbar">
         <div className="topbar-left">
           <button className="icon-button mobile-menu" onClick={() => setMobileOpen(true)} aria-label="Open navigation"><Menu size={21} /></button>
-          <span className="breadcrumbs">System owner <strong>{activeGroup ? `${activeGroup.title} / ${pageTitle}` : pageTitle}</strong></span>
+          <span className="breadcrumbs">{administrator ? 'Administrator' : 'System owner'} <strong>{activeGroup ? `${activeGroup.title} / ${pageTitle}` : pageTitle}</strong></span>
         </div>
-        <span className="role-badge"><span></span>system owner</span>
+        <span className="role-badge"><span></span>{administrator ? 'administrator · read only' : 'system owner'}</span>
       </header>
-      <div className="page-content">{logoutError && <ErrorState message={logoutError} />}<Outlet /></div>
+      <div className="page-content">{logoutError && <ErrorState message={logoutError} />}<Outlet context={{ administrator }} /></div>
       <footer className="workspace-footer"><span>Campus Connect</span><span>Exclusive platform administration</span></footer>
     </main>
   </div>;

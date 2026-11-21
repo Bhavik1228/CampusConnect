@@ -7,6 +7,7 @@ import { Link } from 'react-router-dom';
 import { ErrorState, LoadingState } from '../components/Feedback';
 import { requireSupabase } from '../lib/supabase';
 import { useAuth } from '../contexts/AuthContext';
+import { invokeSystemOwnerAction } from '../lib/system-owner-actions';
 
 type Dashboard = {
   stats: {
@@ -401,7 +402,7 @@ export function SystemOwnerPage() {
     setError('');
     setNotice('');
     try {
-      const { error: actionError } = await requireSupabase().functions.invoke('system-owner-admin', {
+      const { error: actionError } = await invokeSystemOwnerAction({
         body: { action: 'set-school-status', schoolId, status },
       });
       if (actionError) throw actionError;
@@ -419,7 +420,7 @@ export function SystemOwnerPage() {
     setError('');
     setNotice('');
     try {
-      const { error: actionError } = await requireSupabase().functions.invoke('system-owner-admin', {
+      const { error: actionError } = await invokeSystemOwnerAction({
         body: { action: 'review-storage-request', requestId, decision },
       });
       if (actionError) throw actionError;

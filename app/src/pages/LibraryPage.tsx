@@ -433,9 +433,9 @@ export function LibraryPage() {
         errorCorrectionLevel: 'H',
         margin: 2,
         width: 420,
-        color: { dark: '#20243a', light: '#ffffff' },
+        color: { dark: '#142B49', light: '#ffffff' },
       });
-      pdf.setFillColor(101, 85, 217);
+      pdf.setFillColor(8, 126, 131);
       pdf.rect(0, 0, 105, 31, 'F');
       pdf.setTextColor(255, 255, 255);
       pdf.setFont('helvetica', 'bold');
@@ -639,12 +639,12 @@ export function LibraryPage() {
           errorCorrectionLevel: 'M',
           margin: 1,
           width: 256,
-          color: { dark: '#20243a', light: '#ffffff' },
+          color: { dark: '#142B49', light: '#ffffff' },
         });
         pdf.setDrawColor(218, 221, 233);
         pdf.setFillColor(255, 255, 255);
         pdf.roundedRect(x, y, cellWidth, cellHeight, 2, 2, 'FD');
-        pdf.setFillColor(101, 85, 217);
+        pdf.setFillColor(8, 126, 131);
         pdf.roundedRect(x, y, 2, cellHeight, 1, 1, 'F');
         pdf.addImage(qr, 'PNG', x + 4, y + 5, 24, 24);
         pdf.setTextColor(38, 42, 64);
