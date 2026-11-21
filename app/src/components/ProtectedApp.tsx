@@ -47,6 +47,14 @@ import { HealthPage } from '../pages/HealthPage';
 import { VisitorsPage } from '../pages/VisitorsPage';
 import { MobileInstallPage } from '../pages/MobileInstallPage';
 import { AutomationsPage } from '../pages/AutomationsPage';
+import { AnnouncementsPage } from '../pages/AnnouncementsPage';
+import { ReportsPage } from '../pages/ReportsPage';
+import { TransportPage } from '../pages/TransportPage';
+import { FacilitiesPage } from '../pages/FacilitiesPage';
+import { ProcurementPage } from '../pages/ProcurementPage';
+import { SafeguardingPage } from '../pages/SafeguardingPage';
+import { ITHelpdeskPage } from '../pages/ITHelpdeskPage';
+import { CompliancePage } from '../pages/CompliancePage';
 import { AccountSecurityPage } from '../pages/AccountSecurityPage';
 import { MfaGate } from './MfaGate';
 import { PermissionsManagementPage } from '../pages/PermissionsManagementPage';
@@ -216,6 +224,14 @@ export function ProtectedApp() {
           <Route path="/website-management" element={<WebsiteManagementPage />} />
           <Route path="/admin-workflows" element={<AdministrativeWorkflowsPage />} />
           <Route path="/automations" element={<AutomationsPage />} />
+          <Route path="/announcements" element={<AnnouncementsPage />} />
+          <Route path="/reports" element={<ReportsPage />} />
+          <Route path="/transport" element={<TransportPage />} />
+          <Route path="/facilities" element={<FacilitiesPage />} />
+          <Route path="/procurement" element={<ProcurementPage />} />
+          <Route path="/safeguarding" element={<SafeguardingPage />} />
+          <Route path="/it-support" element={<ITHelpdeskPage />} />
+          <Route path="/compliance" element={<CompliancePage />} />
           <Route path="/classes" element={<ClassStructurePage />} />
           <Route path="/subjects" element={<DirectoryPage kind="subjects" />} />
           <Route path="/timetable" element={<TimetableDashboardPage />} />
