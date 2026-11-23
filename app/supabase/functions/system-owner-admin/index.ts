@@ -283,36 +283,83 @@ function isNonEmptyString(value: unknown): value is string {
 }
 
 async function sendAdministratorWelcomeEmail(email: string, actionLink: string) {
-  const apiKey = Deno.env.get('RESEND_API_KEY');
-  const from = Deno.env.get('RESEND_FROM_EMAIL');
-  if (!apiKey || !from) {
-    throw new Error('Administrator email is not configured. Set RESEND_API_KEY and RESEND_FROM_EMAIL for system-owner-admin.');
+  const subject = 'You have been added as a Campus Connect administrator';
+  const textBody = [
+    'You have been added as an administrator for Campus Connect.',
+    '',
+    'Use this secure link to choose your password and sign in:',
+    actionLink,
+    '',
+    'Administrators have read-only access. Changes must be submitted for system owner approval.',
+  ].join('\n');
+  const htmlBody = `<p>You have been added as an administrator for Campus Connect.</p><p><a href="${actionLink}">Choose your password and sign in</a></p><p>Administrators have read-only access. Changes must be submitted for system owner approval.</p>`;
+
+  // Try Mailjet first (if configured)
+  const mailjetApiKey = Deno.env.get('MAILJET_API_KEY');
+  const mailjetSecretKey = Deno.env.get('MAILJET_SECRET_KEY');
+  const mailjetFrom = Deno.env.get('MAILJET_FROM_EMAIL') || Deno.env.get('MAILJET_BEHAVIOUR_FROM_EMAIL');
+  const mailjetFromName = Deno.env.get('MAILJET_FROM_NAME') ?? 'Campus Connect';
+  const mailjetConfigured = Boolean(mailjetApiKey && mailjetSecretKey && mailjetFrom);
+
+  if (mailjetConfigured) {
+    const response = await fetch('https://api.mailjet.com/v3.1/send', {
+      method: 'POST',
+      headers: {
+        'Authorization': `Basic ${btoa(`${mailjetApiKey}:${mailjetSecretKey}`)}`,
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify({
+        Messages: [{
+          From: { Email: mailjetFrom, Name: mailjetFromName },
+          To: [{ Email: email }],
+          Subject: subject,
+          TextPart: textBody,
+          HTMLPart: htmlBody,
+        }],
+      }),
+    });
+    const result: unknown = await response.json();
+    const messages = isRecord(result) ? result.Messages : null;
+    const firstMessage = Array.isArray(messages) ? messages[0] : null;
+    const messageStatus = isRecord(firstMessage) && typeof firstMessage.Status === 'string'
+      ? firstMessage.Status
+      : null;
+    if (!response.ok || messageStatus !== 'success') {
+      console.error('Mailjet rejected an administrator welcome email.', {
+        status: response.status,
+        messageStatus,
+      });
+      throw new Error('Mailjet failed to send the administrator welcome email.');
+    }
+    return;
   }
-  const response = await fetch('https://api.resend.com/emails', {
-    method: 'POST',
-    headers: {
-      Authorization: `Bearer ${apiKey}`,
-      'Content-Type': 'application/json',
-    },
-    body: JSON.stringify({
-      from,
-      to: [email],
-      subject: 'You have been added as a Campus Connect administrator',
-      text: [
-        'You have been added as an administrator for Campus Connect.',
-        '',
-        'Use this secure link to choose your password and sign in:',
-        actionLink,
-        '',
-        'Administrators have read-only access. Changes must be submitted for system owner approval.',
-      ].join('\n'),
-      html: `<p>You have been added as an administrator for Campus Connect.</p><p><a href="${actionLink}">Choose your password and sign in</a></p><p>Administrators have read-only access. Changes must be submitted for system owner approval.</p>`,
-    }),
-  });
-  if (!response.ok) {
-    console.error('Resend rejected an administrator welcome email.', { status: response.status });
-    throw new Error('The administrator welcome email could not be sent.');
+
+  // Fallback to Resend
+  const resendApiKey = Deno.env.get('RESEND_API_KEY');
+  const resendFrom = Deno.env.get('RESEND_FROM_EMAIL');
+  if (resendApiKey && resendFrom) {
+    const response = await fetch('https://api.resend.com/emails', {
+      method: 'POST',
+      headers: {
+        Authorization: `Bearer ${resendApiKey}`,
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify({
+        from: resendFrom,
+        to: [email],
+        subject,
+        text: textBody,
+        html: htmlBody,
+      }),
+    });
+    if (!response.ok) {
+      console.error('Resend rejected an administrator welcome email.', { status: response.status });
+      throw new Error('Resend failed to send the administrator welcome email.');
+    }
+    return;
   }
+
+  throw new Error('Administrator email is not configured. Set MAILJET_API_KEY, MAILJET_SECRET_KEY, and MAILJET_FROM_EMAIL (or MAILJET_BEHAVIOUR_FROM_EMAIL) for system-owner-admin. Alternatively set RESEND_API_KEY and RESEND_FROM_EMAIL.');
 }
 
 function safeVercelUrl(value: unknown, allowedHost: (hostname: string) => boolean) {
