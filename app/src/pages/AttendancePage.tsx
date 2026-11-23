@@ -177,9 +177,17 @@ export function AttendancePage() {
   const { activeMembership, user } = useAuth();
   const [searchParams, setSearchParams] = useSearchParams();
   const [classes, setClasses] = useState<ClassChoice[]>([]);
-  const [classId, setClassId] = useState('');
-  const [date, setDate] = useState(localDate);
-  const [sessionType, setSessionType] = useState<SessionType>('daily');
+  const requestedDate = searchParams.get('date') ?? '';
+  const initialDate = /^\d{4}-\d{2}-\d{2}$/.test(requestedDate) && !Number.isNaN(Date.parse(`${requestedDate}T00:00:00`))
+    ? requestedDate
+    : localDate();
+  const requestedSessionType = searchParams.get('session_type');
+  const initialSessionType = sessionTypes.some((item) => item.value === requestedSessionType)
+    ? requestedSessionType as SessionType
+    : 'daily';
+  const [classId, setClassId] = useState(searchParams.get('class') ?? '');
+  const [date, setDate] = useState(initialDate);
+  const [sessionType, setSessionType] = useState<SessionType>(initialSessionType);
   const [lessonId, setLessonId] = useState('');
   const [lessons, setLessons] = useState<LessonChoice[]>([]);
   const [students, setStudents] = useState<RosterStudent[]>([]);
@@ -245,6 +253,8 @@ export function AttendancePage() {
   const canManage = role === 'school_admin' || role === 'academic_coordinator';
   const canRecord = canManage || role === 'teacher';
   const canSeePersonal = role === 'student' || role === 'parent';
+  const missingClassIds = (searchParams.get('missing_classes') ?? '').split(',')
+    .filter((requestedId) => classes.some((schoolClass) => schoolClass.id === requestedId));
   const enabledStatuses = statusSettings.filter((item) => item.enabled).sort((a, b) => a.sort_order - b.sort_order);
   const selectedClass = classes.find((schoolClass) => schoolClass.id === classId);
   const relevantYears = years.filter((year) => year.calendar_id === selectedClass?.calendar_id
@@ -311,14 +321,29 @@ export function AttendancePage() {
   }, [activeMembership?.school_id, role, canRecord]);
 
   useEffect(() => {
-    if (searchParams.get('command') !== 'register') return;
-    if (canRecord) setTab('register');
+    if (searchParams.get('command') !== 'register' || loading) return;
+    if (canRecord) {
+      setTab('register');
+      const requestedDate = searchParams.get('date') ?? '';
+      if (/^\d{4}-\d{2}-\d{2}$/.test(requestedDate) && !Number.isNaN(Date.parse(`${requestedDate}T00:00:00`))) {
+        setDate(requestedDate);
+      }
+      const requestedSessionType = searchParams.get('session_type');
+      if (sessionTypes.some((item) => item.value === requestedSessionType)) {
+        setSessionType(requestedSessionType as SessionType);
+      }
+      const requestedClass = searchParams.get('class');
+      const requestedMissingClassIds = (searchParams.get('missing_classes') ?? '').split(',').filter(Boolean);
+      const targetClass = classes.find((schoolClass) => schoolClass.id === requestedClass)
+        ?? classes.find((schoolClass) => requestedMissingClassIds.includes(schoolClass.id));
+      if (targetClass) setClassId(targetClass.id);
+    }
     setSearchParams((current) => {
       const next = new URLSearchParams(current);
       next.delete('command');
       return next;
     }, { replace: true });
-  }, [searchParams, setSearchParams, canRecord]);
+  }, [classes, canRecord, loading, searchParams, setSearchParams]);
 
   const loadBase = useCallback(async () => {
     if (!schoolId || !user) return;
@@ -1063,6 +1088,10 @@ export function AttendancePage() {
         </li>)}</ul>}
       </section>}
 
+      {missingClassIds.length > 0 && canRecord && tab === 'register' && <section className="attendance-missing-register-notice" role="status">
+        <strong>{missingClassIds.length} register{missingClassIds.length === 1 ? '' : 's'} outstanding</strong>
+        <span>Select a class marked “missing register” to review its attendance.</span>
+      </section>}
       {canRecord && tab === 'register' && <>
         <section className="content-card attendance-controls attendance-setup-controls">
           <label className="attendance-control-field"><span>Class</span><select value={classId} onChange={(event) => {
@@ -1070,7 +1099,7 @@ export function AttendancePage() {
             setClassId(event.target.value);
             setYearId(nextClass?.academic_year_id ?? '');
             setTermId('');
-          }}><option value="">Choose a class</option>{classes.map((item) => <option key={item.id} value={item.id}>{item.name}</option>)}</select></label>
+          }}><option value="">Choose a class</option>{classes.map((item) => <option key={item.id} value={item.id}>{item.name}{missingClassIds.includes(item.id) ? ' · missing register' : ''}</option>)}</select></label>
           <label className="attendance-control-field"><span>Attendance date</span><input className="date-input-wrap" type="date" value={date} onChange={(event) => setDate(event.target.value)} /></label>
           <label className="attendance-control-field"><span>Session type</span><select value={sessionType} onChange={(event) => { setSessionType(event.target.value as SessionType); setSession(null); }}>{
             sessionTypes.map((item) => <option key={item.value} value={item.value}>{item.label}</option>)
