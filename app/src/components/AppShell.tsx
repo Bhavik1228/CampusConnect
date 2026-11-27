@@ -789,7 +789,7 @@ export function AppShell() {
         <NavLink to={supportItem.to} onClick={() => setMobileOpen(false)} title={sidebarCollapsed ? supportItem.label : undefined} className={({ isActive }) => `nav-item${isActive ? ' active' : ''}`}><LifeBuoy size={18} strokeWidth={1.8} /><span>{supportItem.label}</span></NavLink>
       </nav>
       <div className="sidebar-bottom">
-        {!isRestrictedRole && <NavLink to={accountSecurityItem.to} onClick={() => setMobileOpen(false)} title={collapsed ? accountSecurityItem.label : undefined} className={({ isActive }) => `nav-item${isActive ? ' active' : ''}`}><ShieldCheck size={18} strokeWidth={1.8} /><span>{accountSecurityItem.label}</span></NavLink>}
+        {!isRestrictedRole && <NavLink to={accountSecurityItem.to} onClick={() => setMobileOpen(false)} title={sidebarCollapsed ? accountSecurityItem.label : undefined} className={({ isActive }) => `nav-item${isActive ? ' active' : ''}`}><ShieldCheck size={18} strokeWidth={1.8} /><span>{accountSecurityItem.label}</span></NavLink>}
         {!isRestrictedRole && !isLimitedRole && !isAccountingRole && activeMembership?.role !== 'teacher' && <NavLink to="/settings" onClick={() => setMobileOpen(false)} title={collapsed ? 'Settings' : undefined} className={({ isActive }) => `nav-item${isActive ? ' active' : ''}`}><Settings size={18} strokeWidth={1.8} /><span>Settings</span></NavLink>}
         <div className="profile-row"><span className="avatar">{(user?.user_metadata.full_name as string | undefined)?.slice(0, 1).toUpperCase() ?? user?.email?.slice(0, 1).toUpperCase()}</span><span className="profile-copy"><strong>{(user?.user_metadata.full_name as string | undefined) ?? user?.email}</strong><small>{user?.email}</small></span><button className="icon-button" onClick={() => void logout()} aria-label="Sign out" title={collapsed ? 'Sign out' : undefined}><LogOut size={17} /></button></div>
       </div>
@@ -803,12 +803,14 @@ export function AppShell() {
   if (location.pathname === '/setup-health' && !['school_admin', 'academic_coordinator'].includes(activeMembership?.role ?? '')) return <Navigate to="/dashboard" replace />;
 
   return (
-    <div className="app-layout">
+    <div className="app-layout cc-flex min-h-screen">
       <aside className={`sidebar desktop-sidebar${sidebarCollapsed ? ' is-collapsed' : ''}`}>{sidebarContent(sidebarCollapsed, 'desktop')}</aside>
-      {mobileOpen && <div className="mobile-backdrop" onClick={() => setMobileOpen(false)}><aside className="sidebar mobile-sidebar" onClick={(event) => event.stopPropagation()}>{sidebarContent(false, 'mobile')}</aside></div>}
-      <main className="workspace">
+      {mobileOpen && <div className="mobile-backdrop" onClick={() => setMobileOpen(false)}>
+        <aside className="sidebar mobile-sidebar" onClick={(event) => event.stopPropagation()}>{sidebarContent(false, 'mobile')}</aside>
+      </div>}
+      <main className="workspace cc-flex-1 cc-flex-col min-w-0">
         <header className="topbar">
-          <div className="topbar-left"><button className="icon-button mobile-menu" onClick={() => setMobileOpen(true)} aria-label="Open navigation"><Menu size={21} /></button><span className="breadcrumbs">Workspace <ChevronLeft size={14} className="crumb-chevron" /> <strong>{title}</strong></span></div>
+          <div className="topbar-left"><button className="icon-button mobile-menu" onClick={() => setMobileOpen(true)} aria-label="Open navigation"><Menu size={21} /></button><span className="breadcrumbs">Workspace <ChevronDown size={14} className="crumb-chevron" /> <strong>{title}</strong></span></div>
           <div className="topbar-actions"><button type="button" className="command-palette-trigger" aria-label="Search Campus Connect (Control K)" onClick={openCommandPalette}><Search size={16} /><span>Search</span><kbd>Ctrl K</kbd></button><span className="role-badge"><span></span>{activeMembership?.role.replace(/_/g, ' ')}</span></div>
         </header>
         <div className="page-content">

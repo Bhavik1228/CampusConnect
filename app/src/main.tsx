@@ -4,6 +4,8 @@ import { BrowserRouter } from 'react-router-dom';
 import { AuthProvider } from './contexts/AuthContext';
 import { ProtectedApp } from './components/ProtectedApp';
 import { AppErrorBoundary } from './components/AppErrorBoundary';
+import './styles/design-tokens.css';
+import './styles/components.css';
 import './styles.css';
 
 ReactDOM.createRoot(document.getElementById('root')!).render(
