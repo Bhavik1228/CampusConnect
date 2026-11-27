@@ -3,8 +3,7 @@ import { ArrowRight, ShieldCheck } from 'lucide-react';
 import { useAuth } from '../contexts/AuthContext';
 import { getAuthErrorMessage } from '../lib/auth-errors';
 import { requireSupabase } from '../lib/supabase';
-import { Card, CardContent, Input } from '../components/ui';
-import { Button } from '../components/ui/Button';
+import { Card, CardContent, Button, Input } from '../components/ui';
 
 export function AuthScreen() {
   const { signIn, signUp, recoveryMode, finishPasswordRecovery } = useAuth();
@@ -77,7 +76,6 @@ export function AuthScreen() {
 
   return (
     <main className="auth-layout min-h-screen bg-surface cc-flex-col md:cc-flex">
-      {/* Aside: brand + copy (desktop) */}
       <section className="auth-aside hidden md:flex cc-flex-col items-start justify-center gap-6 px-8 py-20">
         <div className="brand cc-flex items-center gap-3">
           <ShieldCheck size={20} />
@@ -100,7 +98,6 @@ export function AuthScreen() {
         </span>
       </section>
 
-      {/* Panel: sign-in / sign-up form */}
       <section className="auth-panel cc-flex-1 cc-flex items-center justify-center px-6 py-12 md:px-0">
         <Card className="auth-card w-full max-w-md">
           <CardContent className="pt-8 pb-12 px-8">

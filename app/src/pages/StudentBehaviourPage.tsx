@@ -5,6 +5,7 @@ import QRCode from 'qrcode';
 import { AlertCircle, Award, Check, Download, FileText, Mail, Plus, RefreshCw, ShieldCheck, UsersRound } from 'lucide-react';
 import { useAuth } from '../contexts/AuthContext';
 import { EmptyState, ErrorState, LoadingState } from '../components/Feedback';
+import { Tabs, TabList, Tab } from '../components/ui';
 import { StudentBehaviourEmailSettings } from './StudentBehaviourEmailSettings';
 import { StudentBehaviourRecordWorkflowPanel } from './StudentBehaviourRecordWorkflowPanel';
 import { requireSupabase } from '../lib/supabase';
@@ -631,15 +632,19 @@ export function StudentBehaviourPage() {
     </header>
     {error && <ErrorState message={error} />}
     {notice && <div className="behaviour-notice" role="status"><Check size={17} />{notice}</div>}
-    {canConfigure && <div className="page-tabs" role="tablist" aria-label="Behaviour management sections">
-      <button className={tab === 'records' ? 'active' : ''} type="button" role="tab" aria-selected={tab === 'records'} onClick={() => setTab('records')}>Records</button>
-      {canReview && <button className={tab === 'review' ? 'active' : ''} type="button" role="tab" aria-selected={tab === 'review'} onClick={() => setTab('review')}>Review queue</button>}
-      <button className={tab === 'settings' ? 'active' : ''} type="button" role="tab" aria-selected={tab === 'settings'} onClick={() => setTab('settings')}>Configure types & actions</button>
-    </div>}
-    {!canConfigure && canReview && <div className="page-tabs" role="tablist" aria-label="Behaviour management sections">
-      <button className={tab === 'records' ? 'active' : ''} type="button" role="tab" aria-selected={tab === 'records'} onClick={() => setTab('records')}>Records</button>
-      <button className={tab === 'review' ? 'active' : ''} type="button" role="tab" aria-selected={tab === 'review'} onClick={() => setTab('review')}>Review queue</button>
-    </div>}
+    {canConfigure && <Tabs className="page-tabs">
+      <TabList>
+        <Tab selected={tab === 'records'} onClick={() => setTab('records')}>Records</Tab>
+        {canReview && <Tab selected={tab === 'review'} onClick={() => setTab('review')}>Review queue</Tab>}
+        <Tab selected={tab === 'settings'} onClick={() => setTab('settings')}>Configure types & actions</Tab>
+      </TabList>
+    </Tabs>}
+    {!canConfigure && canReview && <Tabs className="page-tabs">
+      <TabList>
+        <Tab selected={tab === 'records'} onClick={() => setTab('records')}>Records</Tab>
+        <Tab selected={tab === 'review'} onClick={() => setTab('review')}>Review queue</Tab>
+      </TabList>
+    </Tabs>}
 
     {(tab === 'records' || tab === 'review') && <>
       {tab === 'records' && <>

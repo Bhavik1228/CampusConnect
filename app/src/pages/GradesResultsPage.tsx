@@ -8,6 +8,7 @@ import {
 import { useAuth } from '../contexts/AuthContext';
 import { ErrorState, LoadingState, SuccessMessage } from '../components/Feedback';
 import { DraftRecoveryControls } from '../components/DraftRecoveryControls';
+import { Tabs, TabList, Tab } from '../components/ui';
 import { requireSupabase } from '../lib/supabase';
 import { useRecoverableDraft } from '../lib/recoverable-drafts';
 import { PdfPreviewDialog } from '../components/PdfPreviewDialog';
@@ -928,11 +929,13 @@ export function GradesResultsPage() {
       </header>
       {error && <ErrorState message={error} />}
       {notice && <SuccessMessage message={notice} />}
-      <div className="grades-tabs" role="tablist" aria-label="Grades and reports">
-        <button className={activeView === 'results' ? 'active' : ''} onClick={() => setActiveView('results')}><GraduationCap size={15} />Results</button>
-        {canRecordResults && <button className={activeView === 'reports' ? 'active' : ''} onClick={() => setActiveView('reports')}><FileText size={15} />PDF reports</button>}
-        {isSchoolAdmin && <button className={activeView === 'settings' ? 'active' : ''} onClick={() => setActiveView('settings')}><Settings2 size={15} />Grading &amp; templates</button>}
-      </div>
+      <Tabs className="grades-tabs">
+        <TabList>
+          <Tab selected={activeView === 'results'} onClick={() => setActiveView('results')}><GraduationCap size={15} />Results</Tab>
+          {canRecordResults && <Tab selected={activeView === 'reports'} onClick={() => setActiveView('reports')}><FileText size={15} />PDF reports</Tab>}
+          {isSchoolAdmin && <Tab selected={activeView === 'settings'} onClick={() => setActiveView('settings')}><Settings2 size={15} />Grading &amp; templates</Tab>}
+        </TabList>
+      </Tabs>
 
       {activeView === 'results' && (
         <>
@@ -942,10 +945,12 @@ export function GradesResultsPage() {
             <article className="grades-stat"><span><Award size={16} /></span><small>PUBLISHED RESULTS</small><strong>{publishedResults.length}</strong></article>
           </div>
           {canRecordResults && <>
-            <div className="grades-entry-modes" role="tablist" aria-label="Mark entry mode">
-              <button type="button" role="tab" className={entryMode === 'single' ? 'active' : ''} onClick={() => setEntryMode('single')} aria-selected={entryMode === 'single'}>Single result</button>
-              <button type="button" role="tab" className={entryMode === 'grid' ? 'active' : ''} onClick={() => setEntryMode('grid')} aria-selected={entryMode === 'grid'}>Class mark-entry grid</button>
-            </div>
+            <Tabs className="grades-entry-modes">
+              <TabList>
+                <Tab selected={entryMode === 'single'} onClick={() => setEntryMode('single')}>Single result</Tab>
+                <Tab selected={entryMode === 'grid'} onClick={() => setEntryMode('grid')}>Class mark-entry grid</Tab>
+              </TabList>
+            </Tabs>
           {entryMode === 'single' && <section className="content-card grades-entry-card">
             <div className="section-heading"><div><span className="eyebrow">{editingResult ? 'Update record' : 'New assessment mark'}</span><h2>{editingResult ? 'Edit student result' : 'Record student marks'}</h2></div>{editingResult && <button className="button button-quiet" onClick={cancelEdit}><X size={14} />Cancel</button>}</div>
             <form className="grades-entry-form" onSubmit={(event) => void saveResult(event)}>

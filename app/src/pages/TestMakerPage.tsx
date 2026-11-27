@@ -7,6 +7,7 @@ import {
 import { useAuth } from '../contexts/AuthContext';
 import { ErrorState, LoadingState } from '../components/Feedback';
 import { DraftRecoveryControls } from '../components/DraftRecoveryControls';
+import { Tabs, TabList, Tab } from '../components/ui';
 import { requireSupabase } from '../lib/supabase';
 import { useRecoverableDraft } from '../lib/recoverable-drafts';
 
@@ -904,12 +905,14 @@ export function TestMakerPage() {
       {error && <ErrorState message={error} />}
       {notice && <div className="feedback feedback-success" role="status"><Check size={15} />{notice}</div>}
 
-      <div className="test-maker-tabs" role="tablist" aria-label="Test Maker">
-        <button className={view === 'assessments' ? 'active' : ''} onClick={() => setView('assessments')} role="tab" aria-selected={view === 'assessments'}><FileText size={15} /> Tests <span>{assessments.length}</span></button>
-        <button className={view === 'results' ? 'active' : ''} onClick={() => setView('results')} role="tab" aria-selected={view === 'results'}><ClipboardCheck size={15} /> Results <span>{results.length}</span></button>
-        <button className={view === 'library' ? 'active' : ''} onClick={() => setView('library')} role="tab" aria-selected={view === 'library'}><Library size={15} /> Question library <span>{questions.length}</span></button>
-        <button className={view === 'papers' ? 'active' : ''} onClick={() => setView('papers')} role="tab" aria-selected={view === 'papers'}><BookOpenCheck size={15} /> Past papers <span>{papers.length}</span></button>
-      </div>
+      <Tabs className="test-maker-tabs">
+        <TabList>
+          <Tab selected={view === 'assessments'} onClick={() => setView('assessments')}><FileText size={15} /> Tests <span>{assessments.length}</span></Tab>
+          <Tab selected={view === 'results'} onClick={() => setView('results')}><ClipboardCheck size={15} /> Results <span>{results.length}</span></Tab>
+          <Tab selected={view === 'library'} onClick={() => setView('library')}><Library size={15} /> Question library <span>{questions.length}</span></Tab>
+          <Tab selected={view === 'papers'} onClick={() => setView('papers')}><BookOpenCheck size={15} /> Past papers <span>{papers.length}</span></Tab>
+        </TabList>
+      </Tabs>
 
       {loading ? <LoadingState label="Loading tests, students, results, questions, and past papers…" /> : view === 'assessments' ? (
         <div className="test-maker-layout">

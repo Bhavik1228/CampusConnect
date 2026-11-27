@@ -1,4 +1,4 @@
-import { useNavigate } from 'react-router-dom';
+import { Link, useNavigate } from 'react-router-dom';
 import { Card, CardContent, Button } from '../components/ui';
 import { ShieldCheck } from 'lucide-react';
 

@@ -3,6 +3,7 @@ import { Banknote, Download, FileText, Receipt, WalletCards } from 'lucide-react
 import { useSearchParams } from 'react-router-dom';
 import { useAuth } from '../contexts/AuthContext';
 import { EmptyState, ErrorState, LoadingState, SuccessMessage } from '../components/Feedback';
+import { Tabs, TabList, Tab } from '../components/ui';
 import { PdfPreviewDialog } from '../components/PdfPreviewDialog';
 import { requireSupabase } from '../lib/supabase';
 import type { FinancePdfDocument, FinancePdfSection } from '../lib/finance-pdf';
@@ -1232,7 +1233,15 @@ export function FinancePage() {
       {error && <ErrorState message={error} />}
       {formError && <ErrorState message={formError} />}
       {success && <SuccessMessage message={success} />}
-      <div className="accounting-tabs" role="tablist" aria-label="Student fee management">{tabs.map((item) => <button key={item.id} type="button" role="tab" aria-selected={tab === item.id} className={tab === item.id ? 'active' : ''} onClick={() => { setTab(item.id); setFormError(''); }}>{item.label}</button>)}</div>
+      <Tabs className="accounting-tabs">
+        <TabList>
+          {tabs.map((item) => (
+            <Tab key={item.id} selected={tab === item.id} onClick={() => { setTab(item.id); setFormError(''); }}>
+              {item.label}
+            </Tab>
+          ))}
+        </TabList>
+      </Tabs>
       {loading ? <LoadingState label="Loading student fee records…" /> : <>
         {tab === 'overview' && <>
           <section className="stat-grid accounting-stat-grid" aria-label="Fee summary">

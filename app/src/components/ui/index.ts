@@ -11,3 +11,4 @@ export { Modal } from './Modal';
 export { EmptyState } from './EmptyState';
 export { LoadingState } from './LoadingState';
 export { Alert } from './Alert';
+export { Tabs, TabList, Tab, TabPanel } from './Tabs';

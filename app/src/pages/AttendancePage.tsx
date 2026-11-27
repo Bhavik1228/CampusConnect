@@ -6,6 +6,7 @@ import {
 import { useSearchParams } from 'react-router-dom';
 import { useAuth } from '../contexts/AuthContext';
 import { EmptyState, ErrorState, LoadingState, SuccessMessage } from '../components/Feedback';
+import { Tabs, TabList, Tab } from '../components/ui';
 import { requireSupabase } from '../lib/supabase';
 import { AttendanceAutomationPanel } from './AttendanceAutomationPanel';
 import type { SchoolClass } from '../types/database';
@@ -1066,9 +1067,15 @@ export function AttendancePage() {
         <div><span className="eyebrow">{activeMembership?.school.name}</span><h1>Attendance</h1><p>Record, review, and report attendance for your school community.</p></div>
         {canRecord && <span className="date-chip"><ClipboardCheck size={16} />{counts.present} present · {unmarkedCount} unmarked</span>}
       </div>
-      <div className="attendance-tabs" role="tablist" aria-label="Attendance sections">
-        {pageTabs.map((item) => <button type="button" key={item.id} role="tab" aria-selected={tab === item.id} className={tab === item.id ? 'active' : ''} onClick={() => setTab(item.id)}>{item.label}</button>)}
-      </div>
+      <Tabs className="attendance-tabs">
+        <TabList>
+          {pageTabs.map((item) => (
+            <Tab key={item.id} selected={tab === item.id} onClick={() => setTab(item.id)}>
+              {item.label}
+            </Tab>
+          ))}
+        </TabList>
+      </Tabs>
       {error && <ErrorState message={error} />}
       {notice && <SuccessMessage message={notice} />}
       {canRecord && (pendingAttendanceQueue.length > 0 || !isOnline) && <section className="content-card attendance-sync-queue" aria-live="polite">

@@ -6,6 +6,7 @@ import { requireSupabase } from '../lib/supabase';
 import { resolveTimeZone } from '../lib/timezone';
 import type { DashboardSummary } from '../types/database';
 import { ErrorState, LoadingState } from '../components/Feedback';
+import { Button, Card, CardContent, Badge, SectionHeading } from '../components/ui';
 import { TeacherDashboardPage } from './TeacherDashboardPage';
 
 interface AttendanceRegister {
@@ -432,79 +433,79 @@ function SchoolDashboardPage() {
       : academicContext.dayStatus === 'school'
         ? `School day${academicContext.eventTitle ? ` · ${academicContext.eventTitle}` : ''}`
         : academicContextError ? 'Calendar status unavailable' : 'School day status unavailable';
-    const now = new Date();
-    const lastRefreshed = new Intl.DateTimeFormat(undefined, { hour: '2-digit', minute: '2-digit' }).format(now);
-    const hasStudentData = summary && summary.students > 0;
-    const hasTeacherData = summary && summary.teachers > 0;
-    const hasClassData = summary && summary.classes > 0;
-    const hasAttendanceData = attendanceTotal > 0;
+  const now = new Date();
+  const lastRefreshed = new Intl.DateTimeFormat(undefined, { hour: '2-digit', minute: '2-digit' }).format(now);
+  const hasStudentData = summary && summary.students > 0;
+  const hasTeacherData = summary && summary.teachers > 0;
+  const hasClassData = summary && summary.classes > 0;
+  const hasAttendanceData = attendanceTotal > 0;
 
   const hasPendingItems = pendingCount > 0;
-    const hasUpcomingEvents = upcomingEventCount > 0;
+  const hasUpcomingEvents = upcomingEventCount > 0;
 
-    const cards = [
-      {
-        label: 'Active students',
-        value: hasStudentData ? summary!.students.toLocaleString() : '—',
-        caption: 'Students with active status',
-        to: '/students',
-        icon: GraduationCap,
-        color: 'purple',
-        empty: !hasStudentData,
-        helper: 'No active students yet'
-      },
-      {
-        label: 'Active teachers',
-        value: hasTeacherData ? summary!.teachers.toLocaleString() : '—',
-        caption: 'Teachers with active status',
-        to: '/teachers',
-        icon: Users,
-        color: 'teal',
-        empty: !hasTeacherData,
-        helper: 'No active teachers yet'
-      },
-      {
-        label: 'Classes',
-        value: hasClassData ? summary!.classes.toLocaleString() : '—',
-        caption: 'All class groups in this school',
-        to: '/classes',
-        icon: UsersRound,
-        color: 'blue',
-        empty: !hasClassData,
-        helper: 'No classes configured yet'
-      },
-      {
-        label: 'Attendance today',
-        value: hasAttendanceData ? `${attendancePresent}/${attendanceTotal}` : '—',
-        caption: hasAttendanceData
-          ? `${attendancePercentage}% present · ${attendancePresent} of ${attendanceTotal} marked`
-          : 'No attendance sessions started',
-        to: '/attendance',
-        icon: ClipboardCheck,
-        color: 'green',
-        empty: !hasAttendanceData,
-        helper: 'Start a register to see attendance'
-      },
-      {
-        label: 'Pending items',
-        value: hasPendingItems ? pendingCount.toLocaleString() : '—',
-        caption: 'Admissions, work submissions & overdue fees',
-        to: '/admin-workflows',
-        icon: CircleDollarSign,
-        color: 'amber',
-        empty: !hasPendingItems,
-        helper: 'No pending items at this time'
-      },
-      {
-        label: 'Upcoming events',
-        value: hasUpcomingEvents ? upcomingEventCount.toLocaleString() : '—',
-        caption: 'Events in the next 30 days',
-        to: '/calendar',
-        icon: CalendarDays,
-        color: 'purple',
-        empty: !hasUpcomingEvents,
-        helper: 'No events scheduled'
-      },
+  const cards = [
+    {
+      label: 'Active students',
+      value: hasStudentData ? summary!.students.toLocaleString() : '—',
+      caption: 'Students with active status',
+      to: '/students',
+      icon: GraduationCap,
+      variant: 'primary',
+      empty: !hasStudentData,
+      helper: 'No active students yet',
+    },
+    {
+      label: 'Active teachers',
+      value: hasTeacherData ? summary!.teachers.toLocaleString() : '—',
+      caption: 'Teachers with active status',
+      to: '/teachers',
+      icon: Users,
+      variant: 'primary',
+      empty: !hasTeacherData,
+      helper: 'No active teachers yet',
+    },
+    {
+      label: 'Classes',
+      value: hasClassData ? summary!.classes.toLocaleString() : '—',
+      caption: 'All class groups in this school',
+      to: '/classes',
+      icon: UsersRound,
+      variant: 'primary',
+      empty: !hasClassData,
+      helper: 'No classes configured yet',
+    },
+    {
+      label: 'Attendance today',
+      value: hasAttendanceData ? `${attendancePresent}/${attendanceTotal}` : '—',
+      caption: hasAttendanceData
+        ? `${attendancePercentage}% present · ${attendancePresent} of ${attendanceTotal} marked`
+        : 'No attendance sessions started',
+      to: '/attendance',
+      icon: ClipboardCheck,
+      variant: 'primary',
+      empty: !hasAttendanceData,
+      helper: 'Start a register to see attendance',
+    },
+    {
+      label: 'Pending items',
+      value: hasPendingItems ? pendingCount.toLocaleString() : '—',
+      caption: 'Admissions, work submissions & overdue fees',
+      to: '/admin-workflows',
+      icon: CircleDollarSign,
+      variant: 'primary',
+      empty: !hasPendingItems,
+      helper: 'No pending items at this time',
+    },
+    {
+      label: 'Upcoming events',
+      value: hasUpcomingEvents ? upcomingEventCount.toLocaleString() : '—',
+      caption: 'Events in the next 30 days',
+      to: '/calendar',
+      icon: CalendarDays,
+      variant: 'primary',
+      empty: !hasUpcomingEvents,
+      helper: 'No events scheduled',
+    },
   ];
 
   const standardQuickLinks = [
@@ -539,35 +540,157 @@ function SchoolDashboardPage() {
         : standardQuickLinks;
 
   return (
-    <div className="page-stack">
-      <div className="page-heading dashboard-page-heading"><div><span className="eyebrow">School workspace</span><h1>Good day{user?.user_metadata.full_name ? `, ${(user.user_metadata.full_name as string).split(' ')[0]}` : ''}</h1><p>Here is an overview of {activeMembership?.school.name}.</p></div><div className="dashboard-heading-context"><span className="date-chip"><CalendarDays size={16} />{new Intl.DateTimeFormat(undefined, { weekday: 'long', month: 'short', day: 'numeric', timeZone: schoolTimeZone }).format(new Date())}</span><div className="dashboard-academic-meta"><span className="dashboard-academic-period">{academicPeriodLabel}</span><Link className="dashboard-calendar-link" to="/academic-calendar"><CalendarRange size={15} />Academic calendar<ArrowUpRight size={13} /></Link></div><span className={`dashboard-day-status is-${academicContext.dayStatus}`} role="status">{todaySchoolStatus}</span></div></div>
+    <div className="page-stack cc-flex-col">
+      <SectionHeading
+        eyebrow="School workspace"
+        title={`Good day${user?.user_metadata.full_name ? `, ${(user.user_metadata.full_name as string).split(' ')[0]}` : ''}`}
+        description={`Here is an overview of ${activeMembership?.school.name}.`}
+      />
+      <div className="dashboard-heading-context cc-flex items-center justify-between gap-4 mb-8">
+        <div className="date-chip cc-flex items-center gap-2 cc-px-3 cc-py-1-5 border border-border rounded-md bg-surface cc-text-sm cc-text-muted">
+          <CalendarDays size={14} />
+          {new Intl.DateTimeFormat(undefined, { weekday: 'long', month: 'short', day: 'numeric', timeZone: schoolTimeZone }).format(new Date())}
+        </div>
+        <div className="cc-flex items-center gap-3">
+          <span className="cc-text-sm cc-font-semibold cc-text-ink">{academicPeriodLabel}</span>
+          <Link className="btn-base btn-default btn-sm cc-text-primary hover:bg-surface-soft" to="/academic-calendar">
+            <CalendarRange size={14} /> Academic calendar <ArrowUpRight size={13} />
+          </Link>
+        </div>
+        <Badge variant={academicContext.dayStatus === 'holiday' ? 'danger' : academicContext.dayStatus === 'school' ? 'success' : academicContext.dayStatus === 'non-school' ? 'warning' : 'soft'}
+          className={`cc-text-xs ${academicContext.dayStatus === 'school' ? 'bg-success-soft text-success border-success/20' : academicContext.dayStatus === 'holiday' ? 'bg-danger-soft text-danger border-danger/20' : academicContext.dayStatus === 'non-school' ? 'bg-warning-soft text-warning border-warning/20' : 'bg-surface-soft text-muted border-border'}`}
+        >
+          {todaySchoolStatus}
+        </Badge>
+      </div>
+
       {error && <ErrorState message={error} />}
       {loading ? <LoadingState label="Loading live school data…" /> : <>
-        {!restrictedDashboardRole && <section className="stat-grid" aria-label="Action-focused school overview">{cards.map(({ label, value, caption, to, icon: Icon, color, empty, helper }) => <Link className={`stat-card stat-card-link${empty ? ' stat-card-empty' : ''}`} key={label} to={to}><div className="stat-card-top"><span>{label}</span><span className={`stat-icon ${color}`}><Icon size={19} /></span></div><strong>{value}</strong><span className="stat-caption">{caption}</span>{empty && <span className="stat-empty-helper">{helper}</span>}<span className="stat-card-action">View details <ArrowUpRight size={14} /></span></Link>)}</section>}
-      <p className="dashboard-refreshed">Last refreshed {lastRefreshed}</p>
-        <section className="dashboard-grid">
+        {!restrictedDashboardRole && <section className="stat-grid cc-grid cc-grid-cols-1 sm:cc-grid-cols-2 lg:cc-grid-cols-3 xl:cc-grid-cols-4 gap-4 mb-8" aria-label="Action-focused school overview">
+          {cards.map(({ label, value, caption, icon: Icon, empty, helper }) => (
+            <Card key={label} className="cc-p-5 cc-flex-col cc-h-full">
+              <CardContent className="cc-p-0">
+                <div className="cc-flex items-center justify-between cc-mb-3">
+                  <span className="cc-text-xs cc-font-semibold cc-text-muted">{label}</span>
+                  <div className="w-9 h-9 rounded-lg bg-primary-soft cc-flex items-center justify-center text-primary">
+                    <Icon size={17} />
+                  </div>
+                </div>
+                <div className="cc-text-3xl cc-font-bold cc-leading-tight cc-text-ink">{value}</div>
+                <div className="cc-text-xs cc-text-muted cc-mt-2">{caption}</div>
+                {empty && <div className="cc-text-xs cc-text-success cc-mt-2">{helper}</div>}
+              </CardContent>
+            </Card>
+          ))}
+        </section>}
+        <p className="cc-text-xs cc-text-muted cc-mb-6">Last refreshed {lastRefreshed}</p>
+        <section className="dashboard-grid cc-grid cc-grid-cols-1 lg:cc-grid-cols-3 gap-6">
           {!restrictedDashboardRole && <>
-          <article className="content-card overview-card today-attendance-card">
-            <div className="section-heading"><div><span className="eyebrow">School operations · today</span><h2>Today’s attendance</h2></div><ClipboardCheck size={19} className="muted-icon" /></div>
-            {todayAttendance.expectedClasses ? <>
-              <div className="today-attendance-stats" aria-label="Today’s attendance summary">
-                <div><strong>{todayAttendance.expectedClasses}</strong><span>Classes expected</span></div>
-                <div><strong>{todayAttendance.submitted}</strong><span>Registers submitted</span></div>
-                <div><strong>{todayAttendance.outstanding}</strong><span>Registers outstanding</span></div>
-                <div><strong>{todayAttendance.present}</strong><span>Students present</span></div>
-                <div><strong>{todayAttendance.absent}</strong><span>Students absent</span></div>
-                <div><strong>{todayAttendance.late}</strong><span>Students late</span></div>
+          <Card className="cc-p-5 cc-col-span-2 lg:cc-col-span-2">
+            <CardContent className="cc-p-0">
+              <div className="cc-flex items-center justify-between cc-mb-5">
+                <div>
+                  <span className="eyebrow cc-block cc-mb-1">School operations · today</span>
+                  <h2 className="cc-text-xl cc-font-bold cc-leading-tight cc-text-ink">Today’s attendance</h2>
+                </div>
+                <ClipboardCheck size={17} className="cc-text-muted" />
               </div>
-            </> : <div className="today-attendance-empty">No registers expected today</div>}
-            <div className="today-attendance-actions">
-              <Link className="button button-primary" to={attendanceRoute(schoolToday, todayAttendance.sessionType, todayAttendance.firstExpectedClassId)}>View attendance<ArrowUpRight size={15} /></Link>
-              {todayAttendance.outstanding > 0 && <Link className="button button-quiet" to={attendanceRoute(schoolToday, todayAttendance.sessionType, todayAttendance.outstandingClasses[0]?.id, todayAttendance.outstandingClasses.map((schoolClass) => schoolClass.id))}>View missing registers<ArrowUpRight size={15} /></Link>}
-            </div>
-          </article>
+              {todayAttendance.expectedClasses ? <>
+                <div className="today-attendance-stats cc-grid cc-grid-cols-2 sm:cc-grid-cols-3 gap-4 cc-mb-6" aria-label="Today’s attendance summary">
+                  <div className="cc-p-3 rounded-lg bg-surface-soft border border-border">
+                    <strong className="cc-text-lg cc-font-bold cc-text-ink cc-block">{todayAttendance.expectedClasses}</strong>
+                    <span className="cc-text-xs cc-text-muted">Classes expected</span>
+                  </div>
+                  <div className="cc-p-3 rounded-lg bg-surface-soft border border-border">
+                    <strong className="cc-text-lg cc-font-bold cc-text-ink cc-block">{todayAttendance.submitted}</strong>
+                    <span className="cc-text-xs cc-text-muted">Registers submitted</span>
+                  </div>
+                  <div className="cc-p-3 rounded-lg bg-surface-soft border border-border">
+                    <strong className="cc-text-lg cc-font-bold cc-text-ink cc-block">{todayAttendance.outstanding}</strong>
+                    <span className="cc-text-xs cc-text-muted">Registers outstanding</span>
+                  </div>
+                  <div className="cc-p-3 rounded-lg bg-surface-soft border border-border">
+                    <strong className="cc-text-lg cc-font-bold cc-text-ink cc-block">{todayAttendance.present}</strong>
+                    <span className="cc-text-xs cc-text-muted">Students present</span>
+                  </div>
+                  <div className="cc-p-3 rounded-lg bg-surface-soft border border-border">
+                    <strong className="cc-text-lg cc-font-bold cc-text-ink cc-block">{todayAttendance.absent}</strong>
+                    <span className="cc-text-xs cc-text-muted">Students absent</span>
+                  </div>
+                  <div className="cc-p-3 rounded-lg bg-surface-soft border border-border">
+                    <strong className="cc-text-lg cc-font-bold cc-text-ink cc-block">{todayAttendance.late}</strong>
+                    <span className="cc-text-xs cc-text-muted">Students late</span>
+                  </div>
+                </div>
+              </> : <div className="today-attendance-empty cc-text-sm cc-text-muted cc-py-6 cc-text-center">No registers expected today</div>}
+              <div className="today-attendance-actions cc-flex gap-3">
+                <Button variant="primary" asChild>
+                  <Link to={attendanceRoute(schoolToday, todayAttendance.sessionType, todayAttendance.firstExpectedClassId)}>
+                    View attendance <ArrowUpRight size={15} />
+                  </Link>
+                </Button>
+                {todayAttendance.outstanding > 0 && (
+                  <Button variant="quiet" asChild>
+                    <Link to={attendanceRoute(schoolToday, todayAttendance.sessionType, todayAttendance.outstandingClasses[0]?.id, todayAttendance.outstandingClasses.map((schoolClass) => schoolClass.id))}>
+                      View missing registers <ArrowUpRight size={15} />
+                    </Link>
+                  </Button>
+                )}
+              </div>
+            </CardContent>
+          </Card>
           </>}
-          <article className="content-card quick-links-card"><div className="section-heading"><div><span className="eyebrow">Quick actions</span><h2>School management</h2></div></div><div className="quick-links">{quickLinks.map(({ to, label, icon: Icon }) => <Link key={to} to={to}><Icon size={18} /><span>{label}</span><ArrowUpRight size={16} /></Link>)}</div></article>
+          <Card className="cc-p-5">
+            <CardContent className="cc-p-0">
+              <div className="cc-flex items-center justify-between cc-mb-5">
+                <div>
+                  <span className="eyebrow cc-block cc-mb-1">Quick actions</span>
+                  <h2 className="cc-text-xl cc-font-bold cc-leading-tight cc-text-ink">School management</h2>
+                </div>
+              </div>
+              <div className="quick-links cc-grid cc-grid-cols-1 sm:cc-grid-cols-2 lg:cc-grid-cols-3 gap-3">
+                {quickLinks.map(({ to, label, icon: Icon }) => (
+                  <Link key={to} to={to} className="cc-flex items-center gap-3 cc-p-4 rounded-lg border border-border bg-surface hover:bg-surface-soft transition-colors cc-block">
+                    <div className="w-8 h-8 rounded-md bg-primary-soft cc-flex items-center justify-center text-primary">
+                      <Icon size={16} />
+                    </div>
+                    <span className="cc-text-sm cc-font-semibold cc-text-ink">{label}</span>
+                    <ArrowUpRight size={15} className="ml-auto cc-text-muted" />
+                  </Link>
+                ))}
+              </div>
+            </CardContent>
+          </Card>
         </section>
-        {restrictedDashboardRole && <section className="content-card dashboard-note"><div className="note-icon"><BookMarked size={18} /></div><div><h2>{activeMembership?.role === 'accounts_payable_officer' ? 'Accounts payable access' : activeMembership?.role === 'auditor' ? 'Read-only review access' : activeMembership?.role === 'librarian' ? 'Library workspace' : activeMembership?.role === 'website_editor' || activeMembership?.role === 'website_publisher' ? 'Website content access' : activeMembership?.role === 'admissions_officer' ? 'Admissions workspace' : activeMembership?.role === 'hr_staff_administrator' ? 'HR workspace' : ['transport_manager', 'facilities_manager', 'it_support_technician', 'safeguarding_officer', 'procurement_officer', 'compliance_audit_officer'].includes(activeMembership?.role ?? '') ? 'Operational workflow access' : 'One connected workspace'}</h2><p>{activeMembership?.role === 'accounts_payable_officer' ? 'Supplier invoice and payment workflows are not available yet. Your account is restricted to this workspace until those features are released.' : activeMembership?.role === 'auditor' ? 'You can review this school’s finance records and audit history. Your role cannot change or approve records.' : activeMembership?.role === 'librarian' ? 'Use the Library section to manage the catalogue, requests, checkouts, and returns.' : activeMembership?.role === 'website_editor' ? 'Create and submit website content drafts. Only a website publisher or school administrator can publish changes.' : activeMembership?.role === 'website_publisher' ? 'Review submitted school website drafts and publish approved content.' : activeMembership?.role === 'admissions_officer' ? 'Review, assign, and register admissions applications for your school.' : activeMembership?.role === 'hr_staff_administrator' ? 'Manage staff directory records and private staff documents. School membership and platform roles remain controlled by school administrators.' : activeMembership?.role === 'safeguarding_officer' ? 'Manage confidential safeguarding concerns and referrals. Access is limited to your school’s safeguarding workspace.' : ['transport_manager', 'facilities_manager', 'it_support_technician', 'procurement_officer', 'compliance_audit_officer'].includes(activeMembership?.role ?? '') ? 'Manage only your assigned operational domain and review its status history.' : 'School records, classes, and academic tools are scoped to your active school.'}</p></div></section>}
+        {restrictedDashboardRole && <section className="content-card cc-p-5">
+          <div className="cc-flex gap-3 cc-mb-5">
+            <BookMarked size={18} className="cc-text-muted" />
+            <div>
+              <h2 className="cc-text-xl cc-font-bold cc-leading-tight cc-text-ink cc-mb-1">
+                {activeMembership?.role === 'accounts_payable_officer' ? 'Accounts payable access'
+                  : activeMembership?.role === 'auditor' ? 'Read-only review access'
+                    : activeMembership?.role === 'librarian' ? 'Library workspace'
+                      : activeMembership?.role === 'website_editor' || activeMembership?.role === 'website_publisher' ? 'Website content access'
+                        : activeMembership?.role === 'admissions_officer' ? 'Admissions workspace'
+                          : activeMembership?.role === 'hr_staff_administrator' ? 'HR workspace'
+                            : ['transport_manager', 'facilities_manager', 'it_support_technician', 'safeguarding_officer', 'procurement_officer', 'compliance_audit_officer'].includes(activeMembership?.role ?? '') ? 'Operational workflow access'
+                              : 'One connected workspace'}
+              </h2>
+              <p className="cc-text-sm cc-text-muted leading-relaxed">
+                {activeMembership?.role === 'accounts_payable_officer' ? 'Supplier invoice and payment workflows are not available yet. Your account is restricted to this workspace until those features are released.'
+                  : activeMembership?.role === 'auditor' ? 'You can review this school’s finance records and audit history. Your role cannot change or approve records.'
+                    : activeMembership?.role === 'librarian' ? 'Use the Library section to manage the catalogue, requests, checkouts, and returns.'
+                      : activeMembership?.role === 'website_editor' ? 'Create and submit website content drafts. Only a website publisher or school administrator can publish changes.'
+                        : activeMembership?.role === 'website_publisher' ? 'Review submitted school website drafts and publish approved content.'
+                          : activeMembership?.role === 'admissions_officer' ? 'Review, assign, and register admissions applications for your school.'
+                            : activeMembership?.role === 'hr_staff_administrator' ? 'Manage staff directory records and private staff documents. School membership and platform roles remain controlled by school administrators.'
+                              : activeMembership?.role === 'safeguarding_officer' ? 'Manage confidential safeguarding concerns and referrals. Access is limited to your school’s safeguarding workspace.'
+                                : ['transport_manager', 'facilities_manager', 'it_support_technician', 'procurement_officer', 'compliance_audit_officer'].includes(activeMembership?.role ?? '') ? 'Manage only your assigned operational domain and review its status history.'
+                                  : 'School records, classes, and academic tools are scoped to your active school.'}
+              </p>
+            </div>
+          </div>
+        </section>}
       </>}
     </div>
   );

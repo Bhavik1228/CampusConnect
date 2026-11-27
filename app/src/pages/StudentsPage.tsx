@@ -1,10 +1,13 @@
 import { useCallback, useEffect, useMemo, useState, type FormEvent } from 'react';
 import { useSearchParams } from 'react-router-dom';
-import { ArrowDownToLine, CalendarDays, FileText, GitMerge, Plus, Search, ShieldCheck, UserRound, X } from 'lucide-react';
+import { ArrowDownToLine, CalendarDays, FileText, GitMerge, Plus, Search, ShieldCheck, UserRound, X, GraduationCap, UsersRound, ClipboardCheck } from 'lucide-react';
 import { useAuth } from '../contexts/AuthContext';
 import { EmptyState, ErrorState, LoadingState } from '../components/Feedback';
 import { requireSupabase } from '../lib/supabase';
 import type { SchoolClass } from '../types/database';
+import {
+  Button, Card, CardContent, Badge, SectionHeading, StatusPill, Input, Select, Textarea, IconButton, Modal, Alert,
+} from '../components/ui';
 
 type StudentStatus = 'active' | 'inactive' | 'graduated' | 'transferred' | 'withdrawn';
 type StudentRow = {
@@ -69,8 +72,21 @@ const statusLabels: Record<StudentStatus, string> = {
   transferred: 'Transferred', withdrawn: 'Withdrawn',
 };
 
+const statusVariant: Record<StudentStatus, 'success' | 'warning' | 'danger' | 'info'> = {
+  active: 'success', inactive: 'info', graduated: 'info',
+  transferred: 'warning', withdrawn: 'danger',
+};
+
 function profileValue(profile: PrivateProfile | null, key: keyof PrivateProfile) {
   return profile?.[key] ?? '';
+}
+
+function studentAvatar(initials: string) {
+  return (
+    <span className="w-8 h-8 rounded-lg bg-surface-soft cc-flex items-center justify-center text-muted font-semibold text-sm">
+      {initials}
+    </span>
+  );
 }
 
 export function StudentsPage() {
@@ -364,7 +380,6 @@ export function StudentsPage() {
     { label: 'Email address', complete: Boolean(selectedStudent.email) },
     { label: 'Phone number', complete: Boolean(profile?.phone) },
     { label: 'Home address', complete: Boolean(profile?.address && profile?.city && profile?.country) },
-    { label: 'Admission date', complete: Boolean(profile?.admission_date) },
     { label: 'Gender', complete: Boolean(profile?.gender) },
     { label: 'Nationality', complete: Boolean(profile?.nationality) },
     { label: 'Emergency contact', complete: contacts.length > 0 },
@@ -575,176 +590,518 @@ export function StudentsPage() {
     setShowForm(true);
   }
 
+  function handleAddStudent() {
+    setSelectedId('');
+    openForm();
+  }
+
+  const qualityDescription = students.length + ' records monitored';
+
   return (
-    <div className="page-stack">
-      <div className="page-heading">
-        <div><span className="eyebrow">{activeMembership?.school.name}</span><h1>Students</h1><p>Student 360 profiles, data quality, class enrolment, learning progress, documents, and student history.</p></div>
-        {canManage && <button className="button button-primary" onClick={() => { setSelectedId(''); openForm(); }}><Plus size={17} /> Add student</button>}
-      </div>
-      {canManage && <section className="content-card student-quality-center" aria-label="Student data quality centre">
-        <div className="student-quality-heading"><div><span className="eyebrow">Data quality centre</span><strong>Missing and inconsistent student information</strong></div><span>{students.length} records monitored</span></div>
-        {qualityLoading ? <LoadingState label="Checking student records…" /> : qualityError ? <ErrorState message={qualityError} /> : <>
-          <div className="student-quality-metrics">
-            <button type="button" className={qualityFilter === 'all' ? 'active' : ''} onClick={() => setQualityFilter('all')}><span>Student records</span><strong>{students.length.toLocaleString()}</strong><small>Show all records</small></button>
-            <button type="button" className={qualityFilter === 'needs_attention' ? 'active' : ''} onClick={() => setQualityFilter('needs_attention')}><span>Need attention</span><strong>{studentsNeedingAttention.toLocaleString()}</strong><small>Missing or inconsistent fields</small></button>
-            <button type="button" className={qualityFilter === 'possible_duplicate' ? 'active' : ''} onClick={() => setQualityFilter('possible_duplicate')}><span>Possible duplicates</span><strong>{possibleDuplicateCount.toLocaleString()}</strong><small>Review matching identity details</small></button>
-          </div>
-          <p>Checks include required identity and contact fields, active class placement, date consistency, emergency contacts, supporting documents, and potential duplicate identities. Flags are review prompts, not automatic corrections.</p>
-        </>}
-      </section>}
-      {success && <p className="inline-success" role="status">{success}</p>}
-      {error && <ErrorState message={error} />}
-      <div className="student-manager-layout">
-        <section className="content-card student-list-card">
-          <div className="student-search-tools">
-            <label className="table-search student-search"><Search size={17} /><input value={query} onChange={(event) => setQuery(event.target.value)} placeholder="Search name, student ID, or class" aria-label="Search students" /></label>
-            {canManage && <select aria-label="Filter by data quality" value={qualityFilter} disabled={qualityLoading || Boolean(qualityError)} onChange={(event) => setQualityFilter(event.target.value as typeof qualityFilter)}>
-              <option value="all">All quality statuses</option><option value="needs_attention">Needs attention</option><option value="possible_duplicate">Possible duplicates</option>
-            </select>}
-          </div>
-          {loading ? <LoadingState label="Loading students…" /> : filteredStudents.length === 0
-            ? <EmptyState title={query ? 'No matching students' : 'No students yet'} detail={canManage ? 'Add a student to begin building your school records.' : 'Student records will appear here when available.'} />
-            : <div className="student-record-list">{filteredStudents.map((student) => (
-              <button key={student.id} className={`student-record-item${student.id === selectedId ? ' selected' : ''}`} onClick={() => setSelectedId(student.id)}>
-                <span className="avatar avatar-small">{student.first_name.slice(0, 1)}{student.last_name.slice(0, 1)}</span>
-                <span className="student-record-copy"><strong>{student.first_name} {student.last_name}</strong><small>{student.student_number} · {student.school_classes?.name ?? 'No class assigned'}</small>
-                  {canManage && <small className="student-quality-record-flags">{qualityLoading ? 'Checking data quality…' : `${qualityFindings.get(student.id)?.possibleDuplicate ? 'Possible duplicate · ' : ''}${qualityFindings.get(student.id)?.issues.length ? `${qualityFindings.get(student.id)?.issues.length} data-quality flags` : 'No data-quality flags'}`}</small>}
-                </span>
-                <span className={`student-status status-${student.status}`}>{statusLabels[student.status]}</span>
-              </button>
-            ))}</div>}
-          <small className="student-list-count">{filteredStudents.length} of {students.length} students</small>
-        </section>
-        <section className="content-card student-detail-card">
-          {!selectedStudent ? <EmptyState title="Select a student" detail="Choose a student from the list to view their profile and history." />
-            : <div className="student-detail">
-              <div className="student-detail-heading">
-                <span className="avatar">{selectedStudent.first_name.slice(0, 1)}{selectedStudent.last_name.slice(0, 1)}</span>
-                <div><span className="eyebrow">Student profile</span><h2>{selectedStudent.first_name} {selectedStudent.last_name}</h2><p>{selectedStudent.student_number} · {selectedStudent.school_classes?.name ?? 'No class assigned'}</p></div>
-                {canManage && <button className="button button-secondary" onClick={openForm}>Edit profile</button>}
+    <div className="page-stack cc-flex-col">
+      <SectionHeading
+        eyebrow={activeMembership?.school.name}
+        title="Students"
+        description="Student 360 profiles, data quality, class enrolment, learning progress, documents, and student history."
+      />
+      {canManage && (
+        <Button variant="primary" onClick={handleAddStudent}>
+          <Plus size={17} /> Add student
+        </Button>
+      )}
+
+      {canManage && <Card className="cc-mb-6">
+        <CardContent className="cc-p-5">
+          <SectionHeading
+            eyebrow="Data quality centre"
+            title="Missing and inconsistent student information"
+            description={qualityDescription}
+          />
+          {qualityLoading ? (
+            <LoadingState label="Checking student records…" />
+          ) : qualityError ? (
+            <ErrorState message={qualityError} />
+          ) : (
+            <>
+              <div className="cc-grid cc-grid-cols-3 gap-4 cc-mb-4">
+                <Button variant="quiet" size="sm" className={qualityFilter === 'all' ? 'cc-flex cc-flex-col items-start gap-1 bg-primary-soft text-primary border-primary/20 hover:bg-surface-soft' : 'cc-flex cc-flex-col items-start gap-1 border-border hover:bg-surface-soft'} onClick={() => setQualityFilter('all')}>
+                  <span className="cc-text-xs cc-font-semibold cc-text-muted">Student records</span>
+                  <strong className="cc-text-sm cc-font-bold cc-text-ink">{students.length.toLocaleString()}</strong>
+                  <span className="cc-text-xs cc-text-muted">Show all records</span>
+                </Button>
+                <Button variant="quiet" size="sm" className={qualityFilter === 'needs_attention' ? 'cc-flex cc-flex-col items-start gap-1 bg-primary-soft text-primary border-primary/20 hover:bg-surface-soft' : 'cc-flex cc-flex-col items-start gap-1 border-border hover:bg-surface-soft'} onClick={() => setQualityFilter('needs_attention')}>
+                  <span className="cc-text-xs cc-font-semibold cc-text-muted">Need attention</span>
+                  <strong className="cc-text-sm cc-font-bold cc-text-ink">{studentsNeedingAttention.toLocaleString()}</strong>
+                  <span className="cc-text-xs cc-text-muted">Missing or inconsistent fields</span>
+                </Button>
+                <Button variant="quiet" size="sm" className={qualityFilter === 'possible_duplicate' ? 'cc-flex cc-flex-col items-start gap-1 bg-primary-soft text-primary border-primary/20 hover:bg-surface-soft' : 'cc-flex cc-flex-col items-start gap-1 border-border hover:bg-surface-soft'} onClick={() => setQualityFilter('possible_duplicate')}>
+                  <span className="cc-text-xs cc-font-semibold cc-text-muted">Possible duplicates</span>
+                  <strong className="cc-text-sm cc-font-bold cc-text-ink">{possibleDuplicateCount.toLocaleString()}</strong>
+                  <span className="cc-text-xs cc-text-muted">Review matching identity details</span>
+                </Button>
               </div>
-              {detailLoading ? <LoadingState label="Loading student details…" /> : canManage ? <>
-                <section className="student-info-section student-360-summary">
-                  <h3>Student 360 · leadership overview</h3>
-                  <div className="student-360-metrics">
-                    {(() => {
-                      const attended = attendanceSnapshot.filter((record) => record.status === 'present' || record.status === 'late').length;
-                      const counted = attendanceSnapshot.filter((record) => record.status !== 'excused').length;
-                      const attendancePercent = counted ? Math.round(attended / counted * 100) : null;
-                      const averageResult = publishedResults.length
-                        ? publishedResults.reduce((total, result) => total + Number(result.percentage), 0) / publishedResults.length
-                        : null;
-                      return <>
-                        <article><span>Attendance · 90 days</span><strong>{attendancePercent === null ? '—' : `${attendancePercent}%`}</strong><small>{attendanceSnapshot.length} recorded sessions · excused sessions excluded</small></article>
-                        <article><span>Published assessments</span><strong>{publishedResults.length}</strong><small>{averageResult === null ? 'No published results' : `${averageResult.toFixed(1)}% average across recent results`}</small></article>
-                        <article><span>Profile completeness</span><strong>{completenessPercent}%</strong><small>{completenessChecks.filter((item) => item.complete).length} of {completenessChecks.length} checks complete</small></article>
-                      </>;
-                    })()}
+              <p className="cc-text-sm cc-text-muted leading-relaxed">
+                Checks include required identity and contact fields, active class placement, date consistency, emergency contacts, supporting documents, and potential duplicate identities. Flags are review prompts, not automatic corrections.
+              </p>
+            </>
+          )}
+        </CardContent>
+      </Card>}
+
+      {success && <Alert variant="success" className="cc-mb-4">{success}</Alert>}
+      {error && <ErrorState message={error} />}
+
+      <div className="student-manager-layout cc-grid cc-grid-cols-1 lg:cc-grid-cols-12 gap-6">
+        <section className="lg:cc-col-span-5">
+          <Card className="cc-h-full">
+            <CardContent className="cc-p-5">
+              <div className="cc-flex items-center justify-between gap-3 cc-mb-4">
+                <label className="field cc-w-full cc-max-w-md">
+                  <Search size={16} className="cc-absolute cc-left-3 cc-top-1/2 cc-transform -cc-translate-y-1/2 cc-text-muted" />
+                  <input
+                    value={query}
+                    onChange={(event) => setQuery(event.target.value)}
+                    placeholder="Search name, student ID, or class"
+                    aria-label="Search students"
+                    className="input-base cc-pl-9"
+                  />
+                </label>
+                {canManage && (
+                  <Select
+                    label="Filter by data quality"
+                    value={qualityFilter}
+                    disabled={qualityLoading || Boolean(qualityError)}
+                    onChange={(event) => setQualityFilter(event.target.value as typeof qualityFilter)}
+                  >
+                    <option value="all">All quality statuses</option>
+                    <option value="needs_attention">Needs attention</option>
+                    <option value="possible_duplicate">Possible duplicates</option>
+                  </Select>
+                )}
+              </div>
+              {loading ? (
+                <LoadingState label="Loading students…" />
+              ) : filteredStudents.length === 0 ? (
+                <EmptyState title={query ? 'No matching students' : 'No students yet'} detail={canManage ? 'Add a student to begin building your school records.' : 'Student records will appear here when available.'} />
+              ) : (
+                <div className="student-record-list cc-divide-y cc-divide-border">
+                  {filteredStudents.map((student) => (
+                    <button
+                      key={student.id}
+                      className="cc-flex items-center gap-4 cc-p-4 rounded-lg border border-transparent hover:bg-surface-soft hover:border-border transition-colors cc-block"
+                      onClick={() => setSelectedId(student.id)}
+                      aria-selected={student.id === selectedId}
+                    >
+                      {studentAvatar(`${student.first_name.slice(0, 1)}${student.last_name.slice(0, 1)}`)}
+                      <div className="cc-flex-1 cc-min-w-0">
+                        <div className="cc-flex items-center gap-2">
+                          <strong className="cc-text-sm cc-font-semibold cc-text-ink truncate">{student.first_name} {student.last_name}</strong>
+                          <Badge variant="soft" className="cc-text-xs">{student.student_number}</Badge>
+                        </div>
+                        <small className="cc-text-xs cc-text-muted truncate">{student.school_classes?.name ?? 'No class assigned'}</small>
+                        {canManage && (
+                          <p className="cc-text-xs cc-mt-1">
+                            {qualityLoading ? 'Checking data quality…' : `${qualityFindings.get(student.id)?.possibleDuplicate ? 'Possible duplicate · ' : ''}${qualityFindings.get(student.id)?.issues.length ? `${qualityFindings.get(student.id)?.issues.length} data-quality flags` : 'No data-quality flags'}`}
+                          </p>
+                        )}
+                      </div>
+                      <StatusPill variant={statusVariant[student.status]} label={statusLabels[student.status]} className="cc-text-xs" />
+                    </button>
+                  ))}
+                </div>
+              )}
+              <p className="cc-text-xs cc-text-muted cc-mt-3">{filteredStudents.length} of {students.length} students</p>
+            </CardContent>
+          </Card>
+        </section>
+
+        <section className="lg:cc-col-span-7 cc-h-full">
+          {!selectedStudent ? (
+            <Card className="cc-h-full cc-flex cc-flex-col cc-items-center cc-justify-center cc-py-20">
+              <CardContent className="cc-p-8 text-center">
+                <EmptyState title="Select a student" detail="Choose a student from the list to view their profile and history." />
+              </CardContent>
+            </Card>
+          ) : (
+            <Card className="cc-h-full cc-overflow-hidden">
+              <CardContent className="cc-p-5 cc-overflow-y-auto cc-h-full">
+                <div className="cc-flex items-center gap-4 cc-mb-5">
+                  {studentAvatar(`${selectedStudent.first_name.slice(0, 1)}${selectedStudent.last_name.slice(0, 1)}`)}
+                  <div>
+                    <span className="eyebrow cc-block cc-mb-1">Student profile</span>
+                    <h2 className="cc-text-2xl cc-font-bold cc-leading-tight cc-text-ink cc-mb-1">{selectedStudent.first_name} {selectedStudent.last_name}</h2>
+                    <p className="cc-text-sm cc-text-muted">{selectedStudent.student_number} · {selectedStudent.school_classes?.name ?? 'No class assigned'}</p>
                   </div>
-                  {publishedResults.length > 0 && <div className="student-360-recent-results">
-                    <strong>Recent published results</strong>
-                    {publishedResults.slice(0, 5).map((result) => {
-                      const assessment = Array.isArray(result.assessment) ? result.assessment[0] : result.assessment;
-                      return <div key={result.id}><span>{assessment?.title ?? 'Assessment'}{assessment?.subject ? ` · ${assessment.subject}` : ''}</span><strong>{Number(result.percentage).toFixed(1)}%</strong><small>{new Date(`${result.assessment_date}T00:00:00`).toLocaleDateString()}</small></div>;
-                    })}
-                  </div>}
-                </section>
-                <section className="student-info-section">
-                  <h3>Profile completeness <span className="student-section-count">{completenessPercent}%</span></h3>
-                  <div className="student-completeness-track" role="progressbar" aria-label="Student profile completeness" aria-valuenow={completenessPercent} aria-valuemin={0} aria-valuemax={100}><span style={{ transform: `scaleX(${completenessPercent / 100})` }} /></div>
-                  <ul className="student-completeness-list">{completenessChecks.map((item) => <li key={item.label} className={item.complete ? 'complete' : ''}>{item.complete ? 'Complete' : 'Missing'} · {item.label}</li>)}</ul>
-                </section>
-                <section className="student-info-section student-quality-findings">
-                  <h3>Data-quality findings <span className="student-section-count">{qualityFindings.get(selectedStudent.id)?.issues.length ?? 0}</span></h3>
-                  {qualityLoading ? <LoadingState label="Checking this record…" /> : qualityError ? <ErrorState message={qualityError} /> : <>
-                    {qualityFindings.get(selectedStudent.id)?.possibleDuplicate && <p className="student-quality-duplicate">Possible duplicate identity match. Compare this record with others before taking action.</p>}
-                    {qualityFindings.get(selectedStudent.id)?.issues.length
-                      ? <ul>{qualityFindings.get(selectedStudent.id)?.issues.map((issue) => <li key={issue}>{issue}</li>)}</ul>
-                      : <p className="student-quality-clear">No data-quality issues were found by the current checks.</p>}
-                  </>}
-                </section>
-                <section className="student-info-section">
-                  <h3><UserRound size={16} /> Personal and contact information</h3>
-                  <dl className="student-profile-grid">
-                    <dt>Email</dt><dd>{selectedStudent.email || '—'}</dd>
-                    <dt>Phone</dt><dd>{profile?.phone || '—'}</dd>
-                    <dt>Date of birth</dt><dd>{selectedStudent.date_of_birth || '—'}</dd>
-                    <dt>Gender</dt><dd>{profile?.gender || '—'}</dd>
-                    <dt>Nationality</dt><dd>{profile?.nationality || '—'}</dd>
-                    <dt>Address</dt><dd>{[profile?.address, profile?.city, profile?.region, profile?.postal_code, profile?.country].filter(Boolean).join(', ') || '—'}</dd>
-                    <dt>Admission date</dt><dd>{profile?.admission_date || '—'}</dd>
-                    <dt>Emergency contacts</dt><dd>{contacts.length ? contacts.map((item) => `${item.contact_name} · ${item.relationship || 'Contact'} · ${item.phone}${item.email ? ` · ${item.email}` : ''}`).join(' | ') : '—'}</dd>
-                  </dl>
-                </section>
-                <section className="student-info-section">
-                  <h3><FileText size={16} /> Student documents <span className="student-section-count">{documents.length}</span></h3>
-                  <form className="student-upload-form" onSubmit={(event) => void uploadDocument(event)}>
-                    <input name="student_document" type="file" accept=".pdf,.jpg,.jpeg,.png,.doc,.docx" disabled={uploading} aria-label="Choose a student document" />
-                    <button className="button button-secondary" type="submit" disabled={uploading}>{uploading ? 'Uploading…' : 'Upload document'}</button>
-                    <small>PDF, JPG, PNG, DOC, or DOCX · 50 MB maximum</small>
-                  </form>
-                  {documents.length ? <div className="student-document-list">{documents.map((document) => <div key={document.id}>
-                    <span><FileText size={16} /><span><strong>{document.file_name}</strong><small>{(document.file_size / 1024 / 1024).toFixed(2)} MB · {new Date(document.created_at).toLocaleDateString()}</small></span></span>
-                    <button className="icon-button" onClick={() => void downloadDocument(document)} aria-label={`Open ${document.file_name}`}><ArrowDownToLine size={17} /></button>
-                    <button className="icon-button" onClick={() => void deleteDocument(document)} aria-label={`Delete ${document.file_name}`}><X size={17} /></button>
-                  </div>)}</div> : <p className="student-empty-inline">No documents uploaded.</p>}
-                </section>
-                <section className="student-info-section">
-                  <h3><CalendarDays size={16} /> Academic-year history</h3>
-                  {academicHistory.length ? <ol className="student-history">{academicHistory.map((record) => <li key={record.id}>
-                    <span><strong>{academicYears.find((year) => year.id === record.academic_year_id)?.name ?? 'Unknown academic year'}</strong>
-                      <small>{classes.find((item) => item.id === record.class_id)?.name ?? 'Class unavailable'} · enrolled {new Date(`${record.enrolled_at}T00:00:00`).toLocaleDateString()}{record.ended_at ? ` · ended ${new Date(`${record.ended_at}T00:00:00`).toLocaleDateString()}` : ' · current'}</small>
-                    </span>
-                  </li>)}</ol> : <p className="student-empty-inline">No academic-year enrolments have been recorded yet.</p>}
-                </section>
-                <section className="student-info-section">
-                  <h3><ShieldCheck size={16} /> Student timeline</h3>
-                  {timelineEvents.length ? <ol className="student-history">{timelineEvents.map((item) => <li key={item.id}>
-                    <span><strong>{item.title}</strong><small>{new Date(`${item.date.slice(0, 10)}T00:00:00`).toLocaleDateString()}</small>{item.detail && <small>{item.detail}</small>}</span>
-                  </li>)}</ol> : <p className="student-empty-inline">No student events have been recorded.</p>}
-                </section>
-                <section className="student-info-section student-merge-section">
-                  <h3><GitMerge size={16} /> Merge duplicate student record</h3>
-                  <p className="student-privacy-note">The selected student remains the surviving record. Linked records move to it; the duplicate is retained as an archived reference. Conflicting unique attendance or assessment records must be resolved first.</p>
-                  <label className="field"><span>Duplicate to merge into this student</span><select value={mergeCandidateId} onChange={(event) => setMergeCandidateId(event.target.value)} disabled={merging}>
-                    <option value="">Choose a student record</option>
-                    {students.filter((student) => student.id !== selectedStudent.id).map((student) => <option key={student.id} value={student.id}>{student.first_name} {student.last_name} · {student.student_number}</option>)}
-                  </select></label>
-                  <label className="field"><span>Merge reason</span><textarea value={mergeReason} onChange={(event) => setMergeReason(event.target.value)} rows={2} maxLength={1000} required disabled={merging} /></label>
-                  <button className="button button-secondary" type="button" onClick={() => void mergeStudentRecords()} disabled={merging || !mergeCandidateId || mergeReason.trim().length < 3}>{merging ? 'Merging…' : 'Review and merge records'}</button>
-                </section>
-              </> : <section className="student-info-section">
-                <h3>Student information</h3>
-                <dl className="student-profile-grid"><dt>Email</dt><dd>{selectedStudent.email || '—'}</dd><dt>Date of birth</dt><dd>{selectedStudent.date_of_birth || '—'}</dd><dt>Status</dt><dd>{statusLabels[selectedStudent.status]}</dd></dl>
-                <p className="student-privacy-note">Private contact details, emergency contacts, and documents are available to the school administrator.</p>
-              </section>}
-            </div>}
-        </section>
-      </div>
-      {showForm && <div className="modal-backdrop" role="presentation" onMouseDown={(event) => { if (event.target === event.currentTarget) setShowForm(false); }}>
-        <section className="modal-card student-form-modal" role="dialog" aria-modal="true" aria-labelledby="student-form-title">
-          <div className="modal-heading"><div><span className="eyebrow">Student records</span><h2 id="student-form-title">{selectedStudent ? 'Edit student profile' : 'Add student'}</h2></div><button className="icon-button" onClick={() => setShowForm(false)} aria-label="Close dialog"><X size={19} /></button></div>
-          {formError && <ErrorState message={formError} />}
-          <form className="modal-form" onSubmit={(event) => void saveStudent(event)}>
-            <div className="form-row"><label className="field"><span>First name</span><input required name="first_name" maxLength={80} defaultValue={selectedStudent?.first_name ?? ''} /></label><label className="field"><span>Last name</span><input required name="last_name" maxLength={80} defaultValue={selectedStudent?.last_name ?? ''} /></label></div>
-            <div className="form-row"><label className="field"><span>Email</span><input name="email" type="email" maxLength={254} defaultValue={selectedStudent?.email ?? ''} /></label><label className="field"><span>Phone</span><input name="phone" type="tel" maxLength={40} defaultValue={profileValue(profile, 'phone')} /></label></div>
-            <div className="form-row"><label className="field"><span>Date of birth</span><input name="date_of_birth" type="date" defaultValue={selectedStudent?.date_of_birth ?? ''} /></label><label className="field"><span>Admission date</span><input name="admission_date" type="date" defaultValue={profileValue(profile, 'admission_date')} /></label></div>
-            <div className="form-row"><label className="field"><span>Class enrolment</span><select name="class_id" defaultValue={selectedStudent?.class_id ?? ''}><option value="">Not assigned</option>{classes.map((schoolClass) => <option key={schoolClass.id} value={schoolClass.id}>{schoolClass.name}</option>)}</select></label><label className="field"><span>Status</span><select name="status" defaultValue={selectedStudent?.status ?? 'active'}>{Object.entries(statusLabels).map(([value, label]) => <option key={value} value={value}>{label}</option>)}</select></label></div>
-            <div className="form-row"><label className="field"><span>Gender</span><input name="gender" maxLength={60} defaultValue={profileValue(profile, 'gender')} /></label><label className="field"><span>Nationality</span><input name="nationality" maxLength={80} defaultValue={profileValue(profile, 'nationality')} /></label></div>
-            <label className="field"><span>Street address</span><input name="address" maxLength={240} defaultValue={profileValue(profile, 'address')} /></label>
-            <div className="form-row"><label className="field"><span>City / town</span><input name="city" maxLength={100} defaultValue={profileValue(profile, 'city')} /></label><label className="field"><span>Region / state</span><input name="region" maxLength={100} defaultValue={profileValue(profile, 'region')} /></label></div>
-            <div className="form-row"><label className="field"><span>Postal code</span><input name="postal_code" maxLength={24} defaultValue={profileValue(profile, 'postal_code')} /></label><label className="field"><span>Country</span><input name="country" maxLength={80} defaultValue={profileValue(profile, 'country')} /></label></div>
-            <h3 className="student-form-subheading">Primary emergency contact</h3>
-            <div className="form-row"><label className="field"><span>Contact 1 name</span><input name="emergency_contact_name" maxLength={120} defaultValue={contacts[0]?.contact_name ?? ''} /></label><label className="field"><span>Relationship</span><input name="emergency_contact_relationship" maxLength={60} defaultValue={contacts[0]?.relationship ?? ''} /></label></div>
-            <div className="form-row"><label className="field"><span>Contact 1 phone</span><input name="emergency_contact_phone" type="tel" maxLength={40} defaultValue={contacts[0]?.phone ?? ''} /></label><label className="field"><span>Contact 1 email</span><input name="emergency_contact_email" type="email" maxLength={254} defaultValue={contacts[0]?.email ?? ''} /></label></div>
-            <div className="form-row"><label className="field"><span>Contact 2 name</span><input name="emergency_contact_2_name" maxLength={120} defaultValue={contacts[1]?.contact_name ?? ''} /></label><label className="field"><span>Relationship</span><input name="emergency_contact_2_relationship" maxLength={60} defaultValue={contacts[1]?.relationship ?? ''} /></label></div>
-            <div className="form-row"><label className="field"><span>Contact 2 phone</span><input name="emergency_contact_2_phone" type="tel" maxLength={40} defaultValue={contacts[1]?.phone ?? ''} /></label><label className="field"><span>Contact 2 email</span><input name="emergency_contact_2_email" type="email" maxLength={254} defaultValue={contacts[1]?.email ?? ''} /></label></div>
-            {selectedStudent && <><h3 className="student-form-subheading">Transfer or withdrawal details</h3><label className="field"><span>Reason <small>(required for transfer or withdrawal)</small></span><textarea name="movement_reason" rows={2} maxLength={1000} /></label><label className="field"><span>Destination school <small>(required for transfer)</small></span><input name="destination_school" maxLength={200} /></label></>}
-            {selectedStudent && <label className="field student-correction-reason"><span>Correction reason <small>(required and recorded in the student audit trail)</small></span><textarea name="correction_reason" rows={2} minLength={3} maxLength={1000} required /></label>}
-            <div className="settings-actions"><button className="button button-secondary" type="button" onClick={() => setShowForm(false)}>Cancel</button><button className="button button-primary" type="submit" disabled={saving}>{saving ? 'Saving…' : selectedStudent ? 'Save changes' : 'Add student'}</button></div>
-          </form>
-        </section>
-      </div>}
+                  {canManage && (
+                    <Button variant="secondary" onClick={openForm}>Edit profile</Button>
+                  )}
+                </div>
+
+                {detailLoading ? (
+                  <LoadingState label="Loading student details…" />
+                ) : canManage ? (
+                  <>
+                    <section className="cc-mb-6">
+                      <div className="cc-flex items-center gap-2 cc-mb-3">
+                        <GraduationCap size={16} className="cc-text-muted" />
+                        <h3 className="cc-text-lg cc-font-bold cc-text-ink">Student 360 · leadership overview</h3>
+                      </div>
+                      <div className="cc-grid cc-grid-cols-1 sm:cc-grid-cols-3 gap-4">
+                        <Card className="cc-p-4">
+                          <CardContent className="cc-p-0">
+                            <span className="cc-text-xs cc-font-semibold cc-text-muted cc-block cc-mb-1">Attendance · 90 days</span>
+                            <strong className="cc-text-lg cc-font-bold cc-text-ink cc-block">
+                              {(() => {
+                                const attended = attendanceSnapshot.filter((record) => record.status === 'present' || record.status === 'late').length;
+                                const counted = attendanceSnapshot.filter((record) => record.status !== 'excused').length;
+                                const attendancePercent = counted ? Math.round(attended / counted * 100) : null;
+                                return attendancePercent === null ? '—' : `${attendancePercent}%`;
+                              })()}
+                            </strong>
+                            <span className="cc-text-xs cc-text-muted">{attendanceSnapshot.length} recorded sessions · excused sessions excluded</span>
+                          </CardContent>
+                        </Card>
+                        <Card className="cc-p-4">
+                          <CardContent className="cc-p-0">
+                            <span className="cc-text-xs cc-font-semibold cc-text-muted cc-block cc-mb-1">Published assessments</span>
+                            <strong className="cc-text-lg cc-font-bold cc-text-ink cc-block">{publishedResults.length}</strong>
+                            <span className="cc-text-xs cc-text-muted">
+                              {(() => {
+                                const averageResult = publishedResults.length
+                                  ? publishedResults.reduce((total, result) => total + Number(result.percentage), 0) / publishedResults.length
+                                  : null;
+                                return averageResult === null ? 'No published results' : `${averageResult.toFixed(1)}% average across recent results`;
+                              })()}
+                            </span>
+                          </CardContent>
+                        </Card>
+                        <Card className="cc-p-4">
+                          <CardContent className="cc-p-0">
+                            <span className="cc-text-xs cc-font-semibold cc-text-muted cc-block cc-mb-1">Profile completeness</span>
+                            <strong className="cc-text-lg cc-font-bold cc-text-ink cc-block">{completenessPercent}%</strong>
+                            <span className="cc-text-xs cc-text-muted">{completenessChecks.filter((item) => item.complete).length} of {completenessChecks.length} checks complete</span>
+                          </CardContent>
+                        </Card>
+                      </div>
+                      {publishedResults.length > 0 && (
+                        <div className="cc-mt-6">
+                          <strong className="cc-text-sm cc-font-semibold cc-text-ink cc-block cc-mb-2">Recent published results</strong>
+                          {publishedResults.slice(0, 5).map((result) => {
+                            const assessment = Array.isArray(result.assessment) ? result.assessment[0] : result.assessment;
+                            return (
+                              <div key={result.id} className="cc-flex items-center justify-between gap-3 cc-px-3 cc-py-2 rounded-lg bg-surface-soft cc-mb-1">
+                                <span className="cc-text-sm cc-text-muted truncate">{assessment?.title ?? 'Assessment'}{assessment?.subject ? ` · ${assessment.subject}` : ''}</span>
+                                <strong className="cc-text-sm cc-font-bold cc-text-ink">{Number(result.percentage).toFixed(1)}%</strong>
+                                <span className="cc-text-xs cc-text-muted">{new Date(`${result.assessment_date}T00:00:00`).toLocaleDateString()}</span>
+                              </div>
+                            );
+                          })}
+                        </div>
+                      )}
+                    </section>
+
+                    <section className="cc-mb-6">
+                      <div className="cc-flex items-center gap-2 cc-mb-3">
+                        <UsersRound size={16} className="cc-text-muted" />
+                        <h3 className="cc-text-lg cc-font-bold cc-text-ink">Profile completeness</h3>
+                        <span className="cc-text-xs cc-font-semibold cc-text-muted ml-auto">{completenessPercent}%</span>
+                      </div>
+                      <div className="student-completeness-track cc-w-full cc-bg-surface-soft cc-h-1.5 rounded-full cc-overflow-hidden cc-mb-3" role="progressbar" aria-label="Student profile completeness" aria-valuenow={completenessPercent} aria-valuemin={0} aria-valuemax={100}>
+                        <span className="cc-h-full bg-primary cc-transition-all cc-duration-500" style={{ width: `${completenessPercent}%` }} />
+                      </div>
+                      <ul className="student-completeness-list cc-divide-y cc-divide-border">
+                        {completenessChecks.map((item) => (
+                          <li key={item.label} className="cc-flex items-center justify-between gap-3 cc-px-3 cc-py-2 rounded-lg cc-mb-1 cc-text-sm">
+                            <span className={`cc-font-medium ${item.complete ? 'cc-text-success' : 'cc-text-text'}`}>
+                              {item.complete ? 'Complete' : 'Missing'} · {item.label}
+                            </span>
+                          </li>
+                        ))}
+                      </ul>
+                    </section>
+
+                    <section className="cc-mb-6">
+                      <div className="cc-flex items-center gap-2 cc-mb-3">
+                        <ShieldCheck size={16} className="cc-text-muted" />
+                        <h3 className="cc-text-lg cc-font-bold cc-text-ink">Data-quality findings</h3>
+                        <span className="cc-text-xs cc-font-semibold cc-text-muted ml-auto">{qualityFindings.get(selectedStudent.id)?.issues.length ?? 0}</span>
+                      </div>
+                      {qualityLoading ? (
+                        <LoadingState label="Checking this record…" />
+                      ) : qualityError ? (
+                        <ErrorState message={qualityError} />
+                      ) : (
+                        <>
+                          {qualityFindings.get(selectedStudent.id)?.possibleDuplicate && (
+                            <Alert variant="warning" className="cc-mb-3">Possible duplicate identity match. Compare this record with others before taking action.</Alert>
+                          )}
+                          {qualityFindings.get(selectedStudent.id)?.issues.length
+                            ? (
+                              <ul className="cc-space-y-2">
+                                {qualityFindings.get(selectedStudent.id)?.issues.map((issue) => (
+                                  <li key={issue} className="cc-flex items-start gap-2 cc-px-3 cc-py-2 rounded-lg border border-border bg-surface">
+                                    <span className="cc-text-xs cc-font-semibold cc-text-danger cc-shrink-0">!</span>
+                                    <span className="cc-text-sm cc-text-text">{issue}</span>
+                                  </li>
+                                ))}
+                              </ul>
+                            )
+                            : (
+                              <Alert variant="success">No data-quality issues were found by the current checks.</Alert>
+                            )}
+                        </>
+                      )}
+                    </section>
+
+                    <section className="cc-mb-6">
+                      <div className="cc-flex items-center gap-2 cc-mb-3">
+                        <UserRound size={16} className="cc-text-muted" />
+                        <h3 className="cc-text-lg cc-font-bold cc-text-ink">Personal and contact information</h3>
+                      </div>
+                      <dl className="student-profile-grid cc-grid cc-grid-cols-1 sm:cc-grid-cols-2 gap-4 cc-text-sm">
+                        <div className="cc-flex flex-col gap-1">
+                          <dt className="cc-font-semibold cc-text-muted">Email</dt>
+                          <dd className="cc-text-text">{selectedStudent.email || '—'}</dd>
+                        </div>
+                        <div className="cc-flex flex-col gap-1">
+                          <dt className="cc-font-semibold cc-text-muted">Phone</dt>
+                          <dd className="cc-text-text">{profile?.phone || '—'}</dd>
+                        </div>
+                        <div className="cc-flex flex-col gap-1">
+                          <dt className="cc-font-semibold cc-text-muted">Date of birth</dt>
+                          <dd className="cc-text-text">{selectedStudent.date_of_birth || '—'}</dd>
+                        </div>
+                        <div className="cc-flex flex-col gap-1">
+                          <dt className="cc-font-semibold cc-text-muted">Gender</dt>
+                          <dd className="cc-text-text">{profile?.gender || '—'}</dd>
+                        </div>
+                        <div className="cc-flex flex-col gap-1">
+                          <dt className="cc-font-semibold cc-text-muted">Nationality</dt>
+                          <dd className="cc-text-text">{profile?.nationality || '—'}</dd>
+                        </div>
+                        <div className="cc-flex flex-col gap-1 cc-col-span-2">
+                          <dt className="cc-font-semibold cc-text-muted">Address</dt>
+                          <dd className="cc-text-text">{[profile?.address, profile?.city, profile?.region, profile?.postal_code, profile?.country].filter(Boolean).join(', ') || '—'}</dd>
+                        </div>
+                        <div className="cc-flex flex-col gap-1 cc-col-span-2">
+                          <dt className="cc-font-semibold cc-text-muted">Admission date</dt>
+                          <dd className="cc-text-text">{profile?.admission_date || '—'}</dd>
+                        </div>
+                        <div className="cc-flex flex-col gap-1 cc-col-span-2">
+                          <dt className="cc-font-semibold cc-text-muted">Emergency contacts</dt>
+                          <dd className="cc-text-text">{contacts.length ? contacts.map((item) => `${item.contact_name} · ${item.relationship || 'Contact'} · ${item.phone}${item.email ? ` · ${item.email}` : ''}`).join(' | ') : '—'}</dd>
+                        </div>
+                      </dl>
+                    </section>
+
+                    <section className="cc-mb-6">
+                      <div className="cc-flex items-center gap-2 cc-mb-3">
+                        <FileText size={16} className="cc-text-muted" />
+                        <h3 className="cc-text-lg cc-font-bold cc-text-ink">Student documents <span className="cc-text-xs cc-font-semibold cc-text-muted ml-2">{documents.length}</span></h3>
+                      </div>
+                      <form className="student-upload-form cc-flex flex-col gap-3 cc-mb-4" onSubmit={(event) => void uploadDocument(event)}>
+                        <label className="field">
+                          <span>Choose a document</span>
+                          <input
+                            name="student_document"
+                            type="file"
+                            accept=".pdf,.jpg,.jpeg,.png,.doc,.docx"
+                            disabled={uploading}
+                            aria-label="Choose a student document"
+                            className="input-base"
+                          />
+                          <small>PDF, JPG, PNG, DOC, or DOCX · 50 MB maximum</small>
+                        </label>
+                        <Button variant="secondary" type="submit" disabled={uploading} className="cc-w-auto">{uploading ? 'Uploading…' : 'Upload document'}</Button>
+                      </form>
+                      {documents.length ? (
+                        <div className="student-document-list cc-divide-y cc-divide-border">
+                          {documents.map((document) => (
+                            <div key={document.id} className="cc-flex items-center justify-between gap-3 cc-px-3 cc-py-3 rounded-lg border border-border bg-surface cc-mb-1">
+                              <div className="cc-flex items-center gap-3">
+                                <FileText size={16} className="cc-text-muted" />
+                                <div>
+                                  <strong className="cc-text-sm cc-font-semibold cc-text-ink cc-block">{document.file_name}</strong>
+                                  <small className="cc-text-xs cc-text-muted">{ (document.file_size / 1024 / 1024).toFixed(2) } MB · {new Date(document.created_at).toLocaleDateString()}</small>
+                                </div>
+                              </div>
+                              <div className="cc-flex items-center gap-1">
+                                <IconButton icon={<ArrowDownToLine size={17} />} onClick={() => void downloadDocument(document)} aria-label={`Open ${document.file_name}`} />
+                                <IconButton icon={<X size={17} />} onClick={() => void deleteDocument(document)} aria-label={`Delete ${document.file_name}`} className="cc-text-danger hover:bg-danger-soft" />
+                              </div>
+                            </div>
+                          ))}
+                        </div>
+                      ) : (
+                        <p className="cc-text-sm cc-text-muted cc-py-4 cc-text-center">No documents uploaded.</p>
+                      )}
+                    </section>
+
+                    <section className="cc-mb-6">
+                      <div className="cc-flex items-center gap-2 cc-mb-3">
+                        <CalendarDays size={16} className="cc-text-muted" />
+                        <h3 className="cc-text-lg cc-font-bold cc-text-ink">Academic-year history</h3>
+                      </div>
+                      {academicHistory.length ? (
+                        <ol className="student-history cc-space-y-2">
+                          {academicHistory.map((record) => (
+                            <li key={record.id} className="cc-flex items-start gap-3 cc-px-3 cc-py-2 rounded-lg border border-border bg-surface">
+                              <span>
+                                <strong className="cc-text-sm cc-font-semibold cc-text-ink">{academicYears.find((year) => year.id === record.academic_year_id)?.name ?? 'Unknown academic year'}</strong>
+                                <br />
+                                <small className="cc-text-xs cc-text-muted">{classes.find((item) => item.id === record.class_id)?.name ?? 'Class unavailable'} · enrolled {new Date(`${record.enrolled_at}T00:00:00`).toLocaleDateString()}{record.ended_at ? ` · ended ${new Date(`${record.ended_at}T00:00:00`).toLocaleDateString()}` : ' · current'}</small>
+                              </span>
+                            </li>
+                          ))}
+                        </ol>
+                      ) : (
+                        <p className="cc-text-sm cc-text-muted cc-py-4 cc-text-center">No academic-year enrolments have been recorded yet.</p>
+                      )}
+                    </section>
+
+                    <section className="cc-mb-6">
+                      <div className="cc-flex items-center gap-2 cc-mb-3">
+                        <ClipboardCheck size={16} className="cc-text-muted" />
+                        <h3 className="cc-text-lg cc-font-bold cc-text-ink">Student timeline</h3>
+                      </div>
+                      {timelineEvents.length ? (
+                        <ol className="student-history cc-space-y-2">
+                          {timelineEvents.map((item) => (
+                            <li key={item.id} className="cc-flex items-start gap-3 cc-px-3 cc-py-2 rounded-lg border border-border bg-surface">
+                              <span>
+                                <strong className="cc-text-sm cc-font-semibold cc-text-ink">{item.title}</strong>
+                                <br />
+                                <small className="cc-text-xs cc-text-muted">{new Date(`${item.date.slice(0, 10)}T00:00:00`).toLocaleDateString()}</small>
+                                {item.detail && <br />}
+                                {item.detail && <small className="cc-text-xs cc-text-muted cc-block cc-mt-0.5">{item.detail}</small>}
+                              </span>
+                            </li>
+                          ))}
+                        </ol>
+                      ) : (
+                        <p className="cc-text-sm cc-text-muted cc-py-4 cc-text-center">No student events have been recorded.</p>
+                      )}
+                    </section>
+
+                    <section className="cc-mb-6">
+                      <div className="cc-flex items-center gap-2 cc-mb-3">
+                        <GitMerge size={16} className="cc-text-muted" />
+                        <h3 className="cc-text-lg cc-font-bold cc-text-ink">Merge duplicate student record</h3>
+                      </div>
+                      <p className="cc-text-sm cc-text-muted cc-mb-4">The selected student remains the surviving record. Linked records move to it; the duplicate is retained as an archived reference. Conflicting unique attendance or assessment records must be resolved first.</p>
+                      <Select
+                        label="Duplicate to merge into this student"
+                        value={mergeCandidateId}
+                        onChange={(event) => setMergeCandidateId(event.target.value)}
+                        disabled={merging}
+                      >
+                        <option value="">Choose a student record</option>
+                        {students.filter((student) => student.id !== selectedStudent.id).map((student) => (
+                          <option key={student.id} value={student.id}>{student.first_name} {student.last_name} · {student.student_number}</option>
+                        ))}
+                      </Select>
+                      <Textarea
+                        label="Merge reason"
+                        value={mergeReason}
+                        onChange={(event) => setMergeReason(event.target.value)}
+                        rows={2}
+                        maxLength={1000}
+                        required
+                        disabled={merging}
+                        hint="Explain why these records are duplicates"
+                      />
+                      <Button
+                        variant="secondary"
+                        type="button"
+                        onClick={() => void mergeStudentRecords()}
+                        disabled={merging || !mergeCandidateId || mergeReason.trim().length < 3}
+                        className="cc-w-auto"
+                      >
+                        {merging ? 'Merging…' : 'Review and merge records'}
+                      </Button>
+                    </section>
+                  </>
+                ) : (
+                  <section className="cc-p-4">
+                    <h3 className="cc-text-lg cc-font-bold cc-text-ink cc-mb-3">Student information</h3>
+                    <dl className="student-profile-grid cc-grid cc-grid-cols-1 sm:cc-grid-cols-2 gap-4 cc-text-sm">
+                      <div className="cc-flex flex-col gap-1">
+                        <dt className="cc-font-semibold cc-text-muted">Email</dt>
+                        <dd className="cc-text-text">{selectedStudent.email || '—'}</dd>
+                      </div>
+                      <div className="cc-flex flex-col gap-1">
+                        <dt className="cc-font-semibold cc-text-muted">Date of birth</dt>
+                        <dd className="cc-text-text">{selectedStudent.date_of_birth || '—'}</dd>
+                      </div>
+                      <div className="cc-flex flex-col gap-1 cc-col-span-2">
+                        <dt className="cc-font-semibold cc-text-muted">Status</dt>
+                        <dd className="cc-text-text">{statusLabels[selectedStudent.status]}</dd>
+                      </div>
+                    </dl>
+                    <p className="cc-text-xs cc-text-muted cc-mt-4">Private contact details, emergency contacts, and documents are available to the school administrator.</p>
+                  </section>
+                )}
+              </CardContent>
+            </Card>
+          )}
+          </section>
+        </div>
+
+        {showForm && (
+          <Modal isOpen={showForm} onClose={() => setShowForm(false)} title={selectedStudent ? 'Edit student profile' : 'Add student'}>
+            {formError && <div className="cc-mb-4"><ErrorState message={formError} /></div>}
+            <form onSubmit={(event) => void saveStudent(event)} className="cc-space-y-4">
+              <div className="cc-grid cc-grid-cols-1 sm:cc-grid-cols-2 gap-4">
+                <Input label="First name" required name="first_name" maxLength={80} defaultValue={selectedStudent?.first_name ?? ''} />
+                <Input label="Last name" required name="last_name" maxLength={80} defaultValue={selectedStudent?.last_name ?? ''} />
+              </div>
+              <div className="cc-grid cc-grid-cols-1 sm:cc-grid-cols-2 gap-4">
+                <Input label="Email" type="email" name="email" maxLength={254} defaultValue={selectedStudent?.email ?? ''} />
+                <Input label="Phone" type="tel" name="phone" maxLength={40} defaultValue={profileValue(profile, 'phone')} />
+              </div>
+              <div className="cc-grid cc-grid-cols-1 sm:cc-grid-cols-2 gap-4">
+                <Input label="Date of birth" type="date" name="date_of_birth" defaultValue={selectedStudent?.date_of_birth ?? ''} />
+                <Input label="Admission date" type="date" name="admission_date" defaultValue={profileValue(profile, 'admission_date')} />
+              </div>
+              <div className="cc-grid cc-grid-cols-1 sm:cc-grid-cols-2 gap-4">
+                <Select label="Class enrolment" name="class_id" defaultValue={selectedStudent?.class_id ?? ''}>
+                  <option value="">Not assigned</option>
+                  {classes.map((schoolClass) => (
+                    <option key={schoolClass.id} value={schoolClass.id}>{schoolClass.name}</option>
+                  ))}
+                </Select>
+                <Select label="Status" name="status" defaultValue={selectedStudent?.status ?? 'active'}>
+                  {Object.entries(statusLabels).map(([value, label]) => (
+                    <option key={value} value={value}>{label}</option>
+                  ))}
+                </Select>
+              </div>
+              <div className="cc-grid cc-grid-cols-1 sm:cc-grid-cols-2 gap-4">
+                <Input label="Gender" name="gender" maxLength={60} defaultValue={profileValue(profile, 'gender')} />
+                <Input label="Nationality" name="nationality" maxLength={80} defaultValue={profileValue(profile, 'nationality')} />
+              </div>
+              <Input label="Street address" name="address" maxLength={240} defaultValue={profileValue(profile, 'address')} />
+              <div className="cc-grid cc-grid-cols-1 sm:cc-grid-cols-2 gap-4">
+                <Input label="City / town" name="city" maxLength={100} defaultValue={profileValue(profile, 'city')} />
+                <Input label="Region / state" name="region" maxLength={100} defaultValue={profileValue(profile, 'region')} />
+              </div>
+              <div className="cc-grid cc-grid-cols-1 sm:cc-grid-cols-2 gap-4">
+                <Input label="Postal code" name="postal_code" maxLength={24} defaultValue={profileValue(profile, 'postal_code')} />
+                <Input label="Country" name="country" maxLength={80} defaultValue={profileValue(profile, 'country')} />
+              </div>
+              <h3 className="cc-text-lg cc-font-bold cc-text-ink cc-mt-6 cc-mb-3">Transfer or withdrawal details</h3>
+              <Textarea label="Reason (required for transfer or withdrawal)" name="movement_reason" rows={2} maxLength={1000} />
+              <Input label="Destination school (required for transfer)" name="destination_school" maxLength={200} />
+              <Textarea label="Correction reason (required and recorded in the student audit trail)" name="correction_reason" rows={2} minLength={3} maxLength={1000} required hint="Recorded in the student audit trail" />
+              <div className="cc-flex items-center justify-end gap-3 cc-mt-6 cc-pt-4 cc-border-t cc-border-border">
+                <Button variant="secondary" type="button" onClick={() => setShowForm(false)}>Cancel</Button>
+                <Button variant="primary" type="submit" disabled={saving}>
+                  {saving ? 'Saving…' : selectedStudent ? 'Save changes' : 'Add student'}
+                </Button>
+              </div>
+            </form>
+          </Modal>
+        )}
     </div>
   );
 }
