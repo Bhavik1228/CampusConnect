@@ -1,4 +1,4 @@
-import type { MobileMembership, MobileModule } from './types';
+import type { MobileMembership, MobileModule, MobileRole } from './types';
 
 export function normalizeIsbn(value: string) {
   return value.replace(/[-\s]/g, '').toUpperCase();
@@ -27,6 +27,58 @@ export function canUseModule(membership: MobileMembership | null, module: Mobile
     && membership.school_active !== false
     && membership.accessible_modules.includes(module)
   );
+}
+
+/* ---------- Role-based screen access ----------
+
+   The backend `mobile_module_access_allowed` currently recognizes only
+   visitors, library, health and notifications. Newer screens are gated here
+   by the user's resolved school role (authoritative, returned with the
+   membership) and by RLS on the underlying tables. When the backend later
+   recognizes additional mobile modules, these can be folded into
+   `canUseModule` / `accessible_modules`.
+*/
+export type MobileScreen =
+  | 'students'
+  | 'teachers'
+  | 'attendance'
+  | 'timetable'
+  | 'finance'
+  | 'visitors'
+  | 'library'
+  | 'health'
+  | 'notifications';
+
+const SCREEN_ROLES: Record<MobileScreen, MobileRole[]> = {
+  students: [
+    'school_admin', 'academic_coordinator', 'teacher', 'secretary',
+    'finance_manager', 'accountant', 'bursar', 'cashier',
+  ],
+  teachers: ['school_admin', 'academic_coordinator', 'teacher', 'secretary'],
+  attendance: ['teacher', 'school_admin', 'academic_coordinator'],
+  timetable: [
+    'school_admin', 'academic_coordinator', 'teacher', 'student', 'parent',
+    'finance_manager', 'accountant', 'bursar', 'cashier', 'nurse', 'doctor', 'secretary',
+  ],
+  finance: ['school_admin', 'finance_manager', 'accountant', 'bursar', 'cashier'],
+  visitors: ['school_admin', 'academic_coordinator', 'teacher', 'secretary'],
+  library: ['school_admin', 'academic_coordinator', 'teacher', 'secretary'],
+  health: ['nurse', 'doctor'],
+  notifications: [
+    'school_admin', 'academic_coordinator', 'teacher', 'student', 'parent',
+    'finance_manager', 'accountant', 'bursar', 'cashier', 'nurse', 'doctor', 'secretary',
+  ],
+};
+
+export function authorizedRolesForScreen(screen: MobileScreen): MobileRole[] {
+  return SCREEN_ROLES[screen] ?? [];
+}
+
+export function canAccessScreen(membership: MobileMembership | null, screen: MobileScreen): boolean {
+  if (!membership || !membership.eligible || !membership.mobile_enabled || !membership.platform_enabled || membership.school_active === false) {
+    return false;
+  }
+  return authorizedRolesForScreen(screen).includes(membership.role);
 }
 
 export function classifyScan(value: string) {

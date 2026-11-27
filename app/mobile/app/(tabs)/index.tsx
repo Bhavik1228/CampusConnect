@@ -2,7 +2,7 @@ import { Link } from 'expo-router';
 import { Image, Text, View } from 'react-native';
 import { BodyText, Card, Heading, Page, colors } from '../../src/components/ui';
 import { useCampusAuth } from '../../src/lib/auth-context';
-import { canUseModule } from '../../src/lib/validation';
+import { canUseModule, canAccessScreen } from '../../src/lib/validation';
 
 export default function HomeScreen() {
   const { selectedSchool, session } = useCampusAuth();
@@ -12,7 +12,17 @@ export default function HomeScreen() {
     { id: 'visitors' as const, label: 'Visitor desk', description: 'Register visitors and manage entry badges.', path: '/visitors' as const },
     { id: 'library' as const, label: 'Library', description: 'Scan ISBNs, search books, and manage checkout tasks.', path: '/library' as const },
     { id: 'health' as const, label: 'Student health', description: 'Record clinic visits and review authorised history.', path: '/health' as const },
-  ].filter((item) => canUseModule(selectedSchool, item.id));
+    { id: 'students' as const, label: 'Student directory', description: 'Search the school student directory.', path: '/students' as const },
+    { id: 'teachers' as const, label: 'Teachers & staff', description: 'View the school staff directory.', path: '/teachers' as const },
+    { id: 'attendance' as const, label: 'Attendance', description: 'Take and submit class registers.', path: '/attendance' as const },
+    { id: 'timetable' as const, label: 'Timetable', description: 'View class and teacher timetables.', path: '/timetable' as const },
+    { id: 'finance' as const, label: 'Finance', description: 'View fees and record payments.', path: '/finance' as const },
+  ].filter((item) => {
+    if (item.id === 'visitors' || item.id === 'library' || item.id === 'health') {
+      return canUseModule(selectedSchool, item.id);
+    }
+    return canAccessScreen(selectedSchool, item.id);
+  });
 
   return (
     <Page title={`Hello, ${name.split(' ')[0]}`} subtitle={`${selectedSchool.school_name} · ${selectedSchool.role.replaceAll('_', ' ')}`}>
@@ -37,7 +47,7 @@ export default function HomeScreen() {
       <Heading>Quick access</Heading>
       <View style={{ gap: 10 }}>
         {modules.map((module) => (
-          <Link key={module.id} href={module.path} asChild>
+          <Link key={module.id} href={module.path as any} asChild>
             <Card>
               <Text style={{ color: colors.text, fontSize: 16, fontWeight: '700' }}>{module.label}</Text>
               <BodyText muted>{module.description}</BodyText>
